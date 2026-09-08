@@ -415,8 +415,37 @@ table inet opensurge {
 | `CAP_NET_RAW` | ICMP 探测（preflight 与 doctor 的连通性检查）、dnsmasq 的 DHCP 原始套接字 | 不能（dnsmasq DHCP 必需） |
 | `/dev/net/tun` | mihomo TUN 数据面 | 不能 |
 | `CAP_NET_BIND_SERVICE` | 绑 53（若以非 root 运行） | root 运行时不需要 |
-| `sysctls: net.ipv4.ip_forward=1` 或 `net.ipv4.conf.all.rp_filter=0` | Docker 默认 `/proc/sys` 只读 | 若容器能写 `/proc/sys` 则不需要 |
-| `privileged: true` | — | **v1 目标是不需要**。若 QNAP 实测因 `/proc/sys` 只读而无法满足，则作为 documented fallback |
+| `sysctls: net.ipv4.ip_forward=1`、`net.ipv4.conf.all.rp_filter=0` | **必须显式声明**，见下方实测结论 | 不能去掉 |
+
+### 5.1 实测结论：`/proc/sys` 在 Docker 中默认只读
+
+这不是推测，是移植过程中由集成测试直接验证的（见
+`internal/platform/linux/network_integration_test.go` 的 `TestNetworkSnapshotRestore`）：
+
+```
+restore ip_forward: write /proc/sys/net/ipv4/ip_forward:
+  open /proc/sys/net/ipv4/ip_forward: read-only file system
+```
+
+**即使给了 `CAP_NET_ADMIN`，Docker 仍把 `/proc/sys` 挂载为只读。** 因此：
+
+1. OpenSurge **不能**依赖运行时写 `/proc/sys/net/ipv4/ip_forward` 与
+   `net.ipv4.conf.*.rp_filter`。必须在 Compose 里用 `sysctls:` 声明，由 Docker
+   在容器创建时写入。
+2. 后端新增 `Capabilities.IPv4ForwardWritable` 专门检测这一点，与「可读」
+   （`IPv4ForwardSysctl`）区分开。预检查的是**可写**那一项。
+3. 当目标值已经正确时，写操作必须是 **no-op**。否则在一个已经配好
+   `ip_forward=1` 的宿主上，回滚会因为在只读文件上做了一次无意义的写而失败，
+   进而阻塞后面所有撤销步骤。这是实现中被测试抓出来的一个真实缺陷，已修复。
+4. **结论：v1 不需要 `privileged: true`。** 用 `cap_add` + `sysctls` + `/dev/net/tun`
+   即可。这条必须在 README 与首次启动的安全提示里写清楚。
+
+### 5.2 `rp_filter` 为什么必须关
+
+mihomo 把回程包写进 TUN（源地址是真实公网地址），内核在 tun 口做反向路径校验时，
+该源地址的反查走 main 表从 LAN 口出去而非 tun 口，严格模式（`rp_filter=1`）会直接丢包。
+症状是「能 ping 通但网页打不开」这类最难查的半通状态。所以需要
+`net.ipv4.conf.{all,default,<lan>,<tun>}.rp_filter=0`，同样通过 `sysctls:` 声明。
 
 **网络模式优先级**：
 
