@@ -20,14 +20,7 @@ import (
 	"open-mihomo-gateway/internal/runtime"
 )
 
-// Manager owns the gateway lifecycle: start, stop, reload and the rollback that
-// must undo a failed start.
-//
-// The upstream macOS implementation called pfctl, networksetup and macOS sysctl
-// keys directly. Those have been replaced by platform.NetworkBackend, so this
-// file no longer knows which OS it is running on. Everything that touches the
-// host data plane goes through the backend; everything here is sequencing,
-// state persistence and failure handling.
+// Manager owns the gateway lifecycle: start, stop, reload and rollback.
 type Manager struct {
 	cfg   config.Config
 	paths runtime.Paths
@@ -57,24 +50,24 @@ type mihomoService interface {
 }
 
 type gatewayDeps struct {
-	geteuid             func() int
-	loadState           func(string) (runtime.State, bool, error)
-	saveState           func(string, runtime.State) error
-	removeState         func(string) error
-	ensure              func(runtime.Paths) error
-	newDHCP             func(config.Config, runtime.Paths) dhcpService
-	newMihomo           func(config.Config, runtime.Paths) mihomoService
-	newBackend          func() (platform.NetworkBackend, error)
-	interfaces          func() ([]net.Interface, error)
-	interfaceByName     func(string) (*net.Interface, error)
-	interfaceAddrs      func(*net.Interface) ([]net.Addr, error)
-	probeReservationIP  func(ip string, expectedMAC string) error
-	currentBoot         func() (runtime.BootSession, error)
-	processFingerprint  func(int) (string, error)
-	processMatches      func(int, string) (bool, error)
-	warmTailscale       func(context.Context, config.Config) error
-	stopPrepared        func(config.Config) error
-	now                 func() time.Time
+	geteuid            func() int
+	loadState          func(string) (runtime.State, bool, error)
+	saveState          func(string, runtime.State) error
+	removeState        func(string) error
+	ensure             func(runtime.Paths) error
+	newDHCP            func(config.Config, runtime.Paths) dhcpService
+	newMihomo          func(config.Config, runtime.Paths) mihomoService
+	newBackend         func() (platform.NetworkBackend, error)
+	interfaces         func() ([]net.Interface, error)
+	interfaceByName    func(string) (*net.Interface, error)
+	interfaceAddrs     func(*net.Interface) ([]net.Addr, error)
+	probeReservationIP func(ip string, expectedMAC string) error
+	currentBoot        func() (runtime.BootSession, error)
+	processFingerprint func(int) (string, error)
+	processMatches     func(int, string) (bool, error)
+	warmTailscale      func(context.Context, config.Config) error
+	stopPrepared       func(config.Config) error
+	now                func() time.Time
 }
 
 func defaultGatewayDeps() gatewayDeps {
@@ -145,6 +138,9 @@ func processMatches(deps gatewayDeps, pid int, fingerprint string) (bool, error)
 }
 
 func stopTrackedProcess(deps gatewayDeps, name string, pid int, fingerprint string, stop func(int) error) error {
+	if pid <= 0 {
+		return nil
+	}
 	if strings.TrimSpace(fingerprint) == "" {
 		return stop(pid)
 	}
@@ -159,6 +155,9 @@ func stopTrackedProcess(deps gatewayDeps, name string, pid int, fingerprint stri
 }
 
 func trackedProcessRunning(deps gatewayDeps, pid int, fingerprint string, running func(int) bool) bool {
+	if pid <= 0 {
+		return false
+	}
 	if strings.TrimSpace(fingerprint) == "" {
 		return running(pid)
 	}
@@ -166,8 +165,6 @@ func trackedProcessRunning(deps gatewayDeps, pid int, fingerprint string, runnin
 	return err == nil && matches && running(pid)
 }
 
-// Start brings the gateway up. It requires root and takes the cross-process
-// lifecycle lock so a CLI action and a Web request cannot interleave.
 func (m Manager) Start(ctx context.Context) error {
 	if m.gatewayDeps().geteuid() != 0 {
 		return fmt.Errorf("start requires root privileges; OpenSurge runs as root inside its container")
@@ -175,9 +172,6 @@ func (m Manager) Start(ctx context.Context) error {
 	return m.withLifecycleLock(func() error { return m.start(ctx) })
 }
 
-// StartLocked starts the gateway while the caller already holds the lifecycle
-// lock, for transactions that must persist and apply the same configuration
-// without another actor entering between the two steps.
 func (m Manager) StartLocked(ctx context.Context) error {
 	return m.start(ctx)
 }
@@ -186,9 +180,6 @@ func (m Manager) start(ctx context.Context) error {
 	return m.startWithCommit(ctx, nil)
 }
 
-// StartCandidateLocked commits an App candidate only after final runtime
-// validation, before host takeover. A later startup failure rolls back the
-// network but keeps the committed desired configuration available for retry.
 func (m Manager) StartCandidateLocked(ctx context.Context, commit func() error) error {
 	if commit == nil {
 		return fmt.Errorf("candidate commit is required")
@@ -209,6 +200,9 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 		return err
 	} else if exists {
 		return fmt.Errorf("gateway state already exists; run stop first")
+	}
+	if err := config.Normalize(&m.cfg); err != nil {
+		return err
 	}
 	if err := config.PrepareDevicePolicy(&m.cfg); err != nil {
 		return err
@@ -260,13 +254,11 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 	}
 	if commit != nil {
 		ReportProgress(ctx, "saving_config")
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		if err := commit(); err != nil {
 			return err
 		}
 	}
+
 	ReportProgress(ctx, "saving_runtime")
 	profileDigest, err := config.MihomoProfileDigest(m.cfg)
 	if err != nil {
@@ -281,21 +273,43 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 		}
 	}
 
-	// Capture host state before any mutation, so rollback can restore it even
-	// if a later step never runs.
+	// Build the complete cleanup recipe before the first host mutation. TUN has a
+	// configured deterministic name, so it can be persisted before mihomo creates
+	// the interface.
+	natConfig := platform.NATConfig{
+		LANInterface:      m.cfg.Gateway.Interface,
+		UpstreamInterface: m.cfg.Gateway.UpstreamInterface,
+		LANCIDR:           m.cfg.Gateway.LANCIDR,
+		TUNDevice:         m.cfg.Transparent.TUNDevice,
+		UpstreamGateway:   m.cfg.Gateway.UpstreamGateway,
+		FwMark:            m.cfg.Transparent.FwMark,
+		TableName:         m.cfg.Transparent.NFTTableName,
+	}
+	routingConfig := platform.RoutingConfig{
+		LANInterface:      m.cfg.Gateway.Interface,
+		UpstreamInterface: m.cfg.Gateway.UpstreamInterface,
+		LANCIDR:           m.cfg.Gateway.LANCIDR,
+		TUNDevice:         m.cfg.Transparent.TUNDevice,
+		UpstreamGateway:   m.cfg.Gateway.UpstreamGateway,
+		TableID:           m.cfg.Transparent.RouteTableID,
+		RulePriority:      m.cfg.Transparent.RouteRulePriority,
+		FwMark:            m.cfg.Transparent.FwMark,
+	}
+
 	snapshot, err := backend.Snapshot(ctx)
 	if err != nil {
 		return err
 	}
+	snapshot.NFTablesTable = natConfig.TableName
+	snapshot.NAT = &natConfig
+	snapshot.Routing = &routingConfig
 
 	state := runtime.State{
-		StartedAt:    deps.now(),
-		BootSessionID: bootSession.ID,
-		ProfileDigest: profileDigest,
-		DNSIPv6:      m.cfg.DNS.IPv6,
-	}
-	if snapshot != nil {
-		state.NetworkSnapshot = snapshot
+		StartedAt:       deps.now(),
+		BootSessionID:   bootSession.ID,
+		ProfileDigest:   profileDigest,
+		DNSIPv6:         m.cfg.DNS.IPv6,
+		NetworkSnapshot: snapshot,
 	}
 	if bundle := m.cfg.DevicePolicy.Bundle; bundle != nil {
 		state.DevicePolicyDigest = bundle.Digest
@@ -309,18 +323,17 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 	if err := ctx.Err(); err != nil {
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
 	}
-	restoreForwarding, err := backend.EnableIPv4Forwarding(ctx)
-	if err != nil {
+	if _, err := backend.EnableIPv4Forwarding(ctx); err != nil {
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
 	}
 	state.ForwardingApplied = true
+	state.NetworkSnapshot.Applied.IPv4Forwarding = true
 	if err := deps.saveState(m.paths.StateFile, state); err != nil {
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
 	}
 
 	ReportProgress(ctx, "starting_mihomo")
 	if err := ctx.Err(); err != nil {
-		_ = restoreForwarding(context.WithoutCancel(ctx))
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
 	}
 	mihomoPID, err := mihomoManager.Start()
@@ -356,45 +369,36 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
 	}
 
-	// The TUN is created by mihomo, so it can only be waited for after the core
-	// is up. Failing here must still unwind everything above.
 	ReportProgress(ctx, "waiting_for_tun")
 	tunDevice, err := backend.WaitForTUN(ctx, m.cfg.Transparent.TUNDevice)
 	if err != nil {
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
 	}
 	state.TUNDevice = tunDevice.Name
+	natConfig.TUNDevice = tunDevice.Name
+	routingConfig.TUNDevice = tunDevice.Name
+	state.NetworkSnapshot.NAT = &natConfig
+	state.NetworkSnapshot.Routing = &routingConfig
+	if err := deps.saveState(m.paths.StateFile, state); err != nil {
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+	}
 
 	ReportProgress(ctx, "applying_firewall")
-	natConfig := platform.NATConfig{
-		LANInterface: m.cfg.Gateway.Interface,
-		LANCIDR:      m.cfg.Gateway.LANCIDR,
-		TUNDevice:    tunDevice.Name,
-		FwMark:       m.cfg.Transparent.FwMark,
-		TableName:    m.cfg.Transparent.NFTTableName,
-	}
 	if err := backend.SetupNAT(ctx, natConfig); err != nil {
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
 	}
 	state.NATApplied = true
+	state.NetworkSnapshot.Applied.NAT = true
 	if err := deps.saveState(m.paths.StateFile, state); err != nil {
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
 	}
 
 	ReportProgress(ctx, "applying_routes")
-	routingConfig := platform.RoutingConfig{
-		LANInterface:    m.cfg.Gateway.Interface,
-		LANCIDR:         m.cfg.Gateway.LANCIDR,
-		TUNDevice:       tunDevice.Name,
-		UpstreamGateway: m.cfg.Gateway.UpstreamGateway,
-		TableID:         m.cfg.Transparent.RouteTableID,
-		RulePriority:    m.cfg.Transparent.RouteRulePriority,
-		FwMark:          m.cfg.Transparent.FwMark,
-	}
 	if err := backend.SetupPolicyRouting(ctx, routingConfig); err != nil {
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
 	}
 	state.RoutingApplied = true
+	state.NetworkSnapshot.Applied.PolicyRouting = true
 	if err := deps.saveState(m.paths.StateFile, state); err != nil {
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
 	}
@@ -407,14 +411,11 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 		fmt.Printf("dnsmasq started with pid %d\n", pid)
 	}
 	m.warmManagedTailscale(ctx, deps)
-
 	fmt.Printf("TUN %s active; nftables table %s and routing table %d applied\n",
 		tunDevice.Name, natConfig.TableName, routingConfig.TableID)
 	return nil
 }
 
-// Reload validates a complete candidate before touching the running gateway,
-// then performs the same audited stop/start lifecycle as the normal commands.
 func (m Manager) Reload(ctx context.Context) error {
 	if m.gatewayDeps().geteuid() != 0 {
 		return fmt.Errorf("reload requires root privileges")
@@ -422,7 +423,6 @@ func (m Manager) Reload(ctx context.Context) error {
 	return m.withLifecycleLock(func() error { return m.reload(ctx) })
 }
 
-// ReloadLocked reloads while the caller holds the lifecycle lock.
 func (m Manager) ReloadLocked(ctx context.Context) error {
 	return m.reload(ctx)
 }
@@ -445,7 +445,7 @@ func (m Manager) reload(ctx context.Context) error {
 		return fmt.Errorf("determine current boot session: %w", err)
 	}
 	if !state.BelongsToBoot(bootSession) {
-		return fmt.Errorf("gateway runtime was interrupted by a container or host restart; run stop to clean the interrupted runtime, then start the gateway")
+		return fmt.Errorf("gateway runtime was interrupted by a container or host restart; run stop to recover it before reload")
 	}
 	dhcpManager := deps.newDHCP(m.cfg, m.paths)
 	mihomoManager := deps.newMihomo(m.cfg, m.paths)
@@ -465,9 +465,6 @@ func (m Manager) reload(ctx context.Context) error {
 	return nil
 }
 
-// RestartMihomo rebuilds only the proxy engine process, keeping DNS, routing
-// and forwarding untouched so an upstream recovery does not become a full
-// takeover transition.
 func (m Manager) RestartMihomo(ctx context.Context) error {
 	if m.gatewayDeps().geteuid() != 0 {
 		return fmt.Errorf("restart-mihomo requires root privileges")
@@ -493,7 +490,7 @@ func (m Manager) restartMihomo(ctx context.Context) error {
 		return fmt.Errorf("determine current boot session: %w", err)
 	}
 	if !state.BelongsToBoot(bootSession) {
-		return fmt.Errorf("gateway runtime was interrupted by a restart; run stop to clean the interrupted runtime, then start the gateway")
+		return fmt.Errorf("gateway runtime was interrupted by a restart; run stop to recover it first")
 	}
 	desiredProfileDigest, err := config.MihomoProfileDigest(m.cfg)
 	if err != nil {
@@ -521,7 +518,6 @@ func (m Manager) restartMihomo(ctx context.Context) error {
 		if trackedProcessRunning(deps, previousPID, previousFingerprint, mihomoManager.Running) {
 			state.PIDMihomo = previousPID
 			state.MihomoProcessFingerprint = previousFingerprint
-			return errors.Join(fmt.Errorf("stop mihomo pid %d: %w", previousPID, err), deps.saveState(m.paths.StateFile, state))
 		}
 		return errors.Join(fmt.Errorf("stop mihomo pid %d: %w", previousPID, err), deps.saveState(m.paths.StateFile, state))
 	}
@@ -554,9 +550,6 @@ func (m Manager) restartMihomo(ctx context.Context) error {
 	return nil
 }
 
-// warmManagedTailscale dispatches an optional Tailscale outbound warm-up. It is
-// best effort: connection readiness is not a lifecycle requirement, and the
-// first request may still need a retry.
 func (m Manager) warmManagedTailscale(ctx context.Context, deps gatewayDeps) {
 	if !m.cfg.Tailscale.Enabled || deps.warmTailscale == nil {
 		return
@@ -584,9 +577,6 @@ func archiveMihomoLog(path string, now time.Time) (string, error) {
 	return archive, nil
 }
 
-// validateReloadCandidate renders every generated artifact into an isolated
-// temporary runtime and runs the real mihomo validator. It deliberately does
-// not write applied policy state or alter host networking.
 func (m Manager) validateReloadCandidate(ctx context.Context) error {
 	ReportProgress(ctx, "validating_network")
 	parent := filepath.Dir(m.paths.Dir)
@@ -600,6 +590,9 @@ func (m Manager) validateReloadCandidate(ctx context.Context) error {
 	defer os.RemoveAll(temp)
 
 	candidateConfig := m.cfg
+	if err := config.Normalize(&candidateConfig); err != nil {
+		return err
+	}
 	if err := config.PrepareDevicePolicy(&candidateConfig); err != nil {
 		return err
 	}
@@ -619,7 +612,7 @@ func (m Manager) validateReloadCandidate(ctx context.Context) error {
 	}
 	dhcpManager := deps.newDHCP(candidate.cfg, candidate.paths)
 	mihomoManager := deps.newMihomo(candidate.cfg, candidate.paths)
-	if err := candidate.preflight(ctx, backend, dhcpManager, mihomoManager, deps); err != nil {
+	if err := candidate.preflightWithOwnership(ctx, backend, dhcpManager, mihomoManager, deps, false); err != nil {
 		return err
 	}
 	ReportProgress(ctx, "checking_reservations")
@@ -637,7 +630,6 @@ func (m Manager) validateReloadCandidate(ctx context.Context) error {
 	return mihomoManager.ValidateWrittenConfig()
 }
 
-// Stop tears the gateway down in the inverse order of start.
 func (m Manager) Stop(ctx context.Context) error {
 	if m.gatewayDeps().geteuid() != 0 {
 		return fmt.Errorf("stop requires root privileges")
@@ -673,13 +665,8 @@ func (m Manager) stop(ctx context.Context) error {
 	}
 	var cleanupErr error
 	if exists {
-		ReportProgress(ctx, "removing_routes")
-		if state.RoutingApplied {
-			cleanupErr = errors.Join(cleanupErr, backend.RemovePolicyRouting(ctx))
-		}
-		ReportProgress(ctx, "removing_firewall")
-		if state.NATApplied {
-			cleanupErr = errors.Join(cleanupErr, backend.RemoveNAT(ctx))
+		if state.NetworkSnapshot == nil && (state.ForwardingApplied || state.NATApplied || state.RoutingApplied) {
+			return fmt.Errorf("runtime state records applied network changes but has no network snapshot; refusing blind cleanup")
 		}
 		ReportProgress(ctx, "restoring_network")
 		if state.NetworkSnapshot != nil {
@@ -717,10 +704,22 @@ func (m Manager) stopPreparedEngine(deps gatewayDeps) error {
 	return nil
 }
 
-// cleanupInterruptedRuntime clears state left behind by a container crash or a
-// NAS reboot. It must not signal stale PIDs (they may belong to another process
-// now) and must not assume the current network state is ours to undo.
+// cleanupInterruptedRuntime never signals stale PIDs. It may, however, restore
+// persisted network state: snapshot cleanup is content-scoped and is exactly the
+// safe recovery path required after a container/process restart.
 func (m Manager) cleanupInterruptedRuntime(ctx context.Context, deps gatewayDeps, state runtime.State) error {
+	if state.NetworkSnapshot != nil {
+		backend, err := m.backend()
+		if err != nil {
+			return err
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		ReportProgress(cleanupCtx, "restoring_network")
+		if err := backend.Restore(cleanupCtx, state.NetworkSnapshot); err != nil {
+			return fmt.Errorf("restore interrupted gateway network state: %w", err)
+		}
+	}
 	ReportProgress(ctx, "clearing_runtime")
 	cleanupErr := errors.Join(
 		deps.removeState(m.paths.StateFile),
@@ -729,23 +728,48 @@ func (m Manager) cleanupInterruptedRuntime(ctx context.Context, deps gatewayDeps
 	if cleanupErr != nil {
 		return cleanupErr
 	}
-	fmt.Println("Interrupted gateway runtime from a previous boot was cleared without signaling stale PIDs.")
+	fmt.Println("Interrupted gateway runtime was reconciled without signaling stale PIDs.")
 	return nil
 }
 
-// preflight checks everything that must be true before the host is touched.
-// A failure here returns before any mutation, which is the whole point: a
-// gateway must never blindly reconfigure a network on a single click.
 func (m Manager) preflight(ctx context.Context, backend platform.NetworkBackend, dhcpManager dhcpService, mihomoManager mihomoService, deps gatewayDeps) error {
+	return m.preflightWithOwnership(ctx, backend, dhcpManager, mihomoManager, deps, true)
+}
+
+func (m Manager) preflightWithOwnership(ctx context.Context, backend platform.NetworkBackend, dhcpManager dhcpService, mihomoManager mihomoService, deps gatewayDeps, checkOwnership bool) error {
 	if err := dhcpManager.Check(); err != nil {
 		return err
 	}
 	if err := mihomoManager.Check(); err != nil {
 		return err
 	}
-	// Whether the gateway and upstream interfaces may match is a property of the
-	// chosen mode, not of the host, so it is checked here rather than in the
-	// backend.
+	caps, err := backend.Capabilities(ctx)
+	if err != nil {
+		return err
+	}
+	// Real platform backends return a non-nil Missing map. Test doubles may omit
+	// it; in that case capability gating is intentionally left to the test.
+	if caps.Missing != nil {
+		if !caps.CapNetAdmin {
+			return platform.NewError(platform.CodeCapabilityMissing, "CAP_NET_ADMIN is required").WithDetail("capability", "NET_ADMIN")
+		}
+		if m.cfg.DHCP.Enabled && !caps.CapNetRaw {
+			return platform.NewError(platform.CodeCapabilityMissing, "CAP_NET_RAW is required while DHCP is enabled").WithDetail("capability", "NET_RAW")
+		}
+		if !caps.TUNDeviceNode {
+			return platform.NewError(platform.CodeTUNUnavailable, "/dev/net/tun is required")
+		}
+		if !caps.NFTables || !caps.NFTablesJSON {
+			return platform.NewError(platform.CodeNFTablesUnavailable, "nftables with JSON output is required")
+		}
+		if !caps.IProute2 {
+			return platform.NewError(platform.CodeIPRoute2Unavailable, "iproute2 is required")
+		}
+		if !caps.IPv4ForwardSysctl || !caps.IPv4ForwardReady {
+			return platform.NewError(platform.CodeForwardingUnavailable, "IPv4 forwarding must already be enabled or writable in this network namespace")
+		}
+	}
+
 	sameInterface := strings.TrimSpace(m.cfg.Gateway.Interface) == strings.TrimSpace(m.cfg.Gateway.UpstreamInterface)
 	if m.cfg.Gateway.SameLAN() {
 		if !sameInterface {
@@ -758,11 +782,17 @@ func (m Manager) preflight(ctx context.Context, backend platform.NetworkBackend,
 		return err
 	}
 	topology := platform.NetworkConfig{
-		LANInterface:    m.cfg.Gateway.Interface,
-		LANIP:           m.cfg.Gateway.LANIP,
-		LANCIDR:         m.cfg.Gateway.LANCIDR,
-		UpstreamGateway: m.cfg.Gateway.UpstreamGateway,
-		SameLAN:         m.cfg.Gateway.SameLAN(),
+		LANInterface:       m.cfg.Gateway.Interface,
+		LANIP:              m.cfg.Gateway.LANIP,
+		LANCIDR:            m.cfg.Gateway.LANCIDR,
+		UpstreamInterface:  m.cfg.Gateway.UpstreamInterface,
+		UpstreamGateway:    m.cfg.Gateway.UpstreamGateway,
+		NFTTableName:       m.cfg.Transparent.NFTTableName,
+		FwMark:             m.cfg.Transparent.FwMark,
+		RouteTableID:       m.cfg.Transparent.RouteTableID,
+		RouteRulePriority:  m.cfg.Transparent.RouteRulePriority,
+		SameLAN:            m.cfg.Gateway.SameLAN(),
+		SkipOwnershipCheck: !checkOwnership,
 	}
 	if err := backend.ValidateTopology(ctx, topology); err != nil {
 		return err
@@ -773,9 +803,6 @@ func (m Manager) preflight(ctx context.Context, backend platform.NetworkBackend,
 	return nil
 }
 
-// rollback unwinds a failed start in inverse order. It uses a fresh, uncancelled
-// context: a cancellation stops new stages but must never abort restoration of
-// host state this action already changed.
 func (m Manager) rollback(ctx context.Context, cause error, state runtime.State, backend platform.NetworkBackend, dhcpManager dhcpService, mihomoManager mihomoService) error {
 	if ctx.Err() != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
@@ -785,17 +812,11 @@ func (m Manager) rollback(ctx context.Context, cause error, state runtime.State,
 	ReportProgress(ctx, "rolling_back")
 	deps := m.gatewayDeps()
 	var cleanupErr error
-	if state.RoutingApplied {
-		cleanupErr = errors.Join(cleanupErr, backend.RemovePolicyRouting(ctx))
-	}
-	if state.NATApplied {
-		cleanupErr = errors.Join(cleanupErr, backend.RemoveNAT(ctx))
-	}
-	cleanupErr = errors.Join(cleanupErr, stopTrackedProcess(deps, "dnsmasq", state.PIDDNSMasq, state.DNSMasqProcessFingerprint, dhcpManager.Stop))
-	cleanupErr = errors.Join(cleanupErr, stopTrackedProcess(deps, "mihomo", state.PIDMihomo, state.MihomoProcessFingerprint, mihomoManager.Stop))
 	if state.NetworkSnapshot != nil {
 		cleanupErr = errors.Join(cleanupErr, backend.Restore(ctx, state.NetworkSnapshot))
 	}
+	cleanupErr = errors.Join(cleanupErr, stopTrackedProcess(deps, "dnsmasq", state.PIDDNSMasq, state.DNSMasqProcessFingerprint, dhcpManager.Stop))
+	cleanupErr = errors.Join(cleanupErr, stopTrackedProcess(deps, "mihomo", state.PIDMihomo, state.MihomoProcessFingerprint, mihomoManager.Stop))
 	if cleanupErr != nil {
 		return fmt.Errorf("%w; rollback failed and runtime state was retained for recovery: %v", cause, cleanupErr)
 	}
