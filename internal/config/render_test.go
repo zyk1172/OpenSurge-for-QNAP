@@ -47,7 +47,7 @@ func TestRenderRoundTrip(t *testing.T) {
 	}
 }
 
-func TestRenderRoundTripPreservesIPv6Controls(t *testing.T) {
+func TestLoadRejectsRenderedUnsupportedIPv6Takeover(t *testing.T) {
 	cfg := Default()
 	cfg.Transparent.Mode = TransparentModeTUN
 	cfg.Transparent.TUNIPv6 = TUNIPv6Always
@@ -59,12 +59,8 @@ func TestRenderRoundTripPreservesIPv6Controls(t *testing.T) {
 	if err := os.WriteFile(path, []byte(Render(cfg)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load(Render()) error = %v", err)
-	}
-	if !loaded.DNS.IPv6 || loaded.Transparent.TUNIPv6 != TUNIPv6Always || !loaded.Transparent.IPv6SharedL2Ready || loaded.Transparent.IPv6PacketBrokerBinary != "/tmp/opensurge-network" || loaded.Transparent.IPv6PacketMTU != 1420 {
-		t.Fatalf("IPv6 round trip mismatch: %#v", loaded.Transparent)
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "IPv6") {
+		t.Fatalf("Load(Render(unsupported IPv6)) error = %v, want explicit QNAP v1 rejection", err)
 	}
 }
 
