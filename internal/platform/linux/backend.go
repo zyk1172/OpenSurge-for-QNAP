@@ -18,10 +18,6 @@ import (
 // Backend is the Linux network backend: nftables for marking, iproute2 for
 // policy routing, /dev/net/tun for the proxy core data plane, and /proc/sys for
 // forwarding and rp_filter.
-//
-// It owns exactly one nftables table, one routing table id, one fwmark and one
-// policy rule. It never flushes the ruleset and never edits a rule it cannot
-// prove is its own.
 type Backend struct {
 	runner *runner
 
@@ -29,8 +25,9 @@ type Backend struct {
 	tempDir    string
 	tunTimeout time.Duration
 
-	// active records what the last successful setup applied, so Snapshot and
-	// Restore can operate without the caller repeating the configuration.
+	// active is only a process-local convenience for operations performed in the
+	// same process. Correct Stop/crash recovery must never depend on it; the
+	// authoritative cleanup recipe is persisted in NetworkSnapshot.
 	active *activeConfig
 }
 
@@ -39,31 +36,24 @@ type activeConfig struct {
 	nat     platform.NATConfig
 }
 
-// Option customises the backend. It exists mainly so the network-namespace lab
-// and the unit tests can point the backend at a temp directory and a short TUN
-// timeout without touching a real host.
 type Option func(*Backend)
 
-// WithTableName overrides the nftables table name.
 func WithTableName(name string) Option {
 	return func(b *Backend) { b.tableName = name }
 }
 
-// WithTempDir overrides where transient ruleset files are written.
 func WithTempDir(dir string) Option {
 	return func(b *Backend) { b.tempDir = dir }
 }
 
-// WithTUNTimeout overrides how long WaitForTUN waits for the device.
 func WithTUNTimeout(timeout time.Duration) Option {
 	return func(b *Backend) { b.tunTimeout = timeout }
 }
 
-// New constructs the Linux backend.
 func New(options ...Option) (*Backend, error) {
 	b := &Backend{
-		runner:    newRunner(),
-		tableName: DefaultTableName,
+		runner:     newRunner(),
+		tableName:  DefaultTableName,
 		tunTimeout: 15 * time.Second,
 	}
 	for _, option := range options {
@@ -75,31 +65,25 @@ func New(options ...Option) (*Backend, error) {
 	return b, nil
 }
 
-// Name implements platform.NetworkBackend.
 func (b *Backend) Name() platform.BackendName { return platform.BackendLinuxNFTables }
 
-// DetectInterfaces implements platform.NetworkBackend.
 func (b *Backend) DetectInterfaces(ctx context.Context) ([]platform.NetworkInterface, error) {
 	return b.detectInterfaces(ctx)
 }
 
-// InterfaceByName implements platform.NetworkBackend.
 func (b *Backend) InterfaceByName(ctx context.Context, name string) (platform.NetworkInterface, error) {
 	return b.interfaceByName(ctx, name)
 }
 
-// ValidateTopology implements platform.NetworkBackend.
 func (b *Backend) ValidateTopology(ctx context.Context, cfg platform.NetworkConfig) error {
 	return b.validateTopology(ctx, cfg)
 }
 
-// EnableIPv4Forwarding implements platform.NetworkBackend.
 func (b *Backend) EnableIPv4Forwarding(ctx context.Context) (func(context.Context) error, error) {
 	restore, _, err := b.enableIPv4Forwarding(ctx)
 	return restore, err
 }
 
-// SetupNAT implements platform.NetworkBackend.
 func (b *Backend) SetupNAT(ctx context.Context, cfg platform.NATConfig) error {
 	if cfg.TableName == "" {
 		cfg.TableName = b.tableName
@@ -108,16 +92,16 @@ func (b *Backend) SetupNAT(ctx context.Context, cfg platform.NATConfig) error {
 		return err
 	}
 	b.ensureActive().nat = cfg
-	b.active.nat.TableName = cfg.TableName
 	return nil
 }
 
-// RemoveNAT implements platform.NetworkBackend.
 func (b *Backend) RemoveNAT(ctx context.Context) error {
+	if b.active != nil && strings.TrimSpace(b.active.nat.TableName) != "" {
+		return b.removeNATTable(ctx, b.active.nat.TableName)
+	}
 	return b.removeNAT(ctx)
 }
 
-// SetupPolicyRouting implements platform.NetworkBackend.
 func (b *Backend) SetupPolicyRouting(ctx context.Context, cfg platform.RoutingConfig) error {
 	if err := b.applyPolicyRouting(ctx, cfg); err != nil {
 		return err
@@ -126,7 +110,6 @@ func (b *Backend) SetupPolicyRouting(ctx context.Context, cfg platform.RoutingCo
 	return nil
 }
 
-// RemovePolicyRouting implements platform.NetworkBackend.
 func (b *Backend) RemovePolicyRouting(ctx context.Context) error {
 	if b.active == nil {
 		return nil
@@ -134,32 +117,28 @@ func (b *Backend) RemovePolicyRouting(ctx context.Context) error {
 	return b.removePolicyRouting(ctx, b.active.routing)
 }
 
-// SwitchToDirectFallback re-points the routing table at the real upstream
-// gateway and enables masquerade. It is only ever called because the operator
-// opted in; it is never an automatic response to a proxy core failure.
 func (b *Backend) SwitchToDirectFallback(ctx context.Context, cfg platform.RoutingConfig) error {
+	if b.active == nil || strings.TrimSpace(b.active.nat.TableName) == "" {
+		return platform.NewError(platform.CodeInvalidArgument,
+			"direct fallback requires the applied NAT recipe; restore it from persisted runtime state before switching")
+	}
 	cfg.DirectFallback = true
 	if err := b.applyPolicyRouting(ctx, cfg); err != nil {
 		return err
 	}
 	nat := b.active.nat
-	if nat.TableName == "" {
-		nat.TableName = b.tableName
-	}
 	nat.Masquerade = true
 	nat.UpstreamGateway = cfg.UpstreamGateway
 	if err := b.applyNAT(ctx, nat); err != nil {
 		return err
 	}
-	b.ensureActive().routing = cfg
+	b.active.routing = cfg
 	b.active.nat = nat
 	return nil
 }
 
-// EnsureTUN implements platform.NetworkBackend.
 func (b *Backend) EnsureTUN(ctx context.Context) error { return b.ensureTUN(ctx) }
 
-// WaitForTUN implements platform.NetworkBackend.
 func (b *Backend) WaitForTUN(ctx context.Context, device string) (platform.NetworkInterface, error) {
 	return b.waitForTUN(ctx, device)
 }
@@ -171,9 +150,8 @@ func (b *Backend) ensureActive() *activeConfig {
 	return b.active
 }
 
-// Capabilities reports what this host can actually do. Every false value is
-// paired with a reason so preflight can show the user what to fix instead of a
-// bare "network error".
+// Capabilities reports what this container/namespace can actually do. Required
+// capability failures are consumed by gateway preflight before any mutation.
 func (b *Backend) Capabilities(ctx context.Context) (platform.Capabilities, error) {
 	caps := platform.Capabilities{
 		Architecture: runtime.GOARCH,
@@ -187,7 +165,7 @@ func (b *Backend) Capabilities(ctx context.Context) (platform.Capabilities, erro
 
 	caps.TUNDeviceNode = hasTUNNode()
 	if !caps.TUNDeviceNode {
-		caps.Report("tun_device_node", "/dev/net/tun is missing; pass --device /dev/net/tun and enable TUN on the host")
+		caps.Report("tun_device_node", "/dev/net/tun is missing; pass the device into the container")
 	}
 
 	effective, err := readEffectiveCaps()
@@ -197,10 +175,10 @@ func (b *Backend) Capabilities(ctx context.Context) (platform.Capabilities, erro
 		caps.CapNetAdmin = hasCapability(effective, capNetAdmin)
 		caps.CapNetRaw = hasCapability(effective, capNetRaw)
 		if !caps.CapNetAdmin {
-			caps.Report("cap_net_admin", "CAP_NET_ADMIN is missing; add it with cap_add or run the documented fallback")
+			caps.Report("cap_net_admin", "CAP_NET_ADMIN is missing; add NET_ADMIN to the container")
 		}
 		if !caps.CapNetRaw {
-			caps.Report("cap_net_raw", "CAP_NET_RAW is missing; dnsmasq DHCP and ICMP probes need it")
+			caps.Report("cap_net_raw", "CAP_NET_RAW is missing; DHCP/ICMP features may be unavailable")
 		}
 	}
 
@@ -208,33 +186,32 @@ func (b *Backend) Capabilities(ctx context.Context) (platform.Capabilities, erro
 	if !caps.NFTables {
 		caps.Report("nftables", "nft was not found in PATH")
 	}
+	if caps.NFTables && !caps.NFTablesJSON {
+		caps.Report("nftables_json", "installed nft does not provide JSON output required for ownership-safe operations")
+	}
 	caps.IProute2 = b.runner.ipPath != ""
 	if !caps.IProute2 {
 		caps.Report("iproute2", "ip was not found in PATH")
 	}
 
-	if _, err := readProcSys(procIPv4Forward); err == nil {
+	currentForward := ""
+	if value, err := readProcSys(procIPv4Forward); err == nil {
+		currentForward = value
 		caps.IPv4ForwardSysctl = true
 	} else {
-		caps.Report("ipv4_forward_sysctl",
-			"cannot read /proc/sys/net/ipv4/ip_forward")
+		caps.Report("ipv4_forward_sysctl", "cannot read /proc/sys/net/ipv4/ip_forward")
 	}
-	// Docker mounts /proc/sys read-only by default, even with CAP_NET_ADMIN.
-	// Detect it here so preflight can name the exact fix instead of failing
-	// halfway through applying the data plane.
 	caps.IPv4ForwardWritable = procSysWritable(procIPv4Forward)
-	if !caps.IPv4ForwardWritable {
-		current := "unknown"
-		if value, err := readProcSys(procIPv4Forward); err == nil {
-			current = value
-		}
-		if current == "1" {
-			caps.Report("ipv4_forward_writable",
-				"net.ipv4.ip_forward is already 1 but the file is read-only, so OpenSurge cannot restore it on stop; add sysctls: net.ipv4.ip_forward=1 to the Compose file")
-		} else {
-			caps.Report("ipv4_forward_writable",
-				"net.ipv4.ip_forward is "+current+" and not writable; add sysctls: net.ipv4.ip_forward=1 to the Compose file (privileged mode is not required)")
-		}
+	caps.IPv4ForwardReady = currentForward == "1" || caps.IPv4ForwardWritable
+	if !caps.IPv4ForwardReady {
+		caps.Report("ipv4_forward_ready",
+			"IPv4 forwarding is disabled and cannot be changed; set sysctls: net.ipv4.ip_forward=1 in Compose")
+	} else if !caps.IPv4ForwardWritable && currentForward == "1" {
+		// This is expected with Docker sysctls: the namespace is configured before
+		// start and /proc/sys can remain read-only. Restore to the same value is a
+		// no-op, so it is a warning rather than a start blocker.
+		caps.Report("ipv4_forward_writable",
+			"IPv4 forwarding is already enabled by the container runtime; /proc/sys is read-only")
 	}
 
 	if inode, err := os.Readlink("/proc/self/ns/net"); err == nil {
@@ -242,8 +219,6 @@ func (b *Backend) Capabilities(ctx context.Context) (platform.Capabilities, erro
 	} else {
 		caps.Report("network_namespace", "cannot read /proc/self/ns/net")
 	}
-	// Heuristic: a container in host network mode sees the host's Docker
-	// bridges. It is reported as a warning input, never as a hard failure.
 	if interfaces, err := b.detectInterfaces(ctx); err == nil {
 		for _, iface := range interfaces {
 			if iface.Name == "docker0" || strings.HasPrefix(iface.Name, "br-") {
@@ -255,54 +230,44 @@ func (b *Backend) Capabilities(ctx context.Context) (platform.Capabilities, erro
 	return caps, nil
 }
 
-// Snapshot captures the pre-change host state plus the active configuration.
+// Snapshot captures only pre-change host values. The gateway manager attaches
+// the intended NAT/routing recipe before persisting it, so a fresh backend can
+// later undo exactly what was applied.
 func (b *Backend) Snapshot(ctx context.Context) (*platform.NetworkSnapshot, error) {
 	snapshot := platform.NewSnapshot(platform.BackendLinuxNFTables)
-	if value, err := b.currentIPv4Forwarding(); err == nil {
-		snapshot.IPv4Forwarding = value
-	} else {
+	value, err := b.currentIPv4Forwarding()
+	if err != nil {
 		return nil, err
 	}
-	if b.active != nil {
-		routing := b.active.routing
-		snapshot.Routing = &routing
-		nat := b.active.nat
-		snapshot.NAT = &nat
-		snapshot.NFTablesTable = nat.TableName
-		if rules, err := b.listRules(ctx); err == nil && strings.TrimSpace(rules) != "" {
-			snapshot.Rules = splitLines(rules)
-		}
-		if routes, err := b.listRoutes(ctx, routing.TableID); err == nil && strings.TrimSpace(routes) != "" {
-			snapshot.Routes = splitLines(routes)
-		}
-	}
-	if snapshot.NFTablesTable == "" {
-		snapshot.NFTablesTable = b.tableName
-	}
+	snapshot.IPv4Forwarding = value
 	return snapshot, nil
 }
 
-// Restore returns the host to the captured state. It is best effort: every step
-// runs even if an earlier one failed, so a partially applied setup is still
-// unwound as far as possible.
+// Restore is the authoritative cross-process cleanup path. It uses only the
+// persisted snapshot and never assumes the current Backend instance performed
+// the original setup.
 func (b *Backend) Restore(ctx context.Context, snapshot *platform.NetworkSnapshot) error {
 	if err := snapshot.Validate(platform.BackendLinuxNFTables); err != nil {
 		return err
 	}
 	var failures []string
 
-	if snapshot.NFTablesTable != "" {
-		if exists, err := b.tableExists(ctx, snapshot.NFTablesTable); err != nil {
-			failures = append(failures, "check nftables table: "+err.Error())
-		} else if exists {
-			if err := b.runner.run(ctx, b.runner.nftPath, "delete", "table", nftFamily, snapshot.NFTablesTable); err != nil {
-				failures = append(failures, "delete nftables table: "+err.Error())
-			}
+	if snapshot.Applied.PolicyRouting {
+		if snapshot.Routing == nil {
+			failures = append(failures, "policy routing marked applied but routing recipe is missing")
+		} else if err := b.removePolicyRouting(ctx, *snapshot.Routing); err != nil {
+			failures = append(failures, "remove policy routing: "+err.Error())
 		}
 	}
-	if snapshot.Routing != nil && snapshot.Routing.TableID != 0 {
-		if err := b.removePolicyRouting(ctx, *snapshot.Routing); err != nil {
-			failures = append(failures, "remove policy routing: "+err.Error())
+	if snapshot.Applied.NAT {
+		table := snapshot.NFTablesTable
+		if table == "" && snapshot.NAT != nil {
+			table = snapshot.NAT.TableName
+		}
+		if table == "" {
+			failures = append(failures, "NAT marked applied but nftables table name is missing")
+		} else if err := b.removeNATTable(ctx, table); err != nil {
+			failures = append(failures, "remove nftables table: "+err.Error())
 		}
 	}
 	if len(snapshot.RPFilter) > 0 {
@@ -310,7 +275,7 @@ func (b *Backend) Restore(ctx context.Context, snapshot *platform.NetworkSnapsho
 			failures = append(failures, "restore rp_filter: "+err.Error())
 		}
 	}
-	if snapshot.IPv4Forwarding != "" {
+	if snapshot.Applied.IPv4Forwarding && snapshot.IPv4Forwarding != "" {
 		if _, err := writeProcSys(procIPv4Forward, snapshot.IPv4Forwarding); err != nil {
 			failures = append(failures, "restore ip_forward: "+err.Error())
 		}
@@ -323,8 +288,6 @@ func (b *Backend) Restore(ctx context.Context, snapshot *platform.NetworkSnapsho
 	return nil
 }
 
-// ObservedState reads the live host state. Crash recovery compares this against
-// the persisted desired state; it is never served from a cache.
 func (b *Backend) ObservedState(ctx context.Context) (*platform.ObservedState, error) {
 	state := &platform.ObservedState{TUNPresent: map[string]bool{}}
 	if value, err := b.currentIPv4Forwarding(); err == nil {
@@ -336,7 +299,7 @@ func (b *Backend) ObservedState(ctx context.Context) (*platform.ObservedState, e
 			if strings.HasPrefix(iface.Name, "tun") || strings.HasPrefix(iface.Name, "utun") {
 				state.TUNPresent[iface.Name] = true
 			}
-		}
+	}
 	}
 	if rules, err := b.listRules(ctx); err == nil && strings.TrimSpace(rules) != "" {
 		state.Rules = splitLines(rules)
@@ -362,13 +325,11 @@ func splitLines(text string) []string {
 	return lines
 }
 
-// Linux capability bits read from /proc/self/status.
 const (
 	capNetAdmin = 12
 	capNetRaw   = 13
 )
 
-// readEffectiveCaps parses CapEff from /proc/self/status.
 func readEffectiveCaps() (uint64, error) {
 	file, err := os.Open("/proc/self/status")
 	if err != nil {
