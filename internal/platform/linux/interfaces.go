@@ -17,12 +17,12 @@ import (
 // is invoked with -j so the result is machine-readable; no human-oriented output
 // is parsed as the source of truth anywhere in this package.
 type ipAddr struct {
-	IfIndex   int    `json:"ifindex"`
-	IfName    string `json:"ifname"`
-	MTU       int    `json:"mtu"`
-	Flags     []string `json:"flags"`
-	Address   string `json:"address"`
-	AddrInfo  []struct {
+	IfIndex  int      `json:"ifindex"`
+	IfName   string   `json:"ifname"`
+	MTU      int      `json:"mtu"`
+	Flags    []string `json:"flags"`
+	Address  string   `json:"address"`
+	AddrInfo []struct {
 		Family    string `json:"family"`
 		Local     string `json:"local"`
 		PrefixLen int    `json:"prefixlen"`
@@ -97,8 +97,9 @@ func (b *Backend) interfaceByName(ctx context.Context, name string) (platform.Ne
 		WithDetail("interface", name)
 }
 
-// validateTopology checks the requested topology without mutating anything.
-// It is the part of preflight that needs real host knowledge.
+// validateTopology checks the requested topology and proves that the nftables,
+// fwmark, policy-rule priority and route table requested by OpenSurge are free
+// before any mutation happens.
 func (b *Backend) validateTopology(ctx context.Context, cfg platform.NetworkConfig) error {
 	if err := validateInterfaceName(cfg.LANInterface); err != nil {
 		return err
@@ -111,6 +112,20 @@ func (b *Backend) validateTopology(ctx context.Context, cfg platform.NetworkConf
 		return platform.NewError(platform.CodeInterfaceNotUp, "LAN interface is not up").
 			WithDetail("interface", cfg.LANInterface)
 	}
+	if strings.TrimSpace(cfg.UpstreamInterface) != "" {
+		if err := validateInterfaceName(cfg.UpstreamInterface); err != nil {
+			return err
+		}
+		upstream, err := b.interfaceByName(ctx, cfg.UpstreamInterface)
+		if err != nil {
+			return err
+		}
+		if !upstream.IsUp() {
+			return platform.NewError(platform.CodeInterfaceNotUp, "upstream interface is not up").
+				WithDetail("interface", cfg.UpstreamInterface)
+		}
+	}
+
 	lanIP, err := validateIPv4(cfg.LANIP)
 	if err != nil {
 		return err
@@ -129,7 +144,7 @@ func (b *Backend) validateTopology(ctx context.Context, cfg platform.NetworkConf
 	if !network.Contains(lanIP) {
 		return platform.NewError(platform.CodeSubnetInvalid, "gateway LAN IP is outside the configured LAN subnet").
 			WithDetails(map[string]string{
-				"lan_ip":  lanIP.String(),
+				"lan_ip":   lanIP.String(),
 				"lan_cidr": network.String(),
 			})
 	}
@@ -143,15 +158,16 @@ func (b *Backend) validateTopology(ctx context.Context, cfg platform.NetworkConf
 			return platform.NewError(platform.CodeUpstreamConflict, "upstream gateway is the OpenSurge address itself").
 				WithDetail("upstream_gateway", gateway)
 		}
-		if !network.Contains(gwIP) {
+		if cfg.SameLAN && !network.Contains(gwIP) {
 			return platform.NewError(platform.CodeUpstreamUnreachable,
-				"upstream gateway is not inside the LAN subnet, so it is not reachable on-link").
+				"upstream gateway is not inside the LAN subnet, so it is not reachable on-link in same-LAN mode").
 				WithDetails(map[string]string{
 					"upstream_gateway": gwIP.String(),
 					"lan_cidr":         network.String(),
 				})
 		}
 	}
+
 	// A duplicate address on another interface makes the forwarding decision
 	// ambiguous, which shows up as intermittent black holes rather than a clean
 	// failure. Reject it up front.
@@ -172,15 +188,16 @@ func (b *Backend) validateTopology(ctx context.Context, cfg platform.NetworkConf
 				})
 		}
 	}
-	return nil
+
+	return b.validateOwnership(ctx, cfg)
 }
 
 // neighbourEntry is one row of `ip -j neigh show`, used for device discovery
 // where upstream relied on macOS `arp -n`.
 type neighbourEntry struct {
-	Dev    string `json:"dev"`
-	To     string `json:"to"`
-	LLAddr string `json:"lladdr"`
+	Dev    string   `json:"dev"`
+	To     string   `json:"to"`
+	LLAddr string   `json:"lladdr"`
 	State  []string `json:"state"`
 }
 
@@ -241,9 +258,9 @@ func (b *Backend) DefaultRoute(ctx context.Context) (via string, dev string, err
 		return "", "", err
 	}
 	var routes []struct {
-		Dst    string   `json:"dst"`
-		Gateway string  `json:"gateway"`
-		Dev    string   `json:"dev"`
+		Dst     string `json:"dst"`
+		Gateway string `json:"gateway"`
+		Dev     string `json:"dev"`
 	}
 	if err := json.Unmarshal(out, &routes); err != nil {
 		return "", "", platform.NewError(platform.CodeCommandFailed, "parse ip route output").Wrap(err)
