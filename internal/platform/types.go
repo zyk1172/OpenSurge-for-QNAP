@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// NetworkInterface is OpenSurge's platform-neutral view of a host interface.
 type NetworkInterface struct {
 	Name         string   `json:"name"`
 	Index        int      `json:"index"`
@@ -54,9 +53,6 @@ func indexOfByte(s string, b byte) int {
 	return -1
 }
 
-// NetworkConfig describes topology plus kernel resources OpenSurge wants to
-// own. SkipOwnershipCheck is used only for validating a reload candidate while
-// the currently applied OpenSurge runtime legitimately still owns those ids.
 type NetworkConfig struct {
 	LANInterface       string `json:"lan_interface"`
 	LANIP              string `json:"lan_ip"`
@@ -71,8 +67,6 @@ type NetworkConfig struct {
 	SkipOwnershipCheck bool   `json:"-"`
 }
 
-// RoutingConfig drives SetupPolicyRouting and is persisted as the cleanup
-// recipe so a fresh process can remove the exact rule/routes it applied.
 type RoutingConfig struct {
 	LANInterface      string `json:"lan_interface"`
 	UpstreamInterface string `json:"upstream_interface,omitempty"`
@@ -85,7 +79,6 @@ type RoutingConfig struct {
 	DirectFallback    bool   `json:"direct_fallback"`
 }
 
-// NATConfig drives SetupNAT and is persisted for cross-process cleanup.
 type NATConfig struct {
 	LANInterface      string `json:"lan_interface"`
 	UpstreamInterface string `json:"upstream_interface,omitempty"`
@@ -130,21 +123,22 @@ type ObservedState struct {
 	TUNPresent     map[string]bool    `json:"tun_present,omitempty"`
 }
 
-// NetworkSnapshot persists both pre-change host values and the intended
-// OpenSurge-owned resource recipe. Stop/recovery must use this rather than
-// process-local backend memory.
+// NetworkSnapshot persists both pre-change host values and the exact cleanup
+// recipe. NetworkNamespace prevents an isolated container restart from replaying
+// cleanup into a newly created namespace where the old rules no longer exist.
 type NetworkSnapshot struct {
-	SchemaVersion  int               `json:"schema_version"`
-	Backend        BackendName       `json:"backend"`
-	CapturedAt     time.Time         `json:"captured_at"`
-	IPv4Forwarding string            `json:"ipv4_forwarding,omitempty"`
-	RPFilter       map[string]string `json:"rp_filter,omitempty"`
-	NFTablesTable  string            `json:"nftables_table,omitempty"`
-	Rules          []string          `json:"rules,omitempty"`
-	Routes         []string          `json:"routes,omitempty"`
-	Routing        *RoutingConfig    `json:"routing,omitempty"`
-	NAT            *NATConfig        `json:"nat,omitempty"`
-	Applied        AppliedSteps      `json:"applied"`
+	SchemaVersion   int               `json:"schema_version"`
+	Backend         BackendName       `json:"backend"`
+	CapturedAt      time.Time         `json:"captured_at"`
+	NetworkNamespace string           `json:"network_namespace,omitempty"`
+	IPv4Forwarding  string            `json:"ipv4_forwarding,omitempty"`
+	RPFilter        map[string]string `json:"rp_filter,omitempty"`
+	NFTablesTable   string            `json:"nftables_table,omitempty"`
+	Rules           []string          `json:"rules,omitempty"`
+	Routes          []string          `json:"routes,omitempty"`
+	Routing         *RoutingConfig    `json:"routing,omitempty"`
+	NAT             *NATConfig        `json:"nat,omitempty"`
+	Applied         AppliedSteps      `json:"applied"`
 }
 
 type AppliedSteps struct {
