@@ -21,6 +21,7 @@ const (
 	CodeTUNTimeout              = "NETWORK_TUN_TIMEOUT"
 	CodeNFTablesUnavailable     = "NETWORK_NFTABLES_UNAVAILABLE"
 	CodeNFTablesForeignTable    = "NETWORK_NFTABLES_FOREIGN_TABLE"
+	CodePolicyRoutingConflict   = "NETWORK_POLICY_ROUTING_CONFLICT"
 	CodeIPRoute2Unavailable     = "NETWORK_IPROUTE2_UNAVAILABLE"
 	CodeCapabilityMissing       = "NETWORK_CAPABILITY_MISSING"
 	CodeNetworkModeUnsupported  = "NETWORK_MODE_UNSUPPORTED"
