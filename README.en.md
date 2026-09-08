@@ -1,7 +1,25 @@
+> ## Fork Attribution
+>
+> **OpenSurge for QNAP is a derivative work based on
+> [OpenSurge for Mac](https://github.com/YTwsy/OpenSurge-for-Mac) by YTwsy.**
+>
+> This project has been adapted for Linux/QNAP Docker gateway environments and is
+> not affiliated with or endorsed by the original author unless explicitly stated
+> otherwise.
+>
+> - Original project: OpenSurge for Mac
+> - Original author / organization: YTwsy
+> - Original repository: <https://github.com/YTwsy/OpenSurge-for-Mac>
+> - Fork baseline commit: `b03bf2f8a2b02a6fffba9c879ce1980ddb831a67`
+> - Fork date: 2026-09-09
+> - License: `GPL-3.0-only` (inherited, unchanged)
+>
+> See [docs/UPSTREAM.md](docs/UPSTREAM.md) for the full upstream relationship,
+> sync policy, and platform-level differences.
+
 <div align="center">
-  <img src="apps/menubar/Resources/OpenSurgeAppIcon.png" width="96" height="96" alt="OpenSurge for Mac App Icon">
-  <h1>OpenSurge for Mac</h1>
-  <p><strong>Turn a Mac into a Surge-style whole-home transparent gateway with per-device routing—onboard selected devices in same-LAN bypass-router mode, take over DHCP/DNS automatically, and optionally enable experimental downstream IPv6 takeover.</strong></p>
+  <h1>OpenSurge for QNAP</h1>
+  <p><strong>Turn a QNAP NAS into a Surge-style whole-home transparent proxy gateway running in Docker—LAN devices simply point their gateway and DNS at the container to get per-device policy routing.</strong></p>
   <p>
     <a href="https://github.com/YTwsy/OpenSurge-for-Mac/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/YTwsy/OpenSurge-for-Mac?style=flat-square"></a>
     <a href="https://opensurge.pages.dev/"><img alt="OpenSurge website" src="https://img.shields.io/badge/website-opensurge.pages.dev-2a7b62?style=flat-square"></a>

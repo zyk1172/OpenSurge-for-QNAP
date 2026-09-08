@@ -1,7 +1,25 @@
+> ## Fork Attribution
+>
+> **OpenSurge for QNAP is a derivative work based on
+> [OpenSurge for Mac](https://github.com/YTwsy/OpenSurge-for-Mac) by YTwsy.**
+>
+> This project has been adapted for Linux/QNAP Docker gateway environments and is
+> not affiliated with or endorsed by the original author unless explicitly stated
+> otherwise.
+>
+> - Original project: OpenSurge for Mac
+> - Original author / organization: YTwsy
+> - Original repository: <https://github.com/YTwsy/OpenSurge-for-Mac>
+> - Fork baseline commit: `b03bf2f8a2b02a6fffba9c879ce1980ddb831a67`
+> - Fork date: 2026-09-09
+> - License: `GPL-3.0-only` (inherited, unchanged)
+>
+> See [docs/UPSTREAM.md](docs/UPSTREAM.md) for the full upstream relationship,
+> sync policy, and platform-level differences.
+
 <div align="center">
-  <img src="apps/menubar/Resources/OpenSurgeAppIcon.png" width="96" height="96" alt="OpenSurge for Mac App 图标">
-  <h1>OpenSurge for Mac</h1>
-  <p><strong>把 Mac 变成可按设备分流的 Surge 风格全屋透明代理网关——既可让指定设备通过旁路由手动接入，也支持 DHCP/DNS 自动接管与实验性下游 IPv6 接管</strong></p>
+  <h1>OpenSurge for QNAP</h1>
+  <p><strong>把 QNAP NAS 变成 Docker 中运行的 Surge 风格全屋透明代理网关——LAN 设备手动把网关和 DNS 指向容器，即可获得按设备分流的透明代理能力</strong></p>
   <p>
     <a href="https://github.com/YTwsy/OpenSurge-for-Mac/releases"><img alt="最新版本" src="https://img.shields.io/github/v/release/YTwsy/OpenSurge-for-Mac?style=flat-square"></a>
     <a href="https://opensurge.pages.dev/zh-cn/"><img alt="OpenSurge 官网" src="https://img.shields.io/badge/website-opensurge.pages.dev-2a7b62?style=flat-square"></a>
