@@ -1,0 +1,44 @@
+name: Phase 1 CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - port/qnap-linux-docker
+
+permissions:
+  contents: read
+
+jobs:
+  go-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Go format check
+        run: |
+          files="$(gofmt -l $(find . -name '*.go' -not -path './vendor/*'))"
+          if [ -n "$files" ]; then
+            echo "The following Go files need gofmt:"
+            echo "$files"
+            exit 1
+          fi
+
+      - name: Go test
+        run: go test ./...
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Build control binaries
+        run: |
+          go build -o /tmp/omg ./cmd/omg
+          go build -o /tmp/opensurge-control ./cmd/opensurge-control
