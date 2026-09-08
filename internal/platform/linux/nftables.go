@@ -12,39 +12,19 @@ import (
 	"open-mihomo-gateway/internal/platform"
 )
 
-// DefaultTableName is the only nftables table OpenSurge is allowed to touch.
-// Everything in this backend is scoped to it.
 const DefaultTableName = "opensurge"
-
-// NFTables family OpenSurge uses. `inet` covers IPv4 and IPv6 in one table, so a
-// future IPv6 phase does not need a second table.
 const nftFamily = "inet"
 
-// chain names inside the OpenSurge table.
 const (
 	chainPrerouting  = "prerouting"
 	chainPostrouting = "postrouting"
 )
 
-// commentPrefix marks every rule OpenSurge creates, so an operator (and our own
-// rollback) can tell them apart from QNAP firewall, Container Station or user
-// rules at a glance.
 const commentPrefix = "opensurge:"
 
-// renderRuleset builds the complete nftables ruleset for OpenSurge.
-//
-// Design constraints enforced here:
-//
-//   - Only `table inet opensurge` is declared. Nothing else is referenced.
-//   - There is no `flush ruleset`, and no `flush table` of anything we do not own.
-//   - The ruleset is applied as one nft transaction, so a syntax error or a
-//     missing hook cannot leave a half-written table behind.
-//   - Every rule carries a comment identifying it as ours.
-//
-// nftables does two jobs for us, and only two: mark forwarded LAN traffic so
-// policy routing can steer it into the TUN, and optionally masquerade it during
-// an explicit direct-fallback. There is no TPROXY and no REDIRECT; transparent
-// proxying is entirely mihomo's TUN.
+// renderRuleset builds the complete nftables ruleset owned by OpenSurge. The
+// table is replaced atomically, but callers must prove an existing table is ours
+// before applying this replacement.
 func renderRuleset(cfg platform.NATConfig) (string, error) {
 	if err := validateInterfaceName(cfg.LANInterface); err != nil {
 		return "", err
@@ -66,39 +46,60 @@ func renderRuleset(cfg platform.NATConfig) (string, error) {
 	}
 	mark := fmt.Sprintf("0x%08x", cfg.FwMark)
 
-	var b strings.Builder
-	// The bare declaration guarantees the table exists so the following delete
-	// is always valid; the pair is applied in a single transaction, making this
-	// an atomic replace of OpenSurge's own table and nothing else.
-	fmt.Fprintf(&b, "table %s %s\n", nftFamily, table)
-	fmt.Fprintf(&b, "delete table %s %s\n", nftFamily, table)
-	fmt.Fprintf(&b, "table %s %s {\n", nftFamily, table)
-	fmt.Fprintf(&b, "\tchain %s {\n", chainPrerouting)
-	fmt.Fprintf(&b, "\t\ttype filter hook prerouting priority filter; policy accept;\n")
-	fmt.Fprintf(&b, "\t\tiifname %q ip daddr != %s meta mark set %s comment %q\n",
+	var out strings.Builder
+	// A bare declaration followed by delete+create lets nft apply a complete
+	// replacement in one netlink transaction. applyNAT verifies ownership first.
+	fmt.Fprintf(&out, "table %s %s\n", nftFamily, table)
+	fmt.Fprintf(&out, "delete table %s %s\n", nftFamily, table)
+	fmt.Fprintf(&out, "table %s %s {\n", nftFamily, table)
+	fmt.Fprintf(&out, "\tchain %s {\n", chainPrerouting)
+	fmt.Fprintf(&out, "\t\ttype filter hook prerouting priority filter; policy accept;\n")
+	fmt.Fprintf(&out, "\t\tiifname %q ip daddr != %s meta mark set %s comment %q\n",
 		cfg.LANInterface, cfg.LANCIDR, mark,
 		fmt.Sprintf("%s forward LAN traffic to the OpenSurge routing table", commentPrefix))
-	fmt.Fprintf(&b, "\t}\n")
-	fmt.Fprintf(&b, "\tchain %s {\n", chainPostrouting)
-	fmt.Fprintf(&b, "\t\ttype nat hook postrouting priority srcnat; policy accept;\n")
+	fmt.Fprintf(&out, "\t}\n")
+	fmt.Fprintf(&out, "\tchain %s {\n", chainPostrouting)
+	fmt.Fprintf(&out, "\t\ttype nat hook postrouting priority srcnat; policy accept;\n")
 	if cfg.Masquerade {
-		// Direct fallback only. Without masquerade the upstream router would
-		// reply straight to the LAN client, producing an asymmetric path that
-		// breaks stateful middleboxes.
-		fmt.Fprintf(&b, "\t\tmeta mark %s oifname %q masquerade comment %q\n",
-			mark, cfg.LANInterface,
+		egress := cfg.UpstreamInterface
+		if strings.TrimSpace(egress) == "" {
+			egress = cfg.LANInterface
+		}
+		if err := validateInterfaceName(egress); err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&out, "\t\tmeta mark %s oifname %q masquerade comment %q\n",
+			mark, egress,
 			fmt.Sprintf("%s source NAT for direct fallback egress", commentPrefix))
 	}
-	fmt.Fprintf(&b, "\t}\n")
-	fmt.Fprintf(&b, "}\n")
-	return b.String(), nil
+	fmt.Fprintf(&out, "\t}\n")
+	fmt.Fprintf(&out, "}\n")
+	return out.String(), nil
 }
 
-// applyNAT renders and applies the ruleset atomically.
 func (b *Backend) applyNAT(ctx context.Context, cfg platform.NATConfig) error {
 	if b.runner.nftPath == "" {
 		return platform.NewError(platform.CodeNFTablesUnavailable, "nft not found in PATH")
 	}
+	table := strings.TrimSpace(cfg.TableName)
+	if table == "" {
+		table = DefaultTableName
+		cfg.TableName = table
+	}
+	if exists, err := b.tableExists(ctx, table); err != nil {
+		return err
+	} else if exists {
+		owned, err := b.tableOwned(ctx, table)
+		if err != nil {
+			return err
+		}
+		if !owned {
+			return platform.NewError(platform.CodeNFTablesForeignTable,
+				"refusing to replace an nftables table whose OpenSurge ownership cannot be proven").
+				WithDetail("table", table)
+		}
+	}
+
 	ruleset, err := renderRuleset(cfg)
 	if err != nil {
 		return err
@@ -114,8 +115,12 @@ func (b *Backend) applyNAT(ctx context.Context, cfg platform.NATConfig) error {
 	path := file.Name()
 	defer os.Remove(path)
 	if _, err := file.WriteString(ruleset); err != nil {
-		file.Close()
+		_ = file.Close()
 		return platform.NewError(platform.CodeCommandFailed, "write nftables ruleset file").Wrap(err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return platform.NewError(platform.CodeCommandFailed, "sync nftables ruleset file").Wrap(err)
 	}
 	if err := file.Close(); err != nil {
 		return platform.NewError(platform.CodeCommandFailed, "close nftables ruleset file").Wrap(err)
@@ -123,26 +128,44 @@ func (b *Backend) applyNAT(ctx context.Context, cfg platform.NATConfig) error {
 	if err := os.Chmod(path, 0o600); err != nil {
 		return platform.NewError(platform.CodeCommandFailed, "chmod nftables ruleset file").Wrap(err)
 	}
-	// nft -f submits the whole file as a single netlink batch.
 	return b.runner.run(ctx, b.runner.nftPath, "-f", path)
 }
 
-// removeNAT deletes only the OpenSurge table, and is a no-op when it is absent.
+// removeNAT is the process-local convenience path. Cross-process Stop/restore
+// uses removeNATTable with the table name persisted in NetworkSnapshot.
 func (b *Backend) removeNAT(ctx context.Context) error {
+	return b.removeNATTable(ctx, b.tableName)
+}
+
+func (b *Backend) removeNATTable(ctx context.Context, table string) error {
 	if b.runner.nftPath == "" {
 		return platform.NewError(platform.CodeNFTablesUnavailable, "nft not found in PATH")
 	}
-	exists, err := b.tableExists(ctx, b.tableName)
+	if strings.TrimSpace(table) == "" {
+		table = DefaultTableName
+	}
+	if err := validateTableName(table); err != nil {
+		return err
+	}
+	exists, err := b.tableExists(ctx, table)
 	if err != nil {
 		return err
 	}
 	if !exists {
 		return nil
 	}
-	return b.runner.run(ctx, b.runner.nftPath, "delete", "table", nftFamily, b.tableName)
+	owned, err := b.tableOwned(ctx, table)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return platform.NewError(platform.CodeNFTablesForeignTable,
+			"refusing to delete an nftables table whose OpenSurge ownership cannot be proven").
+			WithDetail("table", table)
+	}
+	return b.runner.run(ctx, b.runner.nftPath, "delete", "table", nftFamily, table)
 }
 
-// tableExists reports whether the OpenSurge table is present.
 func (b *Backend) tableExists(ctx context.Context, table string) (bool, error) {
 	tables, err := b.listTables(ctx)
 	if err != nil {
@@ -156,7 +179,6 @@ func (b *Backend) tableExists(ctx context.Context, table string) (bool, error) {
 	return false, nil
 }
 
-// nftTables is the subset of `nft -j list tables` we use.
 type nftTables struct {
 	NFTables []struct {
 		Table struct {
@@ -166,7 +188,6 @@ type nftTables struct {
 	} `json:"nftables"`
 }
 
-// listTables enumerates tables in the inet family using the JSON output.
 func (b *Backend) listTables(ctx context.Context) ([]string, error) {
 	out, err := b.runner.output(ctx, b.runner.nftPath, "-j", "list", "tables")
 	if err != nil {
@@ -185,26 +206,91 @@ func (b *Backend) listTables(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-// describeTable returns the rendered ruleset of the OpenSurge table for
-// diagnostics and for the diagnostic bundle.
-func (b *Backend) describeTable(ctx context.Context) (string, error) {
-	exists, err := b.tableExists(ctx, b.tableName)
+// tableOwned verifies the live table still has the minimal shape OpenSurge
+// creates. This protects Stop from deleting a foreign table that replaced ours
+// after startup. Every rule must carry the OpenSurge comment prefix and no
+// unexpected nft object types may be present.
+func (b *Backend) tableOwned(ctx context.Context, table string) (bool, error) {
+	out, err := b.runner.output(ctx, b.runner.nftPath, "-j", "list", "table", nftFamily, table)
+	if err != nil {
+		if isNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	var payload struct {
+		NFTables []map[string]json.RawMessage `json:"nftables"`
+	}
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return false, platform.NewError(platform.CodeCommandFailed, "parse nft table ownership output").Wrap(err)
+	}
+	seenRule := false
+	seenPrerouting := false
+	seenPostrouting := false
+	for _, entry := range payload.NFTables {
+		for kind, raw := range entry {
+			switch kind {
+			case "metainfo", "table":
+				continue
+			case "chain":
+				var chain struct {
+					Table string `json:"table"`
+					Name  string `json:"name"`
+				}
+				if err := json.Unmarshal(raw, &chain); err != nil || chain.Table != table {
+					return false, nil
+				}
+				switch chain.Name {
+				case chainPrerouting:
+					seenPrerouting = true
+				case chainPostrouting:
+					seenPostrouting = true
+				default:
+					return false, nil
+				}
+			case "rule":
+				var rule struct {
+					Table   string `json:"table"`
+					Chain   string `json:"chain"`
+					Comment string `json:"comment"`
+				}
+				if err := json.Unmarshal(raw, &rule); err != nil || rule.Table != table {
+					return false, nil
+				}
+				if rule.Chain != chainPrerouting && rule.Chain != chainPostrouting {
+					return false, nil
+				}
+				if !strings.HasPrefix(rule.Comment, commentPrefix) {
+					return false, nil
+				}
+				seenRule = true
+			default:
+				return false, nil
+			}
+		}
+	}
+	return seenRule && seenPrerouting && seenPostrouting, nil
+}
+
+func (b *Backend) describeTableNamed(ctx context.Context, table string) (string, error) {
+	exists, err := b.tableExists(ctx, table)
 	if err != nil {
 		return "", err
 	}
 	if !exists {
 		return "", nil
 	}
-	out, err := b.runner.output(ctx, b.runner.nftPath, "list", "table", nftFamily, b.tableName)
+	out, err := b.runner.output(ctx, b.runner.nftPath, "list", "table", nftFamily, table)
 	if err != nil {
 		return "", err
 	}
 	return string(out), nil
 }
 
-// nftCapabilities probes what the installed nft can actually do. JSON output is
-// optional in older builds; when it is missing the backend still works but
-// diagnostics degrade, so it is reported rather than fatal.
+func (b *Backend) describeTable(ctx context.Context) (string, error) {
+	return b.describeTableNamed(ctx, b.tableName)
+}
+
 func (b *Backend) nftCapabilities(ctx context.Context) (present bool, jsonOK bool, version string) {
 	if b.runner.nftPath == "" {
 		return false, false, ""
