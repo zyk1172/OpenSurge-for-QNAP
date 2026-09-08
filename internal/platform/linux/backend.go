@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"runtime"
 	"strconv"
@@ -15,9 +16,6 @@ import (
 	"open-mihomo-gateway/internal/platform"
 )
 
-// Backend is the Linux network backend: nftables for marking, iproute2 for
-// policy routing, /dev/net/tun for the proxy core data plane, and /proc/sys for
-// forwarding and rp_filter.
 type Backend struct {
 	runner *runner
 
@@ -25,9 +23,8 @@ type Backend struct {
 	tempDir    string
 	tunTimeout time.Duration
 
-	// active is only a process-local convenience for operations performed in the
-	// same process. Correct Stop/crash recovery must never depend on it; the
-	// authoritative cleanup recipe is persisted in NetworkSnapshot.
+	// Process-local convenience only. Persisted NetworkSnapshot is authoritative
+	// for Stop and crash recovery.
 	active *activeConfig
 }
 
@@ -38,14 +35,8 @@ type activeConfig struct {
 
 type Option func(*Backend)
 
-func WithTableName(name string) Option {
-	return func(b *Backend) { b.tableName = name }
-}
-
-func WithTempDir(dir string) Option {
-	return func(b *Backend) { b.tempDir = dir }
-}
-
+func WithTableName(name string) Option { return func(b *Backend) { b.tableName = name } }
+func WithTempDir(dir string) Option    { return func(b *Backend) { b.tempDir = dir } }
 func WithTUNTimeout(timeout time.Duration) Option {
 	return func(b *Backend) { b.tunTimeout = timeout }
 }
@@ -120,7 +111,7 @@ func (b *Backend) RemovePolicyRouting(ctx context.Context) error {
 func (b *Backend) SwitchToDirectFallback(ctx context.Context, cfg platform.RoutingConfig) error {
 	if b.active == nil || strings.TrimSpace(b.active.nat.TableName) == "" {
 		return platform.NewError(platform.CodeInvalidArgument,
-			"direct fallback requires the applied NAT recipe; restore it from persisted runtime state before switching")
+			"direct fallback requires the persisted/applied NAT recipe")
 	}
 	cfg.DirectFallback = true
 	if err := b.applyPolicyRouting(ctx, cfg); err != nil {
@@ -150,8 +141,19 @@ func (b *Backend) ensureActive() *activeConfig {
 	return b.active
 }
 
-// Capabilities reports what this container/namespace can actually do. Required
-// capability failures are consumed by gateway preflight before any mutation.
+func currentNetworkNamespace() (string, error) {
+	value, err := os.Readlink("/proc/self/ns/net")
+	if err != nil {
+		return "", platform.NewError(platform.CodeSnapshotInvalid,
+			"cannot identify current Linux network namespace").Wrap(err)
+	}
+	if strings.TrimSpace(value) == "" {
+		return "", platform.NewError(platform.CodeSnapshotInvalid,
+			"current Linux network namespace identity is empty")
+	}
+	return value, nil
+}
+
 func (b *Backend) Capabilities(ctx context.Context) (platform.Capabilities, error) {
 	caps := platform.Capabilities{
 		Architecture: runtime.GOARCH,
@@ -187,7 +189,7 @@ func (b *Backend) Capabilities(ctx context.Context) (platform.Capabilities, erro
 		caps.Report("nftables", "nft was not found in PATH")
 	}
 	if caps.NFTables && !caps.NFTablesJSON {
-		caps.Report("nftables_json", "installed nft does not provide JSON output required for ownership-safe operations")
+		caps.Report("nftables_json", "installed nft lacks JSON output required for ownership-safe operations")
 	}
 	caps.IProute2 = b.runner.ipPath != ""
 	if !caps.IProute2 {
@@ -205,19 +207,16 @@ func (b *Backend) Capabilities(ctx context.Context) (platform.Capabilities, erro
 	caps.IPv4ForwardReady = currentForward == "1" || caps.IPv4ForwardWritable
 	if !caps.IPv4ForwardReady {
 		caps.Report("ipv4_forward_ready",
-			"IPv4 forwarding is disabled and cannot be changed; set sysctls: net.ipv4.ip_forward=1 in Compose")
+			"IPv4 forwarding is disabled and cannot be changed; set net.ipv4.ip_forward=1 in the container namespace")
 	} else if !caps.IPv4ForwardWritable && currentForward == "1" {
-		// This is expected with Docker sysctls: the namespace is configured before
-		// start and /proc/sys can remain read-only. Restore to the same value is a
-		// no-op, so it is a warning rather than a start blocker.
 		caps.Report("ipv4_forward_writable",
 			"IPv4 forwarding is already enabled by the container runtime; /proc/sys is read-only")
 	}
 
-	if inode, err := os.Readlink("/proc/self/ns/net"); err == nil {
-		caps.NetworkNamespace = inode
+	if namespace, err := currentNetworkNamespace(); err == nil {
+		caps.NetworkNamespace = namespace
 	} else {
-		caps.Report("network_namespace", "cannot read /proc/self/ns/net")
+		caps.Report("network_namespace", err.Error())
 	}
 	if interfaces, err := b.detectInterfaces(ctx); err == nil {
 		for _, iface := range interfaces {
@@ -230,11 +229,18 @@ func (b *Backend) Capabilities(ctx context.Context) (platform.Capabilities, erro
 	return caps, nil
 }
 
-// Snapshot captures only pre-change host values. The gateway manager attaches
-// the intended NAT/routing recipe before persisting it, so a fresh backend can
-// later undo exactly what was applied.
+// Snapshot captures pre-change state and the namespace identity. The gateway
+// manager attaches exact NAT/routing recipes before journaling the snapshot.
 func (b *Backend) Snapshot(ctx context.Context) (*platform.NetworkSnapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	snapshot := platform.NewSnapshot(platform.BackendLinuxNFTables)
+	namespace, err := currentNetworkNamespace()
+	if err != nil {
+		return nil, err
+	}
+	snapshot.NetworkNamespace = namespace
 	value, err := b.currentIPv4Forwarding()
 	if err != nil {
 		return nil, err
@@ -243,18 +249,32 @@ func (b *Backend) Snapshot(ctx context.Context) (*platform.NetworkSnapshot, erro
 	return snapshot, nil
 }
 
-// Restore is the authoritative cross-process cleanup path. It uses only the
-// persisted snapshot and never assumes the current Backend instance performed
-// the original setup.
+// Restore is the authoritative cross-process cleanup path. If an isolated
+// container was restarted, its old network namespace no longer exists and all
+// per-namespace nftables/routes/sysctls disappeared with it. Replaying the old
+// snapshot into the new namespace would be harmful, so namespace mismatch is a
+// safe no-op. In host-network mode the namespace identity remains the same and
+// cleanup proceeds normally.
 func (b *Backend) Restore(ctx context.Context, snapshot *platform.NetworkSnapshot) error {
 	if err := snapshot.Validate(platform.BackendLinuxNFTables); err != nil {
 		return err
 	}
-	var failures []string
+	currentNS, err := currentNetworkNamespace()
+	if err != nil {
+		return err
+	}
+	if snapshot.NetworkNamespace == "" {
+		return platform.NewError(platform.CodeSnapshotInvalid,
+			"network snapshot does not contain a namespace identity")
+	}
+	if currentNS != snapshot.NetworkNamespace {
+		return nil
+	}
 
+	var failures []string
 	if snapshot.Applied.PolicyRouting {
 		if snapshot.Routing == nil {
-			failures = append(failures, "policy routing marked applied but routing recipe is missing")
+			failures = append(failures, "policy routing journaled but routing recipe is missing")
 		} else if err := b.removePolicyRouting(ctx, *snapshot.Routing); err != nil {
 			failures = append(failures, "remove policy routing: "+err.Error())
 		}
@@ -265,7 +285,7 @@ func (b *Backend) Restore(ctx context.Context, snapshot *platform.NetworkSnapsho
 			table = snapshot.NAT.TableName
 		}
 		if table == "" {
-			failures = append(failures, "NAT marked applied but nftables table name is missing")
+			failures = append(failures, "NAT journaled but nftables table name is missing")
 		} else if err := b.removeNATTable(ctx, table); err != nil {
 			failures = append(failures, "remove nftables table: "+err.Error())
 		}
@@ -299,7 +319,7 @@ func (b *Backend) ObservedState(ctx context.Context) (*platform.ObservedState, e
 			if strings.HasPrefix(iface.Name, "tun") || strings.HasPrefix(iface.Name, "utun") {
 				state.TUNPresent[iface.Name] = true
 			}
-	}
+		}
 	}
 	if rules, err := b.listRules(ctx); err == nil && strings.TrimSpace(rules) != "" {
 		state.Rules = splitLines(rules)
@@ -351,7 +371,7 @@ func readEffectiveCaps() (uint64, error) {
 	if err := scanner.Err(); err != nil {
 		return 0, err
 	}
-	return 0, errors.New("CapEff not found in /proc/self/status")
+	return 0, fmt.Errorf("CapEff not found in /proc/self/status")
 }
 
 func hasCapability(mask uint64, bit uint) bool {
