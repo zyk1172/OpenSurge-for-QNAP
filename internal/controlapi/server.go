@@ -660,7 +660,7 @@ func (s *Server) handleMenuBar(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, MenuBarStatus{
 		SchemaVersion: SchemaVersion, Revision: overview.Revision, Gateway: overview.Status.Gateway,
 		Topology: cfg.Gateway.Mode, LANIP: overview.Status.LANIP, DHCP: overview.Status.DHCP,
-		Mihomo: overview.Status.Mihomo, MihomoError: overview.Status.MihomoError, PFAnchor: overview.Status.PFAnchor, Forwarding: overview.Status.Forwarding,
+		Mihomo: overview.Status.Mihomo, MihomoError: overview.Status.MihomoError, PFAnchor: overview.Status.NFTables, Forwarding: overview.Status.Forwarding,
 		TUN: overview.Status.TUN, TUNInterface: overview.Status.TUNInterface, TUNError: overview.Status.TUNError,
 		ClientCount: overview.Status.ClientCount, Drift: overview.Drift, DoctorHealthy: overview.DoctorHealthy,
 		Recovery: overview.Recovery.Required, RecoveryStage: overview.Recovery.Stage, Warnings: overview.Warnings,

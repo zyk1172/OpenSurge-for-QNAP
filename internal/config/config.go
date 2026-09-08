@@ -16,7 +16,6 @@ type Config struct {
 	DNS              DNSConfig
 	Mihomo           MihomoConfig
 	Tailscale        TailscaleConfig
-	PF               PFConfig
 	Transparent      TransparentConfig
 	LocalSystemProxy LocalSystemProxyConfig
 	UpstreamProxy    UpstreamProxyConfig
@@ -43,6 +42,12 @@ type GatewayConfig struct {
 	// existed keep behaving the same way.
 	LANPrefixLen      int
 	UpstreamInterface string
+	// LANCIDR is the downstream subnet served by this gateway, e.g.
+	// 192.168.2.0/24. Traffic inside it is never sent to the proxy core.
+	LANCIDR string
+	// UpstreamGateway is the real router OpenSurge hands traffic to. It is
+	// required for direct fallback and for preflight reachability checks.
+	UpstreamGateway string
 }
 
 type DHCPConfig struct {
@@ -103,11 +108,6 @@ const (
 	TailscaleExitGroupName = "open-surge/tailscale-exit"
 )
 
-type PFConfig struct {
-	AnchorName    string
-	RedirectTCPTo int
-}
-
 const (
 	GatewayModeIsolatedLAN  = "isolated_lan"
 	GatewayModeSameLAN      = "same_lan"
@@ -117,6 +117,18 @@ const (
 const (
 	TransparentModeOff = "off"
 	TransparentModeTUN = "tun"
+)
+
+// Data-plane constants. These identify every OpenSurge-owned resource so
+// rollback can prove it is deleting its own table, rule and routes rather than
+// something belonging to QNAP, Container Station or the user.
+const (
+	DefaultNFTTableName = "opensurge"
+	// DefaultFwMark is 0x29 (41). It must not collide with marks used by Docker
+	// or by the host's own policy routing.
+	DefaultFwMark = 0x29
+	// DefaultRouteTableID is a deliberately uncommon table id.
+	DefaultRouteTableID = 20241
 )
 
 const (
@@ -159,6 +171,15 @@ type TransparentConfig struct {
 	IPv6SharedL2Ready      bool
 	IPv6PacketBrokerBinary string
 	IPv6PacketMTU          int
+	// NFTTableName is the only nftables table OpenSurge ever touches.
+	NFTTableName string
+	// FwMark tags forwarded LAN traffic so policy routing can steer it into the
+	// TUN. It must not collide with marks used by Docker or the host.
+	FwMark uint32
+	// RouteTableID is the dedicated routing table for forwarded traffic, and
+	// RouteRulePriority is the ip rule preference that selects it.
+	RouteTableID      uint32
+	RouteRulePriority uint32
 }
 
 // LocalSystemProxyConfig enables an opt-in compatibility layer for local Mac
@@ -246,21 +267,26 @@ func Default() Config {
 			SubnetRoutes:     []string{},
 			AllowedDevices:   []string{},
 		},
-		PF: PFConfig{
-			AnchorName:    "com.apple/open_mihomo_gateway",
-			RedirectTCPTo: 0,
-		},
 		Transparent: TransparentConfig{
-			Mode:                   TransparentModeOff,
-			TUNDevice:              "utun123",
-			TUNStack:               "mixed",
-			TUNAutoRoute:           true,
+			Mode: TransparentModeOff,
+			// Linux TUN device name. The upstream default was the macOS utun
+			// name, which is meaningless here.
+			TUNDevice: "tun0",
+			TUNStack:  "mixed",
+			// OpenSurge owns all host routing on Linux. Letting mihomo also
+			// manage routes would create a second, unauditable set of rules
+			// that rollback could not reliably undo, so auto-route stays off.
+			TUNAutoRoute:           false,
 			TUNAutoDetectInterface: false,
 			TUNStrictRoute:         false,
 			TUNIPv6:                TUNIPv6Off,
 			IPv6SharedL2Ready:      false,
-			IPv6PacketBrokerBinary: "opensurge-network",
-			IPv6PacketMTU:          1500,
+			IPv6PacketBrokerBinary: "",
+			IPv6PacketMTU:          0,
+			NFTTableName:           DefaultNFTTableName,
+			FwMark:                 DefaultFwMark,
+			RouteTableID:           DefaultRouteTableID,
+			RouteRulePriority:      DefaultRouteTableID,
 		},
 		LocalSystemProxy: LocalSystemProxyConfig{Enabled: false},
 		UpstreamProxy: UpstreamProxyConfig{

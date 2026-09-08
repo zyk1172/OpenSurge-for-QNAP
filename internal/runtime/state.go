@@ -6,50 +6,39 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"open-mihomo-gateway/internal/platform"
 )
 
+// State is the persisted runtime state of the gateway. It lives on the /data
+// volume so a container restart or a NAS reboot can still reconcile what the
+// host is doing against what OpenSurge intends it to do.
 type State struct {
-	PIDDNSMasq                int                  `json:"pid_dnsmasq,omitempty"`
-	DNSMasqProcessFingerprint string               `json:"dnsmasq_process_fingerprint,omitempty"`
-	PIDMihomo                 int                  `json:"pid_mihomo,omitempty"`
-	MihomoProcessFingerprint  string               `json:"mihomo_process_fingerprint,omitempty"`
-	PIDIPv6Packet             int                  `json:"pid_ipv6_packet,omitempty"`
-	IPv6PacketFingerprint     string               `json:"ipv6_packet_process_fingerprint,omitempty"`
-	BootSessionID             string               `json:"boot_session_id,omitempty"`
-	IPForwardingBefore        string               `json:"ip_forwarding_before,omitempty"`
-	PFEnabledBefore           bool                 `json:"pf_enabled_before"`
-	PFAnchorLoaded            bool                 `json:"pf_anchor_loaded"`
-	DevicePolicyDigest        string               `json:"device_policy_digest,omitempty"`
-	ProfileDigest             string               `json:"profile_digest,omitempty"`
-	LocalSystemProxy          *SystemProxySnapshot `json:"local_system_proxy,omitempty"`
-	DNSIPv6                   bool                 `json:"dns_ipv6"`
-	TUNIPv6Requested          string               `json:"tun_ipv6_requested,omitempty"`
-	IPv6PacketEffective       bool                 `json:"ipv6_packet_effective"`
-	NativeIPv6Available       bool                 `json:"native_ipv6_available"`
-	IPv6Reason                string               `json:"ipv6_reason,omitempty"`
-	IPv6GatewayAliasOwned     bool                 `json:"ipv6_gateway_alias_owned"`
-	IPv6RAEffective           bool                 `json:"ipv6_ra_effective"`
-	StartedAt                 time.Time            `json:"started_at"`
+	PIDDNSMasq                int    `json:"pid_dnsmasq,omitempty"`
+	DNSMasqProcessFingerprint string `json:"dnsmasq_process_fingerprint,omitempty"`
+	PIDMihomo                 int    `json:"pid_mihomo,omitempty"`
+	MihomoProcessFingerprint  string `json:"mihomo_process_fingerprint,omitempty"`
+	BootSessionID             string `json:"boot_session_id,omitempty"`
+	DevicePolicyDigest        string `json:"device_policy_digest,omitempty"`
+	ProfileDigest             string `json:"profile_digest,omitempty"`
+	DNSIPv6                   bool   `json:"dns_ipv6"`
+	TUNDevice                 string `json:"tun_device,omitempty"`
+	StartedAt                 time.Time `json:"started_at"`
+
+	// Applied records which host-mutating steps completed. Rollback only undoes
+	// what actually happened, so a failure before NAT was applied never tries to
+	// remove a table that was never created.
+	ForwardingApplied bool `json:"forwarding_applied"`
+	NATApplied        bool `json:"nat_applied"`
+	RoutingApplied    bool `json:"routing_applied"`
+
+	// NetworkSnapshot is the host state captured before the first mutation.
+	// Restoring it is the only supported way to undo a start, which is why it is
+	// persisted alongside the process identity rather than kept in memory.
+	NetworkSnapshot *platform.NetworkSnapshot `json:"network_snapshot,omitempty"`
 }
 
-// SystemProxySnapshot is the macOS network-service proxy state captured before
-// OpenSurge enables its local HTTP/HTTPS compatibility layer.
-type SystemProxySnapshot struct {
-	NetworkService       string             `json:"network_service"`
-	Interface            string             `json:"interface"`
-	HTTP                 SystemProxySetting `json:"http"`
-	HTTPS                SystemProxySetting `json:"https"`
-	AutoConfigEnabled    bool               `json:"auto_config_enabled,omitempty"`
-	AutoDiscoveryEnabled bool               `json:"auto_discovery_enabled,omitempty"`
-}
-
-type SystemProxySetting struct {
-	Enabled       bool   `json:"enabled"`
-	Server        string `json:"server,omitempty"`
-	Port          int    `json:"port,omitempty"`
-	Authenticated bool   `json:"authenticated,omitempty"`
-}
-
+// LoadState reads persisted runtime state.
 func LoadState(path string) (State, bool, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -65,6 +54,9 @@ func LoadState(path string) (State, bool, error) {
 	return state, true, nil
 }
 
+// SaveState persists runtime state atomically: write a temp file, chmod, then
+// rename. A crash mid-write leaves the previous state intact instead of a
+// truncated file that would be indistinguishable from a clean stop.
 func SaveState(path string, state State) error {
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
@@ -89,6 +81,10 @@ func SaveState(path string, state State) error {
 		_ = tmp.Close()
 		return err
 	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
@@ -102,6 +98,7 @@ func SaveState(path string, state State) error {
 	return nil
 }
 
+// RemoveState deletes persisted runtime state.
 func RemoveState(path string) error {
 	err := os.Remove(path)
 	if errors.Is(err, os.ErrNotExist) {

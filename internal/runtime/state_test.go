@@ -11,9 +11,6 @@ func TestSaveAndLoadState(t *testing.T) {
 	want := State{
 		PIDDNSMasq:         101,
 		PIDMihomo:          202,
-		IPForwardingBefore: "0",
-		PFEnabledBefore:    true,
-		PFAnchorLoaded:     true,
 		StartedAt:          time.Unix(1_700_000_000, 0).UTC(),
 	}
 
@@ -34,8 +31,8 @@ func TestSaveAndLoadState(t *testing.T) {
 
 func TestSaveStateReplacesExistingState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
-	first := State{PIDDNSMasq: 101, IPForwardingBefore: "0"}
-	second := State{PIDMihomo: 202, IPForwardingBefore: "1", PFAnchorLoaded: true}
+	first := State{PIDDNSMasq: 101, TUNDevice: "0"}
+	second := State{PIDMihomo: 202, TUNDevice: "1", RoutingApplied: true}
 
 	if err := SaveState(path, first); err != nil {
 		t.Fatalf("SaveState(first) error = %v", err)
@@ -58,7 +55,7 @@ func TestSaveStateReplacesExistingState(t *testing.T) {
 func TestSaveStateFailureLeavesExistingState(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")
-	existing := State{PIDDNSMasq: 101, IPForwardingBefore: "0"}
+	existing := State{PIDDNSMasq: 101, TUNDevice: "0"}
 
 	if err := SaveState(path, existing); err != nil {
 		t.Fatalf("SaveState(existing) error = %v", err)

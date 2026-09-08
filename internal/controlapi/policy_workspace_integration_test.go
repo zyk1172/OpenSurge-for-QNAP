@@ -446,7 +446,7 @@ func TestPolicyWorkspaceLabStartupHandoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	if os.Geteuid() != 0 || !filepath.IsAbs(path) || filepath.Dir(path) != cfg.Runtime.Dir ||
-		cfg.PF.AnchorName != "com.apple/open_mihomo_gateway_lab" || cfg.Transparent.Mode != "tun" ||
+		cfg.Transparent.NFTTableName != config.DefaultNFTTableName || cfg.Transparent.Mode != "tun" ||
 		cfg.Gateway.Mode != config.GatewayModeIsolatedLAN {
 		t.Fatal("requires root and the isolated TUN Lab configuration")
 	}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"open-mihomo-gateway/internal/config"
+	"open-mihomo-gateway/internal/platform"
 	"open-mihomo-gateway/internal/runtime"
 )
 
@@ -47,8 +48,7 @@ func TestStopReleasesPreparedEngineWithoutGatewayState(t *testing.T) {
 	manager := Manager{cfg: cfg, paths: runtime.NewPaths(cfg), deps: gatewayDeps{
 		geteuid: func() int { return 0 }, loadState: runtime.LoadState, removeState: runtime.RemoveState,
 		stopPrepared: func(config.Config) error { stops++; return nil },
-		newPF:        func(config.Config, runtime.Paths) pfService { return &fakePF{} },
-		newSysctl:    func() sysctlService { return &fakeSysctl{} },
+		newBackend:   func() (platform.NetworkBackend, error) { return &fakeBackend{}, nil },
 	}}
 	if err := manager.Stop(context.Background()); err != nil {
 		t.Fatal(err)
@@ -80,16 +80,14 @@ func TestCandidateStartCommitsAfterFinalValidation(t *testing.T) {
 			var events []string
 			core := &fakeMihomo{validateErr: tt.validationErr, startErr: tt.startErr, events: &events}
 			dns := &fakeDHCP{}
-			firewall := &fakePF{loaded: true}
-			forwarding := &fakeSysctl{current: "0"}
+			firewall := &fakeBackend{}
 			manager := Manager{cfg: cfg, paths: runtime.NewPaths(cfg), deps: gatewayDeps{
 				geteuid: func() int { return 0 }, loadState: runtime.LoadState,
 				saveState: runtime.SaveState, removeState: runtime.RemoveState, ensure: runtime.Ensure,
 				stopPrepared:    func(config.Config) error { events = append(events, "stop-prepared"); return nil },
 				newMihomo:       func(config.Config, runtime.Paths) mihomoService { return core },
 				newDHCP:         func(config.Config, runtime.Paths) dhcpService { return dns },
-				newPF:           func(config.Config, runtime.Paths) pfService { return firewall },
-				newSysctl:       func() sysctlService { return forwarding },
+				newBackend:      func() (platform.NetworkBackend, error) { return firewall, nil },
 				interfaces:      func() ([]net.Interface, error) { return []net.Interface{{Name: "lan0"}}, nil },
 				interfaceByName: func(name string) (*net.Interface, error) { return &net.Interface{Name: name}, nil },
 				interfaceAddrs: func(*net.Interface) ([]net.Addr, error) {
@@ -110,7 +108,7 @@ func TestCandidateStartCommitsAfterFinalValidation(t *testing.T) {
 				if !slices.Equal(events, []string{"stop-prepared", "mihomo-write", "mihomo-validate"}) {
 					t.Fatalf("candidate was not validated exactly once after prepared exit: %v", events)
 				}
-				if forwarding.enableCalled || core.startCalled || firewall.loadCalled {
+				if core.startCalled || firewall.natCalls > 0 || firewall.routingCalls > 0 {
 					t.Fatal("network takeover preceded commit")
 				}
 				if err := ctx.Err(); err != nil {
@@ -128,15 +126,15 @@ func TestCandidateStartCommitsAfterFinalValidation(t *testing.T) {
 			if tt.cancelPhase != "" && !errors.Is(err, context.Canceled) {
 				t.Fatalf("lost cancellation: %v", err)
 			}
-			if committed != tt.wantCommitted || forwarding.enableCalled != tt.wantForwarding || core.startCalled != tt.wantStart {
-				t.Fatalf("committed=%t forwarding=%t core start=%t", committed, forwarding.enableCalled, core.startCalled)
+			if committed != tt.wantCommitted || firewall.forwardingAttempted != tt.wantForwarding || core.startCalled != tt.wantStart {
+				t.Fatalf("committed=%t forwarding=%t core start=%t", committed, firewall.forwardingAttempted, core.startCalled)
 			}
 			if err != nil {
 				if _, exists, stateErr := runtime.LoadState(manager.paths.StateFile); stateErr != nil || exists {
 					t.Fatalf("failed candidate retained runtime: exists=%t err=%v", exists, stateErr)
 				}
-				if tt.wantForwarding && forwarding.restoreValue != "0" {
-					t.Fatal("forwarding was not restored")
+				if tt.wantForwarding && !firewall.forwardingRestored {
+					t.Fatal("forwarding was not restored after the failed start")
 				}
 			}
 		})

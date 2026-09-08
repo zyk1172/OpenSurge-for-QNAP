@@ -1,26 +1,34 @@
-.PHONY: test build mihomo-build doctor status policy-control-test
-.PHONY: web-install web-build web-test control-build control-run menubar-build menubar-test gui-build gui-test gui-installer gui-notarize
-.PHONY: lab-install lab-uninstall-root lab-check lab-up lab-status lab-test
-.PHONY: lab-test-tun lab-test-tun-imported-profile lab-test-tun-imported-egress lab-test-tun-local-routing lab-test-tun-device-policy lab-test-tailscale lab-tailscale-up lab-tailscale-down lab-tailscale-destroy lab-test-ipv6-userspace lab-test-ipv6-same-wifi lab-test-ipv6-same-lan lab-test-ipv6-imported-egress lab-down lab-destroy
-.PHONY: lab-test-policy-workspace
-.PHONY: real-device-start-off real-device-start-tun real-device-start-tun-proxy
-.PHONY: real-device-stop real-device-status real-device-client-check
-.PHONY: same-lan-start-tun same-lan-start-tun-proxy same-lan-start-tun-imported-egress
-.PHONY: same-lan-stop same-lan-status same-lan-adb-check same-lan-adb-check-imported-egress
-.PHONY: same-lan-start-wifi-dhcp-imported-egress same-lan-adb-check-wifi-dhcp-imported-egress
-.PHONY: same-lan-stop-wifi-dhcp same-lan-status-wifi-dhcp
-.PHONY: same-wifi-dhcp-start-imported-egress same-wifi-dhcp-adb-check-imported-egress
-.PHONY: same-wifi-dhcp-start-device-policy same-wifi-dhcp-adb-check-device-policy same-wifi-dhcp-verify-device-policy-recovery
-.PHONY: same-wifi-dhcp-stop same-wifi-dhcp-status
+# OpenSurge for QNAP — Linux/QNAP Docker gateway derived from OpenSurge for Mac.
+#
+# The macOS-era targets (menubar, gui-installer, notarize, lima lab, same-lan)
+# were removed with the macOS runtime. Tests run natively where possible; the
+# Linux-only network tests and the namespace lab require a Linux host or
+# container (see make lab-test-linux).
+
+.PHONY: test build web-install web-build web-test lint
+.PHONY: image image-check verify-third-party-notices
+.PHONY: doctor status
 
 test:
 	go test ./...
 
+# The Linux backend tests that mutate real host networking are opt-in, because
+# a developer laptop must never be reconfigured by go test. Enable them inside a
+# disposable container with CAP_NET_ADMIN:
+#   docker run --rm --cap-add NET_ADMIN --cap-add NET_RAW \
+#     -v "$$PWD":/src -w /src golang:1.25 \
+#     bash -c 'apt-get update -qq && apt-get install -y -qq nftables iproute2 && \
+#       OPEN_SURGE_NETWORK_TESTS=1 go test ./internal/platform/...'
+test-network-linux:
+	OPEN_SURGE_NETWORK_TESTS=1 go test ./internal/platform/linux/
+
 build:
 	go build -o bin/omg ./cmd/omg
+	go build -o bin/opensurge-control ./cmd/opensurge-control
 
-mihomo-build:
-	./scripts/build-opensurge-mihomo.sh
+lint:
+	go vet ./...
+	cd web && pnpm run lint
 
 web-install:
 	cd web && pnpm install
@@ -31,172 +39,28 @@ web-build:
 web-test:
 	cd web && pnpm run test
 
-control-build: web-build
-	go build -o bin/opensurge-control ./cmd/opensurge-control
-	go build -o bin/opensurge-helper ./cmd/opensurge-helper
-	go build -o bin/opensurge-install-config ./cmd/opensurge-install-config
-
-control-run: control-build
-	./bin/opensurge-control --config examples/config.example.yaml
-
-menubar-build:
-	./scripts/build-menubar-app.sh
-
-menubar-test:
-	./scripts/check-menubar.sh
-
-gui-build: control-build menubar-build
-
-gui-test: test web-test menubar-test
-	./scripts/check-gui-packaging.sh
-
-gui-installer:
-	./scripts/build-gui-installer.sh
-
-gui-notarize:
-	@test -n "$(PKG)" || (echo "usage: make gui-notarize PKG=/path/to/OpenSurge.pkg" >&2; exit 1)
-	./scripts/notarize-gui-installer.sh "$(PKG)"
-
 doctor:
 	go run ./cmd/omg doctor --config examples/config.example.yaml
 
 status:
 	go run ./cmd/omg status --config examples/config.example.yaml
 
-policy-control-test:
-	./tests/integration/policy-control.sh
+# --- Linux network namespace lab -------------------------------------------------
+# Three-namespace lab: client -> gateway -> upstream. Replaces the macOS
+# Lima/vmnet lab that the upstream project used. Requires a Linux host with
+# iproute2, nftables and CAP_NET_ADMIN; inside a container run with --privileged
+# or --cap-add NET_ADMIN and a writable /proc/sys (sysctls).
+lab-test-linux:
+	./tests/labnetns/lab-test.sh
 
-lab-install:
-	./tests/lab/install-host-deps.sh
+# --- Container image ------------------------------------------------------------
+image:
+	docker build -f docker/Dockerfile -t opensurge-qnap:dev .
 
-lab-uninstall-root:
-	./tests/lab/install-host-deps.sh --uninstall-root
+image-check:
+	docker run --rm --entrypoint opensurge-doctor opensurge-qnap:dev doctor
 
-lab-check:
-	./tests/lab/lab.sh check
-
-lab-up:
-	./tests/lab/lab.sh up
-
-lab-status:
-	./tests/lab/lab.sh status
-
-lab-test:
-	./tests/lab/lab.sh test
-
-lab-test-tun:
-	./tests/lab/lab.sh test-tun
-
-lab-test-tun-imported-profile:
-	OMG_LAB_MIHOMO_PROFILE=tests/lab/mihomo-profile.imported-tun.yaml ./tests/lab/lab.sh test-tun
-
-lab-test-tun-imported-egress:
-	OMG_LAB_MIHOMO_PROFILE=tests/lab/mihomo-profile.imported-tun-egress.yaml ./tests/lab/lab.sh test-tun
-
-lab-test-policy-workspace:
-	OMG_LAB_MIHOMO_PROFILE=tests/lab/mihomo-profile.imported-tun-egress.yaml OMG_LAB_POLICY_WORKSPACE_TEST=true ./tests/lab/lab.sh test-tun
-
-lab-test-tun-local-routing:
-	OMG_LAB_MIHOMO_PROFILE=tests/lab/mihomo-profile.imported-tun-egress.yaml OMG_LAB_LOCAL_ROUTING_TEST=true ./tests/lab/lab.sh test-tun
-
-lab-test-tun-device-policy:
-	./tests/lab/lab.sh test-tun-device-policy
-
-lab-tailscale-up:
-	./tests/lab/lab.sh tailscale-up
-
-lab-test-tailscale:
-	./tests/lab/lab.sh test-tailscale
-
-lab-tailscale-down:
-	./tests/lab/lab.sh tailscale-down
-
-lab-tailscale-destroy:
-	./tests/lab/lab.sh tailscale-destroy
-
-lab-test-ipv6-userspace:
-	./tests/lab/lab.sh test-ipv6-userspace
-
-lab-test-ipv6-same-wifi:
-	./tests/lab/lab.sh test-ipv6-same-wifi
-
-lab-test-ipv6-same-lan:
-	./tests/lab/lab.sh test-ipv6-same-lan
-
-lab-test-ipv6-imported-egress:
-	@test -n "$(OMG_LAB_IPV6_REAL_PROFILE)" || (echo "usage: OMG_LAB_IPV6_REAL_PROFILE=/absolute/path/to/profile.yaml make lab-test-ipv6-imported-egress" >&2; exit 1)
-	./tests/lab/lab.sh test-ipv6-imported-egress
-
-lab-down:
-	./tests/lab/lab.sh down
-
-lab-destroy:
-	./tests/lab/lab.sh destroy
-
-real-device-start-off:
-	./tests/real-device/smoke.sh start-off
-
-real-device-start-tun:
-	./tests/real-device/smoke.sh start-tun
-
-real-device-start-tun-proxy:
-	OMG_REAL_DEVICE_UPSTREAM_PROXY_ENABLED=true ./tests/real-device/smoke.sh start-tun
-
-real-device-stop:
-	./tests/real-device/smoke.sh stop
-
-real-device-status:
-	./tests/real-device/smoke.sh status
-
-real-device-client-check:
-	./tests/real-device/smoke.sh client-check
-
-same-lan-start-tun:
-	./tests/same-lan/smoke.sh start-tun
-
-same-lan-start-tun-proxy:
-	OMG_SAME_LAN_UPSTREAM_PROXY_ENABLED=true ./tests/same-lan/smoke.sh start-tun
-
-same-lan-start-tun-imported-egress:
-	OMG_SAME_LAN_IMPORTED_EGRESS=true ./tests/same-lan/smoke.sh start-tun-imported-egress
-
-same-lan-stop:
-	./tests/same-lan/smoke.sh stop
-
-same-lan-status:
-	./tests/same-lan/smoke.sh status
-
-same-lan-adb-check:
-	./tests/same-lan/smoke.sh adb-check
-
-same-lan-adb-check-imported-egress:
-	OMG_SAME_LAN_IMPORTED_EGRESS=true ./tests/same-lan/smoke.sh adb-check-imported-egress
-
-same-lan-start-wifi-dhcp-imported-egress:
-	OMG_SAME_WIFI_DHCP_ENABLED=true OMG_SAME_LAN_IMPORTED_EGRESS=true ./tests/same-lan/smoke.sh start-wifi-dhcp-imported-egress
-
-same-lan-adb-check-wifi-dhcp-imported-egress:
-	OMG_SAME_WIFI_DHCP_ENABLED=true OMG_SAME_LAN_IMPORTED_EGRESS=true ./tests/same-lan/smoke.sh adb-check-wifi-dhcp-imported-egress
-
-same-lan-stop-wifi-dhcp:
-	OMG_SAME_WIFI_DHCP_ENABLED=true OMG_SAME_LAN_IMPORTED_EGRESS=true ./tests/same-lan/smoke.sh stop
-
-same-lan-status-wifi-dhcp:
-	OMG_SAME_WIFI_DHCP_ENABLED=true ./tests/same-lan/smoke.sh status
-
-same-wifi-dhcp-start-imported-egress: same-lan-start-wifi-dhcp-imported-egress
-
-same-wifi-dhcp-adb-check-imported-egress: same-lan-adb-check-wifi-dhcp-imported-egress
-
-same-wifi-dhcp-start-device-policy:
-	OMG_SAME_WIFI_DHCP_ENABLED=true OMG_SAME_LAN_IMPORTED_EGRESS=true OMG_SAME_WIFI_DEVICE_POLICY_ENABLED=true ./tests/same-lan/smoke.sh start-wifi-dhcp-device-policy
-
-same-wifi-dhcp-adb-check-device-policy:
-	OMG_SAME_WIFI_DHCP_ENABLED=true OMG_SAME_LAN_IMPORTED_EGRESS=true OMG_SAME_WIFI_DEVICE_POLICY_ENABLED=true ./tests/same-lan/smoke.sh adb-check-wifi-dhcp-device-policy
-
-same-wifi-dhcp-verify-device-policy-recovery:
-	OMG_SAME_WIFI_DHCP_ENABLED=true OMG_SAME_WIFI_DEVICE_POLICY_ENABLED=true ./tests/same-lan/smoke.sh verify-wifi-dhcp-device-policy-recovery
-
-same-wifi-dhcp-stop: same-lan-stop-wifi-dhcp
-
-same-wifi-dhcp-status: same-lan-status-wifi-dhcp
+# CI entrypoint: fail when the version/checksum assertions in
+# THIRD_PARTY_NOTICES.md disagree with the pins in docker/Dockerfile.
+verify-third-party-notices:
+	./scripts/verify-third-party-notices.sh

@@ -32,13 +32,15 @@ mihomo:
   api_addr: "127.0.0.1:19090"
   secret: ""
 
-pf:
-  anchor_name: "com.apple/open_mihomo_gateway_same_lan"
-  redirect_tcp_to: 0
+nftables:
+  table_name: opensurge
+  fw_mark: 0x29
+  route_table_id: 20241
+  route_rule_priority: 20241
 
 transparent:
   mode: "tun"
-  tun_device: "utun123"
+  tun_device: "tun0"
   tun_stack: "mixed"
   tun_auto_route: true
   tun_auto_detect_interface: false

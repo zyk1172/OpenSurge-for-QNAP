@@ -1,6 +1,7 @@
 package config
 
 import (
+	"regexp"
 	"fmt"
 	"net"
 	"net/netip"
@@ -113,14 +114,28 @@ func validate(cfg Config, checkDevicePolicy bool) error {
 	if err := validateTailscale(cfg, scope, checkDevicePolicy); err != nil {
 		return err
 	}
-	if strings.TrimSpace(cfg.PF.AnchorName) == "" {
-		return fmt.Errorf("pf.anchor_name is required")
+	if strings.TrimSpace(cfg.Transparent.NFTTableName) == "" {
+		return fmt.Errorf("transparent.nft_table_name is required")
 	}
-	if !validOptionalPort(cfg.PF.RedirectTCPTo) {
-		return fmt.Errorf("pf.redirect_tcp_to must be between 0 and 65535")
+	if cfg.Transparent.FwMark == 0 {
+		return fmt.Errorf("transparent.fw_mark must be non-zero")
 	}
-	if cfg.PF.RedirectTCPTo != 0 {
-		return fmt.Errorf("pf.redirect_tcp_to is not supported on macOS; use transparent.mode: \"tun\"")
+	if cfg.Transparent.RouteTableID == 0 {
+		return fmt.Errorf("transparent.route_table_id must be non-zero")
+	}
+	if cfg.Transparent.RouteRulePriority == 0 {
+		cfg.Transparent.RouteRulePriority = cfg.Transparent.RouteTableID
+	}
+	// The LAN CIDR is derived when omitted so a config that already declares
+	// lan_ip and lan_prefix_len keeps working unchanged.
+	if strings.TrimSpace(cfg.Gateway.LANCIDR) == "" && scope.Network != nil {
+		cfg.Gateway.LANCIDR = scope.Network.String()
+	}
+	if strings.TrimSpace(cfg.Gateway.LANCIDR) == "" {
+		return fmt.Errorf("gateway.lan_cidr is required")
+	}
+	if _, _, err := net.ParseCIDR(strings.TrimSpace(cfg.Gateway.LANCIDR)); err != nil {
+		return fmt.Errorf("gateway.lan_cidr must be an IPv4 CIDR: %w", err)
 	}
 	if err := validateTransparent(cfg.Transparent); err != nil {
 		return err
@@ -402,6 +417,10 @@ func validSHA256Digest(value string) bool {
 	return true
 }
 
+// tunNamePattern constrains the TUN device name to something that is safe to
+// interpolate into a command argument.
+var tunNamePattern = regexp.MustCompile(`^[A-Za-z0-9._@-]{1,15}$`)
+
 func validateTransparent(cfg TransparentConfig) error {
 	switch cfg.TUNIPv6 {
 	case TUNIPv6Off, TUNIPv6Auto, TUNIPv6Always:
@@ -413,7 +432,7 @@ func validateTransparent(cfg TransparentConfig) error {
 			return fmt.Errorf("transparent.tun_ipv6 %s requires transparent.mode: \"tun\"", cfg.TUNIPv6)
 		}
 		if strings.TrimSpace(cfg.IPv6PacketBrokerBinary) == "" {
-			return fmt.Errorf("transparent.ipv6_packet_broker_binary is required when downstream IPv6 takeover is enabled")
+			return fmt.Errorf("downstream IPv6 takeover is not supported by OpenSurge for QNAP; set transparent.tun_ipv6: off")
 		}
 		if cfg.IPv6PacketMTU < 1280 || cfg.IPv6PacketMTU > 9000 {
 			return fmt.Errorf("transparent.ipv6_packet_mtu must be between 1280 and 9000")
@@ -423,8 +442,10 @@ func validateTransparent(cfg TransparentConfig) error {
 	case TransparentModeOff:
 		return nil
 	case TransparentModeTUN:
-		if !strings.HasPrefix(cfg.TUNDevice, "utun") {
-			return fmt.Errorf("transparent.tun_device must start with utun on macOS")
+		// Linux TUN device names are free-form but must be a valid interface
+		// name, because the value reaches an exec argv and an nft expression.
+		if !tunNamePattern.MatchString(cfg.TUNDevice) {
+			return fmt.Errorf("transparent.tun_device must be a valid Linux interface name")
 		}
 		switch cfg.TUNStack {
 		case "system", "gvisor", "mixed":

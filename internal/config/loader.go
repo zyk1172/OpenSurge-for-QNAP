@@ -255,14 +255,30 @@ func applyValue(cfg *Config, section, key, value string) error {
 			return fmt.Errorf("tailscale.exit_node_allow_lan_access must be a boolean")
 		}
 		cfg.Tailscale.ExitNodeAllowLANAccess = enabled
-	case "pf.anchor_name":
-		cfg.PF.AnchorName = value
-	case "pf.redirect_tcp_to":
-		port, err := strconv.Atoi(value)
+	case "nftables.table_name":
+		cfg.Transparent.NFTTableName = value
+	case "nftables.fw_mark":
+		mark, err := strconv.ParseUint(value, 0, 32)
 		if err != nil {
-			return fmt.Errorf("pf.redirect_tcp_to must be a number")
+			return fmt.Errorf("nftables.fw_mark must be a number")
 		}
-		cfg.PF.RedirectTCPTo = port
+		cfg.Transparent.FwMark = uint32(mark)
+	case "nftables.route_table_id":
+		table, err := strconv.ParseUint(value, 0, 32)
+		if err != nil {
+			return fmt.Errorf("nftables.route_table_id must be a number")
+		}
+		cfg.Transparent.RouteTableID = uint32(table)
+	case "nftables.route_rule_priority":
+		priority, err := strconv.ParseUint(value, 0, 32)
+		if err != nil {
+			return fmt.Errorf("nftables.route_rule_priority must be a number")
+		}
+		cfg.Transparent.RouteRulePriority = uint32(priority)
+	case "gateway.lan_cidr":
+		cfg.Gateway.LANCIDR = value
+	case "gateway.upstream_gateway":
+		cfg.Gateway.UpstreamGateway = value
 	case "transparent.mode":
 		cfg.Transparent.Mode = strings.ToLower(value)
 	case "transparent.tun_device":

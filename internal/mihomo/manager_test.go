@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -19,7 +18,6 @@ import (
 	"time"
 
 	"open-mihomo-gateway/internal/config"
-	"open-mihomo-gateway/internal/ipv6packet"
 	"open-mihomo-gateway/internal/runtime"
 )
 
@@ -254,134 +252,6 @@ func TestPatchedMihomoAcceptsManagedTailscaleOutboundConfig(t *testing.T) {
 	}
 }
 
-func TestPatchedMihomoRoutesInjectedIPv6ByMACIdentity(t *testing.T) {
-	binaryPath := os.Getenv("OPENSURGE_TEST_PATCHED_MIHOMO")
-	if binaryPath == "" {
-		t.Skip("OPENSURGE_TEST_PATCHED_MIHOMO is not set")
-	}
-	dir, err := os.MkdirTemp(os.TempDir(), "os6m-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	socketPath := filepath.Join(dir, "packet.sock")
-	configPath := filepath.Join(dir, "config.yaml")
-	logPath := filepath.Join(dir, "mihomo.log")
-	configBody := fmt.Sprintf(`ipv6: true
-mode: rule
-log-level: info
-listeners:
-  - name: opensurge-ipv6-test
-    type: opensurge-packet
-    socket: %q
-    mtu: 1500
-    device-users:
-      "02:00:00:00:00:21": "device:lab-client"
-rules:
-  - IN-USER,device:lab-client,REJECT
-  - MATCH,DIRECT
-`, socketPath)
-	if err := os.WriteFile(configPath, []byte(configBody), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	logFile, err := os.Create(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer logFile.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, binaryPath, "-d", dir, "-f", configPath)
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	if err := cmd.Start(); err != nil {
-		cancel()
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	defer func() {
-		cancel()
-		select {
-		case <-done:
-		case <-time.After(3 * time.Second):
-			_ = cmd.Process.Kill()
-			<-done
-		}
-	}()
-
-	if err := waitForFileText(socketPath, logPath, "OpenSurge packet listener ready", 10*time.Second); err != nil {
-		t.Fatalf("patched Mihomo listener did not become ready: %v\n%s", err, readTestFile(logPath))
-	}
-	brokerPath := socketPath + ".broker"
-	broker, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: brokerPath, Net: "unixgram"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer broker.Close()
-	t.Cleanup(func() { _ = os.Remove(brokerPath) })
-	mac, _ := net.ParseMAC("02:00:00:00:00:21")
-	packet := testIPv6UDPPacket(netip.MustParseAddr("fdfe:dcba:9878::21"), netip.MustParseAddr("2001:db8::80"), 41000, 443, []byte("OS6P"))
-	message, err := ipv6packet.EncodeMessage(ipv6packet.MessageInbound, mac, packet)
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := &net.UnixAddr{Name: socketPath, Net: "unixgram"}
-	for attempt := 0; attempt < 3; attempt++ {
-		if _, err := broker.WriteToUnix(message, server); err != nil {
-			t.Fatal(err)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if err := waitForFileText("", logPath, "using REJECT", 5*time.Second); err != nil {
-		t.Fatalf("patched Mihomo did not route injected IPv6 packet: %v\n%s", err, readTestFile(logPath))
-	}
-	logBody := readTestFile(logPath)
-	for _, want := range []string{"[UDP]", "[fdfe:dcba:9878::21]:41000", "[2001:db8::80]:443", "match InUser(device:lab-client)", "using REJECT"} {
-		if !strings.Contains(logBody, want) {
-			t.Fatalf("patched Mihomo log missing %q:\n%s", want, logBody)
-		}
-	}
-
-	tcpPacket := testIPv6TCPSYNPacket(netip.MustParseAddr("fdfe:dcba:9878::21"), netip.MustParseAddr("2001:db8::80"), 42000, 443)
-	tcpMessage, err := ipv6packet.EncodeMessage(ipv6packet.MessageInbound, mac, tcpPacket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for attempt := 0; attempt < 3; attempt++ {
-		if _, err := broker.WriteToUnix(tcpMessage, server); err != nil {
-			t.Fatal(err)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	synACK, err := waitForIPv6OutboundProtocol(broker, 6, time.Second)
-	if err != nil {
-		t.Fatalf("patched Mihomo gVisor stack did not answer injected IPv6 TCP SYN: %v\n%s", err, readTestFile(logPath))
-	}
-	if len(synACK) < 60 || synACK[53]&0x12 != 0x12 {
-		t.Fatalf("patched Mihomo returned an invalid TCP SYN-ACK: %x", synACK)
-	}
-	clientSequence := binary.BigEndian.Uint32(synACK[48:52])
-	serverSequence := binary.BigEndian.Uint32(synACK[44:48])
-	ackPacket := testIPv6TCPPacket(netip.MustParseAddr("fdfe:dcba:9878::21"), netip.MustParseAddr("2001:db8::80"), 42000, 443, clientSequence, serverSequence+1, 0x10)
-	ackMessage, err := ipv6packet.EncodeMessage(ipv6packet.MessageInbound, mac, ackPacket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := broker.WriteToUnix(ackMessage, server); err != nil {
-		t.Fatal(err)
-	}
-	if err := waitForFileText("", logPath, "[fdfe:dcba:9878::21]:42000", 5*time.Second); err != nil {
-		t.Fatalf("patched Mihomo did not route injected IPv6 TCP SYN: %v\n%s", err, readTestFile(logPath))
-	}
-	logBody = readTestFile(logPath)
-	for _, want := range []string{"[TCP]", "[fdfe:dcba:9878::21]:42000", "[2001:db8::80]:443", "match InUser(device:lab-client)", "using REJECT"} {
-		if !strings.Contains(logBody, want) {
-			t.Fatalf("patched Mihomo TCP log missing %q:\n%s", want, logBody)
-		}
-	}
-}
-
 func waitForFileText(requiredPath, logPath, want string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -401,25 +271,6 @@ func waitForFileText(requiredPath, logPath, want string, timeout time.Duration) 
 func readTestFile(path string) string {
 	body, _ := os.ReadFile(path)
 	return string(body)
-}
-
-func waitForIPv6OutboundProtocol(conn *net.UnixConn, protocol byte, timeout time.Duration) ([]byte, error) {
-	deadline := time.Now().Add(timeout)
-	buffer := make([]byte, 2048)
-	for time.Now().Before(deadline) {
-		if err := conn.SetReadDeadline(deadline); err != nil {
-			return nil, err
-		}
-		n, _, err := conn.ReadFromUnix(buffer)
-		if err != nil {
-			return nil, err
-		}
-		message, err := ipv6packet.DecodeMessage(buffer[:n])
-		if err == nil && message.Type == ipv6packet.MessageOutbound && len(message.Packet) >= 40 && message.Packet[6] == protocol {
-			return message.Packet, nil
-		}
-	}
-	return nil, fmt.Errorf("timed out waiting for outbound IPv6 next-header %d", protocol)
 }
 
 func testIPv6UDPPacket(source, destination netip.Addr, sourcePort, destinationPort uint16, payload []byte) []byte {

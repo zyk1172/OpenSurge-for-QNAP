@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"open-mihomo-gateway/internal/config"
-	"open-mihomo-gateway/internal/ipv6packet"
 	"open-mihomo-gateway/internal/mihomo"
 	"open-mihomo-gateway/internal/runtime"
 )
@@ -39,18 +38,17 @@ func Run(cfg config.Config) Report {
 		checkIPv4("LAN IP", cfg.Gateway.LANIP),
 		checkInterfaceIPv4(cfg.Gateway.Interface, cfg.Gateway.LANIP),
 	}
+	// Downstream IPv6 takeover is out of scope for QNAP v1. Say so explicitly
+	// rather than silently dropping IPv6, so users who still receive IPv6 from
+	// their main router understand why some traffic can bypass OpenSurge.
 	if cfg.Transparent.TUNIPv6 != config.TUNIPv6Off {
-		checks = append(checks, checkIPv6PacketBroker(cfg))
+		checks = append(checks, Check{
+			Name:    "downstream IPv6 takeover",
+			OK:      false,
+			Message: "requested but unsupported in OpenSurge for QNAP v1; clients with IPv6 may bypass the gateway",
+		})
 	}
 	return Report{Checks: checks}
-}
-
-func checkIPv6PacketBroker(cfg config.Config) Check {
-	path, err := ipv6packet.NewManager(cfg, runtime.NewPaths(cfg)).ResolveBinary()
-	if err != nil {
-		return Check{Name: "IPv6 packet broker", OK: false, Message: err.Error()}
-	}
-	return Check{Name: "IPv6 packet broker", OK: true, Message: path}
 }
 
 func checkMihomoConfigRender(cfg config.Config) Check {
