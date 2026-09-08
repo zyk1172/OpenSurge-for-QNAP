@@ -10,9 +10,6 @@ import (
 	"open-mihomo-gateway/internal/platform"
 )
 
-// State is the persisted runtime state of the gateway. It lives on the /data
-// volume so a container restart or NAS reboot can reconcile observed state
-// against the exact cleanup recipe journaled before host mutation.
 type State struct {
 	PIDDNSMasq                int       `json:"pid_dnsmasq,omitempty"`
 	DNSMasqProcessFingerprint string    `json:"dnsmasq_process_fingerprint,omitempty"`
@@ -25,10 +22,6 @@ type State struct {
 	TUNDevice                 string    `json:"tun_device,omitempty"`
 	StartedAt                 time.Time `json:"started_at"`
 
-	// These booleans describe lifecycle progress for status/UI. NetworkSnapshot's
-	// Applied fields are a stricter write-ahead cleanup journal and are persisted
-	// before the corresponding mutation, so a crash between syscall success and
-	// the next state write cannot strand kernel state.
 	ForwardingApplied bool `json:"forwarding_applied"`
 	NATApplied        bool `json:"nat_applied"`
 	RoutingApplied    bool `json:"routing_applied"`
@@ -51,11 +44,8 @@ func LoadState(path string) (State, bool, error) {
 	return state, true, nil
 }
 
-// prepareWriteAheadJournal marks cleanup intents whenever the manager has
-// already attached complete NAT/routing recipes. Cleanup operations are
-// deliberately idempotent and ownership-checked, so journaling an intent before
-// a mutation is safer than discovering after a crash that the mutation happened
-// but the state file still said it had not.
+// prepareWriteAheadJournal marks idempotent cleanup intents before host
+// mutation. The persisted recipe is authoritative after a crash.
 func prepareWriteAheadJournal(state *State) {
 	if state == nil || state.NetworkSnapshot == nil {
 		return
@@ -67,19 +57,15 @@ func prepareWriteAheadJournal(state *State) {
 	if snapshot.Routing != nil && snapshot.Routing.TableID != 0 && snapshot.Routing.FwMark != 0 {
 		snapshot.Applied.PolicyRouting = true
 	}
-	// Presence of a captured pre-change value means the lifecycle has enough
-	// information to restore forwarding. The journal may be written before the
-	// actual EnableIPv4Forwarding call; restoring the same current value is a
-	// harmless no-op if the process dies first.
 	if snapshot.IPv4Forwarding != "" {
 		snapshot.Applied.IPv4Forwarding = true
 	}
 }
 
-// SaveState is a durable atomic write: write+fsync temp, rename, then fsync the
-// parent directory. The parent fsync matters on NAS filesystems during sudden
-// power loss; rename alone does not guarantee the new directory entry is on
-// stable storage.
+// SaveState requires its parent directory to have been created by runtime.Ensure.
+// Keeping that contract prevents a typo/wrong runtime root from silently
+// creating new directories. Within an existing directory the write is durable:
+// temp file -> fsync -> rename -> parent-directory fsync.
 func SaveState(path string, state State) error {
 	prepareWriteAheadJournal(&state)
 	data, err := json.MarshalIndent(state, "", "  ")
@@ -89,9 +75,12 @@ func SaveState(path string, state State) error {
 	data = append(data, '\n')
 
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	if info, err := os.Stat(dir); err != nil {
 		return err
+	} else if !info.IsDir() {
+		return errors.New("runtime state parent is not a directory")
 	}
+
 	tmp, err := os.CreateTemp(dir, ".state-*.tmp")
 	if err != nil {
 		return err
