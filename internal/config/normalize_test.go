@@ -32,11 +32,14 @@ func TestNormalizeRejectsMacOSOnlyRoutingOwnership(t *testing.T) {
 	}
 }
 
-func TestNormalizeRejectsMacOSSystemProxy(t *testing.T) {
+func TestNormalizePreservesLegacySystemProxyFieldUntilSchemaCleanup(t *testing.T) {
 	cfg := Default()
 	cfg.LocalSystemProxy.Enabled = true
-	if err := Normalize(&cfg); err == nil || !strings.Contains(err.Error(), "macOS-only") {
-		t.Fatalf("Normalize() error = %v, want macOS-only rejection", err)
+	if err := Normalize(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.LocalSystemProxy.Enabled {
+		t.Fatal("Normalize unexpectedly erased legacy local_system_proxy field")
 	}
 }
 
