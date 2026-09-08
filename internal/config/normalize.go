@@ -7,9 +7,10 @@ import (
 )
 
 // Normalize materializes derived/default-compatible values into cfg before the
-// configuration is validated or frozen for application. It also rejects
-// macOS-only settings whose silent acceptance would create a second routing
-// owner or pretend to enable functionality the QNAP/Linux backend does not have.
+// configuration is validated or frozen for application. Only settings that
+// would make the Linux data plane unsafe are rejected here. Legacy control-plane
+// fields that no longer have a Linux runtime effect are preserved until the Web
+// schema cleanup phase so imported/upstream configuration can still round-trip.
 func Normalize(cfg *Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
@@ -34,12 +35,15 @@ func Normalize(cfg *Config) error {
 		cfg.Gateway.LANCIDR = network.String()
 	}
 
+	// Linux policy routing is owned exclusively by OpenSurge. Allowing mihomo to
+	// auto-route would create a second, unauditable route owner and break exact
+	// rollback semantics.
 	if cfg.Transparent.TUNAutoRoute {
 		return fmt.Errorf("transparent.tun_auto_route must be false on OpenSurge for QNAP; Linux policy routing is owned by OpenSurge")
 	}
-	if cfg.LocalSystemProxy.Enabled {
-		return fmt.Errorf("local_system_proxy.enabled is a macOS-only feature and is not supported on OpenSurge for QNAP")
-	}
+	// Downstream IPv6 takeover depended on the removed macOS BPF packet broker.
+	// Refuse rather than silently downgrade because a silent IPv6 bypass could
+	// violate the operator's routing expectations.
 	if cfg.Transparent.TUNIPv6 != "" && cfg.Transparent.TUNIPv6 != TUNIPv6Off {
 		return fmt.Errorf("downstream IPv6 takeover is not supported in OpenSurge for QNAP v1; set transparent.tun_ipv6: off")
 	}
