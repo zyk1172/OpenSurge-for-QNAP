@@ -56,6 +56,9 @@ func load(path string, loadDevicePolicy bool) (Config, error) {
 		return Config{}, err
 	}
 	resolveRelativePaths(path, &cfg)
+	if err := Normalize(&cfg); err != nil {
+		return Config{}, err
+	}
 	if loadDevicePolicy {
 		if err := PrepareDevicePolicy(&cfg); err != nil {
 			return Config{}, err
@@ -131,6 +134,10 @@ func applyValue(cfg *Config, section, key, value string) error {
 		cfg.Gateway.LANPrefixLen = prefixLen
 	case "gateway.upstream_interface":
 		cfg.Gateway.UpstreamInterface = value
+	case "gateway.lan_cidr":
+		cfg.Gateway.LANCIDR = value
+	case "gateway.upstream_gateway":
+		cfg.Gateway.UpstreamGateway = value
 	case "dhcp.binary":
 		cfg.DHCP.Binary = value
 	case "dhcp.enabled":
@@ -275,10 +282,6 @@ func applyValue(cfg *Config, section, key, value string) error {
 			return fmt.Errorf("nftables.route_rule_priority must be a number")
 		}
 		cfg.Transparent.RouteRulePriority = uint32(priority)
-	case "gateway.lan_cidr":
-		cfg.Gateway.LANCIDR = value
-	case "gateway.upstream_gateway":
-		cfg.Gateway.UpstreamGateway = value
 	case "transparent.mode":
 		cfg.Transparent.Mode = strings.ToLower(value)
 	case "transparent.tun_device":
