@@ -11,34 +11,31 @@ import (
 )
 
 // State is the persisted runtime state of the gateway. It lives on the /data
-// volume so a container restart or a NAS reboot can still reconcile what the
-// host is doing against what OpenSurge intends it to do.
+// volume so a container restart or NAS reboot can reconcile observed state
+// against the exact cleanup recipe journaled before host mutation.
 type State struct {
-	PIDDNSMasq                int    `json:"pid_dnsmasq,omitempty"`
-	DNSMasqProcessFingerprint string `json:"dnsmasq_process_fingerprint,omitempty"`
-	PIDMihomo                 int    `json:"pid_mihomo,omitempty"`
-	MihomoProcessFingerprint  string `json:"mihomo_process_fingerprint,omitempty"`
-	BootSessionID             string `json:"boot_session_id,omitempty"`
-	DevicePolicyDigest        string `json:"device_policy_digest,omitempty"`
-	ProfileDigest             string `json:"profile_digest,omitempty"`
-	DNSIPv6                   bool   `json:"dns_ipv6"`
-	TUNDevice                 string `json:"tun_device,omitempty"`
+	PIDDNSMasq                int       `json:"pid_dnsmasq,omitempty"`
+	DNSMasqProcessFingerprint string    `json:"dnsmasq_process_fingerprint,omitempty"`
+	PIDMihomo                 int       `json:"pid_mihomo,omitempty"`
+	MihomoProcessFingerprint  string    `json:"mihomo_process_fingerprint,omitempty"`
+	BootSessionID             string    `json:"boot_session_id,omitempty"`
+	DevicePolicyDigest        string    `json:"device_policy_digest,omitempty"`
+	ProfileDigest             string    `json:"profile_digest,omitempty"`
+	DNSIPv6                   bool      `json:"dns_ipv6"`
+	TUNDevice                 string    `json:"tun_device,omitempty"`
 	StartedAt                 time.Time `json:"started_at"`
 
-	// Applied records which host-mutating steps completed. Rollback only undoes
-	// what actually happened, so a failure before NAT was applied never tries to
-	// remove a table that was never created.
+	// These booleans describe lifecycle progress for status/UI. NetworkSnapshot's
+	// Applied fields are a stricter write-ahead cleanup journal and are persisted
+	// before the corresponding mutation, so a crash between syscall success and
+	// the next state write cannot strand kernel state.
 	ForwardingApplied bool `json:"forwarding_applied"`
 	NATApplied        bool `json:"nat_applied"`
 	RoutingApplied    bool `json:"routing_applied"`
 
-	// NetworkSnapshot is the host state captured before the first mutation.
-	// Restoring it is the only supported way to undo a start, which is why it is
-	// persisted alongside the process identity rather than kept in memory.
 	NetworkSnapshot *platform.NetworkSnapshot `json:"network_snapshot,omitempty"`
 }
 
-// LoadState reads persisted runtime state.
 func LoadState(path string) (State, bool, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -54,10 +51,37 @@ func LoadState(path string) (State, bool, error) {
 	return state, true, nil
 }
 
-// SaveState persists runtime state atomically: write a temp file, chmod, then
-// rename. A crash mid-write leaves the previous state intact instead of a
-// truncated file that would be indistinguishable from a clean stop.
+// prepareWriteAheadJournal marks cleanup intents whenever the manager has
+// already attached complete NAT/routing recipes. Cleanup operations are
+// deliberately idempotent and ownership-checked, so journaling an intent before
+// a mutation is safer than discovering after a crash that the mutation happened
+// but the state file still said it had not.
+func prepareWriteAheadJournal(state *State) {
+	if state == nil || state.NetworkSnapshot == nil {
+		return
+	}
+	snapshot := state.NetworkSnapshot
+	if snapshot.NAT != nil && snapshot.NFTablesTable != "" {
+		snapshot.Applied.NAT = true
+	}
+	if snapshot.Routing != nil && snapshot.Routing.TableID != 0 && snapshot.Routing.FwMark != 0 {
+		snapshot.Applied.PolicyRouting = true
+	}
+	// Presence of a captured pre-change value means the lifecycle has enough
+	// information to restore forwarding. The journal may be written before the
+	// actual EnableIPv4Forwarding call; restoring the same current value is a
+	// harmless no-op if the process dies first.
+	if snapshot.IPv4Forwarding != "" {
+		snapshot.Applied.IPv4Forwarding = true
+	}
+}
+
+// SaveState is a durable atomic write: write+fsync temp, rename, then fsync the
+// parent directory. The parent fsync matters on NAS filesystems during sudden
+// power loss; rename alone does not guarantee the new directory entry is on
+// stable storage.
 func SaveState(path string, state State) error {
+	prepareWriteAheadJournal(&state)
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
@@ -65,6 +89,9 @@ func SaveState(path string, state State) error {
 	data = append(data, '\n')
 
 	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
 	tmp, err := os.CreateTemp(dir, ".state-*.tmp")
 	if err != nil {
 		return err
@@ -81,6 +108,10 @@ func SaveState(path string, state State) error {
 		_ = tmp.Close()
 		return err
 	}
+	if err := tmp.Chmod(0o640); err != nil {
+		_ = tmp.Close()
+		return err
+	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
 		return err
@@ -88,21 +119,29 @@ func SaveState(path string, state State) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tmpPath, 0o640); err != nil {
-		return err
-	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		return err
 	}
 	cleanup = false
-	return nil
+	return syncDirectory(dir)
 }
 
-// RemoveState deletes persisted runtime state.
+func syncDirectory(dir string) error {
+	file, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return file.Sync()
+}
+
 func RemoveState(path string) error {
 	err := os.Remove(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return syncDirectory(filepath.Dir(path))
 }
