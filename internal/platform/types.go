@@ -62,14 +62,14 @@ func indexOfByte(s string, b byte) int {
 // operator asked OpenSurge to own. The ownership fields are validated during
 // preflight before any host mutation happens.
 type NetworkConfig struct {
-	LANInterface     string `json:"lan_interface"`
-	LANIP            string `json:"lan_ip"`
-	LANCIDR          string `json:"lan_cidr"`
+	LANInterface      string `json:"lan_interface"`
+	LANIP             string `json:"lan_ip"`
+	LANCIDR           string `json:"lan_cidr"`
 	UpstreamInterface string `json:"upstream_interface,omitempty"`
-	UpstreamGateway  string `json:"upstream_gateway"`
-	NFTTableName     string `json:"nft_table_name,omitempty"`
-	FwMark           uint32 `json:"fw_mark,omitempty"`
-	RouteTableID     uint32 `json:"route_table_id,omitempty"`
+	UpstreamGateway   string `json:"upstream_gateway"`
+	NFTTableName      string `json:"nft_table_name,omitempty"`
+	FwMark            uint32 `json:"fw_mark,omitempty"`
+	RouteTableID      uint32 `json:"route_table_id,omitempty"`
 	RouteRulePriority uint32 `json:"route_rule_priority,omitempty"`
 	// SameLAN is true when the upstream gateway is reached over the same
 	// interface that serves LAN clients, which is the manual same-LAN gateway
@@ -81,13 +81,14 @@ type NetworkConfig struct {
 // chosen by the caller and persisted, so a restart recognises OpenSurge's own
 // rules instead of re-deriving them and colliding with something else.
 type RoutingConfig struct {
-	LANInterface    string `json:"lan_interface"`
-	LANCIDR         string `json:"lan_cidr"`
-	TUNDevice       string `json:"tun_device"`
-	UpstreamGateway string `json:"upstream_gateway,omitempty"`
-	TableID         uint32 `json:"table_id"`
-	RulePriority    uint32 `json:"rule_priority"`
-	FwMark          uint32 `json:"fw_mark"`
+	LANInterface      string `json:"lan_interface"`
+	UpstreamInterface string `json:"upstream_interface,omitempty"`
+	LANCIDR           string `json:"lan_cidr"`
+	TUNDevice         string `json:"tun_device"`
+	UpstreamGateway   string `json:"upstream_gateway,omitempty"`
+	TableID           uint32 `json:"table_id"`
+	RulePriority      uint32 `json:"rule_priority"`
+	FwMark            uint32 `json:"fw_mark"`
 	// DirectFallback requests the direct-egress variant of the routing table
 	// instead of the TUN variant.
 	DirectFallback bool `json:"direct_fallback"`
@@ -110,23 +111,23 @@ type NATConfig struct {
 // mutation happens. A false value must always be accompanied by a reason the UI
 // can show.
 type Capabilities struct {
-	Kernel               string            `json:"kernel,omitempty"`
-	Architecture         string            `json:"architecture,omitempty"`
-	TUNDeviceNode        bool              `json:"tun_device_node"`
-	CapNetAdmin          bool              `json:"cap_net_admin"`
-	CapNetRaw            bool              `json:"cap_net_raw"`
-	NFTables             bool              `json:"nftables"`
-	NFTablesJSON         bool              `json:"nftables_json"`
-	IProute2             bool              `json:"iproute2"`
-	IPv4ForwardSysctl    bool              `json:"ipv4_forward_sysctl"`
-	IPv4ForwardWritable  bool              `json:"ipv4_forward_writable"`
+	Kernel              string            `json:"kernel,omitempty"`
+	Architecture        string            `json:"architecture,omitempty"`
+	TUNDeviceNode       bool              `json:"tun_device_node"`
+	CapNetAdmin         bool              `json:"cap_net_admin"`
+	CapNetRaw           bool              `json:"cap_net_raw"`
+	NFTables            bool              `json:"nftables"`
+	NFTablesJSON        bool              `json:"nftables_json"`
+	IProute2            bool              `json:"iproute2"`
+	IPv4ForwardSysctl   bool              `json:"ipv4_forward_sysctl"`
+	IPv4ForwardWritable bool              `json:"ipv4_forward_writable"`
 	// IPv4ForwardReady is true when forwarding is already enabled or the knob is
 	// writable. This is the actual start gate in containers: Compose commonly
 	// sets net.ipv4.ip_forward=1 while leaving /proc/sys read-only afterwards.
-	IPv4ForwardReady     bool              `json:"ipv4_forward_ready"`
-	NetworkNamespace     string            `json:"network_namespace,omitempty"`
-	HostNetworkMode      bool              `json:"host_network_mode"`
-	Missing              map[string]string `json:"missing,omitempty"`
+	IPv4ForwardReady bool              `json:"ipv4_forward_ready"`
+	NetworkNamespace string            `json:"network_namespace,omitempty"`
+	HostNetworkMode  bool              `json:"host_network_mode"`
+	Missing          map[string]string `json:"missing,omitempty"`
 }
 
 // Report adds a human-readable reason for a missing capability.
