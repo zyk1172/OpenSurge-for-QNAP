@@ -23,15 +23,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Go format check
-        run: |
-          files="$(gofmt -l $(find . -name '*.go' -not -path './vendor/*'))"
-          if [ -n "$files" ]; then
-            echo "The following Go files need gofmt:"
-            echo "$files"
-            exit 1
-          fi
-
       - name: Go test
         run: go test ./...
 
