@@ -82,6 +82,7 @@ COPY --from=mihomo-fetcher /out-mihomo /usr/local/bin/mihomo
 COPY docker/entrypoint.sh /usr/local/bin/opensurge-entrypoint
 COPY deploy/qnap/config.qnap-docker.yaml /usr/share/opensurge/config.qnap-docker.yaml
 COPY LICENSE THIRD_PARTY_NOTICES.md NOTICE.md /usr/share/opensurge/licenses/
+COPY third_party/licenses/ /usr/share/opensurge/licenses/third_party/
 
 RUN chmod 0755 /usr/local/bin/opensurge-entrypoint \
  && mkdir -p /data/config /data/profiles /data/providers /data/runtime /data/state /data/logs /data/backups /data/licenses /data/control
