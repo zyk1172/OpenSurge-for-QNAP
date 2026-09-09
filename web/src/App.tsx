@@ -24,6 +24,7 @@ type Theme = 'dark' | 'light'
 type NetworkNavigationTarget = 'none' | 'control' | 'bottom'
 
 const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
+const releaseTag = import.meta.env.VITE_OPENSURGE_RELEASE_TAG
 
 const nav = [
   { id: 'dashboard', label: '总览', icon: '◈' },
@@ -243,7 +244,7 @@ export function App() {
         <LanguageSelector language={language} changing={languageChanging} onChange={next => void changeLanguage(next)} />
         <button type="button" className="theme-toggle" aria-pressed={theme === 'light'} aria-label={t(theme === 'dark' ? '切换为浅色模式' : '切换为深色模式')} onClick={() => setTheme(current => current === 'dark' ? 'light' : 'dark')}><span aria-hidden="true">{theme === 'dark' ? '☀' : '◐'}</span>{t(theme === 'dark' ? '浅色模式' : '深色模式')}</button>
       </div>
-      <div className="sidebar-status"><StatusDot status={overview?.status.gateway ?? 'unreachable'} /><div><strong>{statusLabel(overview?.status.gateway, overview?.status.runtime_state)}</strong><small>{import.meta.env.VITE_OPENSURGE_RELEASE_TAG} Wind Rose</small></div></div>
+      <div className="sidebar-status"><StatusDot status={overview?.status.gateway ?? 'unreachable'} /><div><strong>{statusLabel(overview?.status.gateway, overview?.status.runtime_state)}</strong><small>{qnapBuild ? releaseTag : `${releaseTag} Wind Rose`}</small></div></div>
     </aside>
     <main className="workspace">
       {authenticationRequired ? <section className="session-expired" role="alert"><span aria-hidden="true">!</span><div><h1>{t('Web GUI 与 OpenSurge 的安全连接已过期')}</h1>{qnapBuild ? <p><a href="/auth/">重新登录</a></p> : <p>{t('请点击 macOS 菜单栏中的 OpenSurge 图标，然后选择“打开 OpenSurge 面板”。')}</p>}</div></section> : <>
