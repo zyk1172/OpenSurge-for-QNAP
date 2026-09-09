@@ -1,164 +1,246 @@
 # OpenSurge for QNAP
 
-> **Status: Phase 1 / Linux data-plane port in progress. No production QNAP Docker image has been released yet.**
+OpenSurge for QNAP is a single-container transparent proxy gateway for QNAP NAS. It combines the Web control plane, mihomo, DNS, TUN, policy routing, and persistent recovery in one Docker container with its own LAN IPv4 through QNAP QNET.
 
-OpenSurge for QNAP is a derivative of
-[OpenSurge for Mac](https://github.com/YTwsy/OpenSurge-for-Mac). Its goal is to
-reuse the upstream Web control plane, mihomo configuration/policy features, and
-gateway lifecycle while replacing the macOS runtime with a product-grade Linux
-backend suitable for QNAP NAS and generic Linux Docker deployments.
+The project is currently in **real-QNAP stabilization / test-image** stage. The default target is IPv4 same-LAN manual-gateway mode: the main router keeps DHCP enabled, while selected clients point their IPv4 gateway and DNS to OpenSurge.
 
-This is not an official QNAP edition from the upstream author and is not
-endorsed by the upstream project unless explicitly stated otherwise.
+> The current rolling image is for testing only and is not a stable release.
 
-- Original project: OpenSurge for Mac
-- Original author / organization: YTwsy
-- Upstream repository: <https://github.com/YTwsy/OpenSurge-for-Mac>
-- Fork baseline: `b03bf2f8a2b02a6fffba9c879ce1980ddb831a67` (v0.2.2)
-- Fork date: 2026-09-09
-- License: `GPL-3.0-only`, inherited unchanged
-- Upstream relationship: [docs/UPSTREAM.md](docs/UPSTREAM.md)
-- Attribution/license notes: [NOTICE.md](NOTICE.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
-
-## Product target
-
-The intended stable topology is:
+## Architecture
 
 ```text
 LAN client
-   │ Gateway / DNS = OpenSurge container
-   ▼
-QNAP / Linux
-└─ OpenSurge container
-   ├─ Web UI / Control API
-   ├─ mihomo TUN
-   ├─ DNS / dnsmasq
-   ├─ nftables (OpenSurge-owned table only)
-   └─ iproute2 policy routing
-          ├─ DIRECT
-          └─ PROXY
+ gateway / DNS = OpenSurge IP
+        │
+        ▼
+QNAP QNET LAN IP
+┌──────────────────────────────┐
+│ opensurge                    │
+│                              │
+│ Web UI :8080                 │
+│ Control API (loopback)       │
+│ mihomo                       │
+│ dnsmasq                      │
+│ TUN                          │
+│ iproute2 policy routing      │
+│ persistent /data             │
+└──────────────────────────────┘
+        │
+        ├─ DIRECT
+        └─ PROXY
 ```
 
-The first stable mode will prioritize **same-LAN manual gateway** operation:
-main-router DHCP stays enabled and selected clients manually use OpenSurge as
-their IPv4 gateway and DNS server. Whole-LAN DHCP takeover and downstream IPv6
-takeover are deliberately out of scope for the first stable release.
+The default deployment contains one product container only:
 
-## Implemented in Phase 1
+```text
+opensurge
+```
 
-The current PR/branch provides or is validating the following foundation:
+There is no Manager/Orchestrator pair and the LAN-facing Web UI is not given the Docker socket.
 
-- preserved upstream attribution, Git history and `GPL-3.0-only` licensing;
-- removed the macOS menu-bar app, PKG/notarization, launchd helper, pf and macOS
-  BPF IPv6 runtime;
-- added `platform.NetworkBackend` to isolate business lifecycle logic from Linux
-  host commands;
-- Linux IPv4 backend based on `nftables + iproute2 + /dev/net/tun`;
-- explicit rejection of mihomo `auto-route` on the QNAP/Linux path so OpenSurge
-  remains the single routing owner;
-- nftables operations scoped to an OpenSurge-owned table; global `nft flush
-  ruleset` is forbidden;
-- preflight collision checks for nft table, fwmark, routing table and rule
-  priority; startup fails when ownership cannot be proven;
-- structured `ip -j` policy-rule inspection and exact route/rule deletion rather
-  than flushing an entire routing table;
-- persisted NAT/routing cleanup recipes independent of process-local backend
-  memory;
-- fresh-process Stop/rollback/interrupted recovery paths;
-- write-ahead cleanup journaling to close the crash window between a successful
-  kernel mutation and the next state-file write;
-- snapshots bound to the Linux network namespace so an isolated container
-  restart never replays old cleanup into a fresh namespace;
-- atomic state writes with file and parent-directory `fsync`;
-- explicit `Normalize -> Validate` configuration flow for derived LAN CIDR and
-  policy-rule priority values;
-- initial Linux/QNAP lifecycle regression tests and a minimal GitHub Actions Go
-  CI workflow.
+### Same-LAN QNAP data plane
 
-## Not implemented yet
+For QNAP kernels that provide TUN and Linux policy routing but not `nf_tables`, OpenSurge uses ingress-interface policy routing:
 
-Phase 1 is **not a production release**. The following remain pending:
+```text
+eth0 ingress
+   ↓
+ip rule iif eth0
+   ↓
+OpenSurge dedicated routing table
+   ↓
+tun0
+   ↓
+mihomo
+```
 
-- production `Dockerfile`, Compose, and QNAP Container Station deployment;
-- remote Web authentication, sessions, CSRF and login rate limiting;
-- full removal/replacement of macOS-specific Web UI wording and settings;
-- watchdog, bounded restart and full reconciliation state machine;
-- three-namespace Linux lab (`client -> gateway -> upstream`);
-- real QNAP validation, NAS reboot tests, and 24h/72h soak tests;
-- Docker healthcheck, diagnostic bundle, complete log rotation and secret
-  redaction;
-- release SBOM/provenance and automated third-party-license verification;
-- DHCP takeover;
-- downstream IPv6 takeover.
+The supported same-LAN QNET mode therefore **does not require nftables**. Both TCP and UDP remain on the TUN data plane.
 
-No `stable` tag should be published before those product gates are met.
+An nftables/fwmark backend is retained for isolated downstream topologies that require NAT, with strict capability and ownership checks.
 
-## Network safety rules
+## Test image
 
-1. Never flush the host firewall globally.
-2. Uncommon IDs do not imply ownership; nft table, fwmark, route table and rule
-   priority must be conflict-checked.
-3. Stop/recovery must work from persisted state in a fresh process.
-4. Cleanup must be exact; do not flush a full policy-routing table.
-5. Invalid configuration must not destroy the previous usable network state.
-6. Linux network namespace identity is a recovery boundary.
+Rolling test release:
 
-## Development and validation
+<https://github.com/zyk1172/OpenSurge-for-QNAP/releases/tag/qnap-test-latest>
 
-Ordinary tests do not intentionally modify host networking:
+QNAP TS-264C / x86_64 users should use:
 
-```bash
+```text
+OpenSurge-for-QNAP-test-amd64.tar.gz
+```
+
+Load it with:
+
+```sh
+gzip -dc OpenSurge-for-QNAP-test-amd64.tar.gz | docker load
+```
+
+The loaded tag is:
+
+```text
+opensurge-for-qnap:test
+```
+
+The image is built by GitHub Actions. The NAS does not need Go, Node.js, pnpm, gcc, or project build dependencies and should not be used as the image build machine.
+
+## QNAP deployment
+
+- [Chinese deployment guide](deploy/qnap/README.zh-CN.md)
+- [English deployment guide](deploy/qnap/README.md)
+- [Persistence model](deploy/qnap/PERSISTENCE.md)
+- [Default Compose](deploy/qnap/docker-compose.yml)
+
+Creation-time parameters:
+
+| Variable | Purpose |
+|---|---|
+| `OPENSURGE_PARENT_INTERFACE` | QNAP QNET parent NIC / Virtual Switch |
+| `OPENSURGE_IP` | OpenSurge LAN IPv4 |
+| `OPENSURGE_SUBNET` | LAN CIDR |
+| `OPENSURGE_GATEWAY` | Upstream router IPv4 |
+| `OPENSURGE_DATA_PATH` | Persistent QNAP host path |
+
+The physical NIC, QNET, static IP, CIDR and upstream gateway are container-creation parameters. The running Web UI does not modify QTS Network & Virtual Switch.
+
+The container-side interface is normally `eth0`; it is not the same name as the selected QNAP host-side NIC, bridge, bond, or Virtual Switch.
+
+## Web management
+
+Open:
+
+```text
+http://<OpenSurge-IP>:8080
+```
+
+The QNAP Web surface currently provides:
+
+- first-admin creation and authenticated login;
+- gateway start/stop and interrupted-state recovery;
+- actual container network status;
+- mutable DNS/TUN runtime settings;
+- HTTPS subscription and local YAML import;
+- persistent draft, running, and next-start versions;
+- providers, policy groups and rules;
+- device policies;
+- connection and traffic views;
+- Doctor, logs, and lifecycle operation history.
+
+The QNAP build exposes NAS-relevant controls only; desktop-only host controls are not presented as QNAP features.
+
+## Persistence
+
+Recommended bind mount:
+
+```text
+/share/Container/opensurge -> /data
+```
+
+Important directories:
+
+```text
+/data/config      main configuration
+/data/control     admin/control state
+/data/profiles    imported/managed profiles
+/data/providers   provider data
+/data/state       durable feature state
+/data/backups     configuration backups
+/data/runtime     ownership/crash-recovery journal
+/data/logs        component logs
+```
+
+Preserve the full `/data` tree for updates and container recreation on the same NAS. An existing `/data/config/opensurge.yaml` is not overwritten by new first-run seed values.
+
+## Real QNAP compatibility discovered so far
+
+A QNAP 5.10.60-qnap x86_64 environment has confirmed:
+
+- working TUN kernel support;
+- working `/dev/net/tun` container mapping;
+- `NET_ADMIN` / `NET_RAW` capability support;
+- working `iproute2`;
+- missing `nf_tables` netlink support on that kernel;
+- working manual mihomo HTTP / SOCKS5 / DNS paths.
+
+The project now includes nft-free ingress-interface TUN policy routing for this same-LAN QNAP class, plus dedicated TCP/UDP namespace CI.
+
+Physical-client, reboot, and long-duration validation remain in progress.
+
+## Network safety boundaries
+
+1. Never run `nft flush ruleset`.
+2. Never flush the host policy-routing table globally.
+3. Do not require `privileged: true` by default.
+4. Do not use host networking for the Gateway data plane.
+5. Do not expose the Docker socket to the LAN-facing Web UI.
+6. Kernel objects must be owned, snapshotted, journaled, and removed precisely.
+7. A recreated container network namespace is a recovery boundary.
+8. Normal QNAP Web operations do not change QTS default routes, DNS, DHCP, or Virtual Switch configuration.
+
+## Current scope
+
+First stable release priorities:
+
+- single-container QNAP Docker deployment;
+- QNET independent LAN IPv4;
+- IPv4 same-LAN manual gateway;
+- TUN transparent proxying;
+- DNS;
+- subscriptions/providers/policies/device management;
+- persistent recovery across container recreation.
+
+Not first-stable goals:
+
+- automatic main-router DHCP takeover;
+- downstream IPv6 takeover;
+- automatic QNAP Network & Virtual Switch mutation;
+- QPKG packaging;
+- fully automatic household-network migration.
+
+## Remaining stable gates
+
+- real client TCP / UDP / QUIC end-to-end validation;
+- QNAP reboot recovery;
+- 24h / 72h soak testing;
+- long-running CPU, memory, FD, and log-capacity checks;
+- production update/rollback rehearsal;
+- SBOM, provenance, checksums, and third-party-license verification;
+- stable image publication workflow.
+
+## Development
+
+```sh
 go test ./...
 go vet ./...
 ```
 
-Real Linux network tests are opt-in and should run only inside a disposable
-container/network namespace:
+Web:
 
-```bash
-OPEN_SURGE_NETWORK_TESTS=1 go test ./internal/platform/linux/
+```sh
+cd web
+pnpm install --frozen-lockfile
+pnpm test
+OPENSURGE_TARGET=qnap pnpm build
 ```
 
-Do not run high-risk integration tests in the namespace currently carrying the
-NAS management network or a household gateway.
+Linux namespace lab:
 
-## Roadmap
+```sh
+make lab-test-linux
+```
 
-### Phase 1 — Linux data-plane foundation
+Do not run high-risk network integration tests in the host namespace currently carrying NAS management or household-gateway traffic.
 
-Platform boundary, ownership enforcement, transactional recovery, configuration
-migration guards, and regression tests.
+## Upstream and license
 
-### Phase 2 — Docker and Web productization
+OpenSurge for QNAP is derived from [OpenSurge for Mac](https://github.com/YTwsy/OpenSurge-for-Mac) and productized for QNAP/Linux. It is not an official QNAP edition from, or an endorsed release of, the upstream project.
 
-Production Docker/Compose packaging, persistent layout, LAN Web authentication,
-health checks, diagnostics, and a Linux network-namespace lab.
+- Upstream project: OpenSurge for Mac
+- Upstream author / organization: YTwsy
+- Fork baseline: `b03bf2f8a2b02a6fffba9c879ce1980ddb831a67` (v0.2.2)
+- Fork date: 2026-09-09
+- License: `GPL-3.0-only`
+- Relationship details: [docs/UPSTREAM.md](docs/UPSTREAM.md)
+- Attribution/notices: [NOTICE.md](NOTICE.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
-### Phase 3 — QNAP stability validation
-
-Container Station / Virtual Switch topology verification, fault injection, NAS
-reboot tests, 24h/72h soak testing, performance and log-capacity validation.
-
-### Phase 4 — Optional extensions
-
-Only after the stable baseline: DHCP takeover, IPv6 takeover, and broader Linux
-NAS targets.
-
-## Upstream synchronization
-
-The fork does not automatically merge upstream macOS runtime changes. Prefer
-manual cherry-picks for platform-neutral fixes such as:
-
-- mihomo profile/provider/policy logic;
-- Web UI improvements;
-- configuration parsing and device policies;
-- tests and documentation.
-
-See [docs/UPSTREAM.md](docs/UPSTREAM.md) for the detailed policy.
-
-## License
-
-This project remains **GPL-3.0-only**. Upstream copyright history, `LICENSE`, and
-third-party notices must remain intact. Future Docker releases must also provide
-corresponding-source information for GPL-covered binaries and ensure the SBOM,
-notices and actual build contents agree.
+Upstream copyright history, `LICENSE`, and third-party notices remain intact. Platform-neutral upstream fixes may be cherry-picked manually; macOS runtime changes are not automatically merged back into the QNAP default path.
