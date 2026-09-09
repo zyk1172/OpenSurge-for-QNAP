@@ -244,7 +244,7 @@ export function App() {
       <div className="sidebar-status"><StatusDot status={overview?.status.gateway ?? 'unreachable'} /><div><strong>{statusLabel(overview?.status.gateway, overview?.status.runtime_state)}</strong><small>{import.meta.env.VITE_OPENSURGE_RELEASE_TAG} Wind Rose</small></div></div>
     </aside>
     <main className="workspace">
-      {authenticationRequired ? <section className="session-expired" role="alert"><span aria-hidden="true">!</span><div><h1>{qnapBuild ? 'OpenSurge 管理会话已过期' : t('Web GUI 与 OpenSurge 的安全连接已过期')}</h1><p>{qnapBuild ? '请重新登录以继续管理 QNAP 网关。' : t('请点击 macOS 菜单栏中的 OpenSurge 图标，然后选择“打开 OpenSurge 面板”。')}</p>{qnapBuild && <a href="/auth/">重新登录</a>}</div></section> : <>
+      {authenticationRequired ? <section className="session-expired" role="alert"><span aria-hidden="true">!</span><div><h1>{t('Web GUI 与 OpenSurge 的安全连接已过期')}</h1>{qnapBuild ? <p><a href="/auth/">重新登录</a></p> : <p>{t('请点击 macOS 菜单栏中的 OpenSurge 图标，然后选择“打开 OpenSurge 面板”。')}</p>}</div></section> : <>
         {overview?.recovery.required && needsNetworkRecoveryWarning(overview.recovery.stage) && <RecoveryBanner recovery={overview.recovery.stage} onOpen={() => go('network', 'control')} />}
         {error && <div className="error-banner" role="alert"><span>!</span><p>{error}</p><button onClick={() => void refresh()}>{t('重试')}</button></div>}
         <PageErrorBoundary key={page}>
