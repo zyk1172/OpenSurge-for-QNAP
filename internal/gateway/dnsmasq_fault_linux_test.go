@@ -46,6 +46,7 @@ func TestDNSMasqCrashRecoveryLinux(t *testing.T) {
 	cfg.DHCP.Enabled = false
 	cfg.DNS.Listen = "10.77.1.1"
 	cfg.DNS.Port = 53
+	cfg.Transparent.Mode = config.TransparentModeTUN
 	cfg.Runtime.Dir = filepath.Join(root, "runtime")
 	cfg.Mihomo.Config = filepath.Join(cfg.Runtime.Dir, "mihomo.yaml")
 	paths := runtime.NewPaths(cfg)
