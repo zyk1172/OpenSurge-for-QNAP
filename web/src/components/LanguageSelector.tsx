@@ -18,7 +18,7 @@ export function LanguageSelector({ language, changing, onChange }: {
     </span>
     <span className="language-selector-chevron" aria-hidden="true">⌄</span>
     <select
-      aria-label={t('选择 OpenSurge Web GUI 和菜单栏使用的语言')}
+      aria-label={t('界面语言')}
       value={language}
       disabled={changing}
       onChange={event => onChange(event.target.value as RequestedLanguage)}
