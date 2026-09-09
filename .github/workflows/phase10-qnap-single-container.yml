@@ -116,8 +116,10 @@ jobs:
       - name: Linux process identity does not require ps
         run: |
           go test ./internal/process -run 'TestLinuxProcessIdentityUsesProcfsWithoutPS|TestFingerprintMatchesCurrentProcessAndRejectsDifferentIdentity|TestFingerprintTreatsMissingProcessAsAbsent' -count=1
-          ! grep -n 'exec.Command("/bin/ps"' internal/process/process.go | grep -v 'psProcessIdentity'
-          grep -q 'linuxProcessIdentity(pid)' internal/process/process.go
+          grep -q 'if runtime.GOOS == "linux"' internal/process/process.go
+          grep -q 'identity, err = linuxProcessIdentity(pid)' internal/process/process.go
+          test "$(grep -c 'exec.Command("/bin/ps"' internal/process/process.go)" -eq 1
+          grep -q 'func psProcessIdentity' internal/process/process.go
       - name: Profile persistence tests
         run: go test ./internal/controlapi -run 'TestApplyProfileLeavesStoppedGatewayPendingForNextStart|TestApplyProfileFlowStyleUsesAuthoritativeRenderer' -count=1
       - name: QNAP container runner tests
