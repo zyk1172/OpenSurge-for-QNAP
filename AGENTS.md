@@ -1,78 +1,197 @@
-# Agent 指南
+# Agent 指南 — OpenSurge for QNAP
 
-OpenSurge for Mac 是一个开源的 Surge for Mac 风格 macOS 网关与控制面。
-面向用户的主要操作入口已经是 React Web GUI 与 SwiftUI 菜单栏 App；`omg`
-CLI 保留为运维、诊断、自动化和恢复接口。核心能力是全屋代理网关：Mac 为
-下游设备承担网关职责，并按拓扑提供 DHCP/DNS；mihomo 作为当前代理引擎，
-macOS 网络能力负责 NAT、转发与透明路由。
+本仓库的当前产品身份是 **OpenSurge for QNAP**。默认目标不是 macOS App，而是运行在 QNAP Container Station / Docker 中的单容器透明代理网关。
 
-这个文件是 coding agent 进入本仓库时的第一站。凡是改动网关行为、网络
-验证、配置语义或项目定位，都应先读这里。
+面向用户的主要入口是 QNAP Web UI；`omg` CLI 用于运维、诊断、自动化和恢复。当前代理引擎是 mihomo。
 
-## 先读这些
+任何 coding agent 在修改网关、网络、部署、Web 文案或验证逻辑前，都应先阅读本文件和根目录 `README.md`。
 
-1. 读 `README.md`，了解面向用户的范围和当前 App/CLI 工作流。
-2. 读 `docs/agent-wiki/wiki/index.md`，获取 agent 专用项目上下文。
-3. 如果改网关行为，读
-   `docs/agent-wiki/wiki/concepts/gateway-lifecycle.md`。
-4. 如果改透明代理，读
-   `docs/agent-wiki/wiki/concepts/macos-tun-transparent-proxy.md`。
-5. 如果改下游 IPv6，读
-   `docs/agent-wiki/wiki/concepts/downstream-ipv6-takeover.md`。
-6. 如果判断测试或验收门槛，读
-   `docs/agent-wiki/wiki/concepts/validation-gates.md`。
+## 当前默认产品架构
 
-## 产品方向
+```text
+LAN client
+ Gateway / DNS = OpenSurge IP
+        │
+        ▼
+QNAP QNET
+┌──────────────────────────────┐
+│ opensurge                    │
+│ Web UI :8080                 │
+│ Control API (loopback)       │
+│ mihomo                       │
+│ dnsmasq                      │
+│ TUN                          │
+│ Linux policy routing         │
+│ /data persistence            │
+└──────────────────────────────┘
+```
 
-- 产品身份是 `OpenSurge for Mac`。
-- 当前代理引擎是 `mihomo`，它不是产品名。
-- 核心网关模型是：dnsmasq 提供 DHCP/DNS，mihomo 提供代理能力，pf
-  提供 NAT，sysctl 管理 macOS IPv4 forwarding 状态。
-- 实验性的下游 IPv6 使用 dnsmasq RA/SLAAC/RDNSS 或手工 ULA 接入，并通过
-  macOS BPF broker 与本项目补丁构建的 mihomo `opensurge-packet`/gVisor 数据面处理。
-- Web GUI 是主要操作控制面；菜单栏 App 负责状态、恢复提醒和入口，CLI 负责
-  运维、诊断、自动化与恢复。三者应复用现有 Go 业务规则，不建立平行业务实现。
-- 工程方向是：Mac-native、可审计、带透明路由，并以可复现实验室验证约束
-  高风险网络能力。
+默认部署只有一个 `opensurge` 容器。
 
-不要把产品重新命名为 mihomo。`omg` 与 `open-mihomo-gateway` 是当前实现期
-遗留的技术命名，除非任务明确要求迁移，否则不要在品牌层面扩大它们。
+不要重新引入以下默认架构：
 
-## 网络规则
+- `opensurge-manager` + `opensurge-orchestrator` 双容器；
+- LAN-facing Web 挂载 Docker Socket；
+- host network Gateway；
+- `privileged: true`；
+- 运行中的 Web 自动修改 QTS Network & Virtual Switch。
 
-- TUN 是 macOS 上受支持的透明代理路径。
-- 除非项目明确重新打开该决策，否则 `mihomo.redir_port` 与
-  `pf.redirect_tcp_to` 必须保持 inactive。
-- 下游 IPv6 ingress 不进入 macOS 系统 TUN，但仍要求整体
-  `transparent.mode: "tun"`；共享 L2 必须消除竞争 IPv6 RA/默认路由。
-- 高风险网络改动需要实验室验证，不能只依赖单元测试。
-- 结论必须精确说明实际运行了哪些对应门槛。
+## QNAP 网络模型
 
-## 验证
+### 容器创建参数
 
-`make test` 是快速默认门槛，当前等价于 `go test ./...`，也是 CI 级别门槛。
+以下值在 Docker/QNET 创建容器时确定：
 
-涉及 DHCP、DNS、mihomo 进程或配置生成、pf/NAT、IPv4 forwarding、rollback、
-网关生命周期清理、lab 拓扑或 runtime traffic defaults 的改动，
-需要用 `make lab-test` 才能宣称真实 host-network 路径被验证。
+- QNAP QNET 父网卡 / Virtual Switch；
+- OpenSurge 静态 IPv4；
+- LAN CIDR；
+- 上游主路由 IPv4；
+- `/data` 持久化目录。
 
-涉及透明代理的改动，需要用 `make lab-test-tun` 才能宣称 TUN 透明代理路径被
-验证。这个门槛会保持客户端无显式代理配置，并要求 HTTPS 流量出现在 mihomo
-TUN 路径的日志中。
+容器内部接口通常为 `eth0`。不要因为宿主父接口是 `eth1` / `br0` 就把容器接口改成同名。
 
-涉及下游 IPv6 RA/SLAAC/RDNSS、BPF broker、patched mihomo packet listener、设备身份
-或停止撤销的改动，按拓扑运行 `make lab-test-ipv6-userspace`、
-`make lab-test-ipv6-same-wifi` 或 `make lab-test-ipv6-same-lan`，才能宣称对应
-host-network IPv6 路径已验证。
+### Same-LAN 数据面
 
-如果沙箱阻止 Go cache 写入，把 `GOCACHE` 指向 `/private/tmp` 下的路径。
+当前 QNAP same-LAN manual-gateway 是第一稳定目标。
 
-## Agent Wiki 维护规则
+支持的优先数据面是：
 
-`docs/agent-wiki/sources/` 记录稳定来源材料：项目目标、决策和验证契约。
+```text
+eth0 ingress
+→ ip rule iif eth0
+→ OpenSurge dedicated routing table
+→ tun0
+→ mihomo
+```
 
-`docs/agent-wiki/wiki/` 是给未来 agent 优先阅读的上下文页面。当某个改动产生
-会影响未来 agent 判断的知识时，同步更新这些页面。
+这条路径不要求 `nf_tables`。
 
-只沉淀可复用知识。一次性日志、临时命令输出、未经验证的猜测和普通 TODO 不
-应进入 wiki。
+部分 QNAP 5.10 内核有 TUN 和 policy routing，但没有可用的 nftables netlink。不要把 `nft -j list ruleset` 失败直接解释为 same-LAN Gateway 必须失败。
+
+需要 NAT 的 isolated-LAN 拓扑仍保留 nftables + fwmark 后端，并继续要求严格能力检查。
+
+## 安全边界
+
+网络改动必须遵守：
+
+1. 禁止 `nft flush ruleset`。
+2. 禁止全局 `ip route flush` / `ip rule flush`。
+3. OpenSurge 只能删除能够证明 ownership 的规则、路由、table 和进程。
+4. runtime snapshot / write-ahead cleanup journal 必须保留跨进程恢复能力。
+5. network namespace 是恢复边界；旧容器 namespace 的内核对象不能直接假定仍属于新容器。
+6. Web 不得获得修改 QNAP 默认网关、DNS、DHCP 或 Virtual Switch 的任意权限。
+7. `/data` 是产品持久化边界，正常升级/重建不得随意清空。
+8. 真机测试不得因为方便而停止无关容器、重启 NAS 或修改整网 DHCP。
+
+## QNAP Web 产品规则
+
+QNAP build 应只显示与 NAS 产品有关的功能。
+
+不要在 QNAP 用户表面出现或依赖：
+
+- Finder；
+- macOS 菜单栏；
+- 合盖保持运行；
+- Mac 本机 Wi-Fi DHCP 恢复；
+- PF Anchor；
+- LaunchAgent / launchd；
+- PKG / Gatekeeper；
+- “OpenSurge for Mac”产品身份；
+- 上游内部 codename 作为 QNAP 版本标识。
+
+如果共享 React 组件同时服务 Mac/QNAP，必须通过 build target 明确隔离，不要因为组件复用就让 Mac 文案出现在 QNAP 页面。
+
+## 配置与订阅持久化
+
+用户可变配置保存在 `/data`。
+
+特别注意：
+
+- 已存在 `/data/config/opensurge.yaml` 时，首次 seed 不得覆盖它；
+- 导入订阅只创建草稿；
+- `desired` / `applied` 状态必须真实持久化；
+- Web 不能仅凭 HTTP 200 显示保存成功；必须重新读取后确认持久状态；
+- 运行中保存需要时应执行 stop → persist → verify → start，并明确传播失败。
+
+## 依赖与构建
+
+QNAP NAS 不是构建服务器。
+
+正常测试/发布流程：
+
+```text
+GitHub Actions build
+→ amd64 / arm64 Docker archive
+→ SHA256
+→ GitHub prerelease
+→ NAS docker load
+```
+
+不要把 Go、Node.js、pnpm、gcc 等开发依赖作为 QNAP 正常部署要求。
+
+## 验证门槛
+
+普通代码：
+
+```sh
+go test ./...
+go vet ./...
+```
+
+Web：
+
+```sh
+cd web
+pnpm install --frozen-lockfile
+pnpm test
+OPENSURGE_TARGET=qnap pnpm build
+```
+
+QNAP/Linux 网络改动必须至少运行相关 namespace/integration test。
+
+涉及 same-LAN TUN ingress-interface routing 时，必须验证：
+
+- nft backend 不可用时 preflight 仍能通过支持范围；
+- `ip rule iif` 正确安装；
+- OpenSurge 专用 routing table 正确安装；
+- TCP forwarding lookup 进入 TUN；
+- UDP forwarding lookup 进入 TUN；
+- direct fallback 能切回真实 upstream gateway；
+- Stop/rollback 精确清理；
+- isolated-LAN 在缺少 nftables 时仍 fail closed。
+
+CI 全绿之前不要合并网络路径变更。
+
+## QNAP 真机验证
+
+真机测试必须明确区分：
+
+- CI / namespace 已验证；
+- NAS-side 已验证；
+- physical client 已验证；
+- reboot / soak 尚未验证。
+
+不能用 NAS 内部 `curl` 代替真实客户端 Gateway/DNS 测试。
+
+当前真实 QNAP 测试的目标是先完成一台客户端的 DNS、DIRECT、PROXY、TCP、UDP/QUIC，然后再做 reboot 和 24h/72h soak。
+
+## 文档事实来源
+
+优先级：
+
+1. `README.md` — 当前产品范围；
+2. `deploy/qnap/README.zh-CN.md` — QNAP 部署；
+3. `docs/app-user-guide.zh-CN.md` — 当前用户流程；
+4. `docs/faq.zh-CN.md` — 当前 QNAP FAQ；
+5. `internal/gateway/`、`internal/platform/linux/`、`internal/controlapi/` — 实际实现；
+6. `.github/workflows/` — 当前 CI 门槛。
+
+`docs/UPSTREAM.md`、`NOTICE.md`、`THIRD_PARTY_NOTICES.md` 用于来源和许可证关系。
+
+仓库内名字明确包含 `macos`、`local-mac`、`lid-closed` 的旧文档/代码属于上游兼容或历史参考，除非当前 QNAP 代码明确引用，否则 **不能作为 QNAP 产品行为的事实来源**。
+
+## 上游关系
+
+本项目基于 OpenSurge for Mac 派生，继续遵守 GPL-3.0-only 并保留上游版权/来源记录。
+
+不要为了“去除原作者残留”而删除 `LICENSE`、NOTICE、第三方许可证或来源说明。需要清理的是 QNAP 产品表面和当前开发文档中的错误产品身份，不是合法 attribution。
