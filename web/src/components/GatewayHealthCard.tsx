@@ -22,9 +22,8 @@ export function GatewayHealthCard({ overview }: { overview: Overview | null }) {
       <ServiceState label={status?.dhcp_enabled === false ? 'DNS' : 'DHCP / DNS'} state={status?.dhcp} />
       <ServiceState label="mihomo" state={status?.mihomo} />
       <ServiceState label={status?.tun_interface ? `TUN · ${status.tun_interface}` : 'TUN'} state={status?.tun} />
-      {qnapBuild
-        ? <ServiceState label={t('规则与转发')} state={status?.routing} displayState={routingStatusLabel(status?.routing)} detail={status?.routing_error} />
-        : <ServiceState label="PF Anchor" state={status?.pf_anchor} />}
+      {qnapBuild && <ServiceState label={t('规则与转发')} state={status?.routing} displayState={routingStatusLabel(status?.routing)} detail={status?.routing_error} />}
+      {!qnapBuild && <ServiceState label="PF Anchor" state={status?.pf_anchor} />}
       <ServiceState label={t('IPv4 转发')} state={status?.forwarding} />
     </div>
   </article>
