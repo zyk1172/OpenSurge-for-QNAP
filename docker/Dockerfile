@@ -4,7 +4,7 @@ ARG NODE_IMAGE=node:24-bookworm-slim
 ARG GO_IMAGE=golang:1.25-bookworm
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 
-FROM ${NODE_IMAGE} AS web-builder
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS web-builder
 ARG OPENSURGE_VERSION=dev
 WORKDIR /src/web
 RUN npm install --global pnpm@10.15.1
@@ -13,15 +13,19 @@ RUN pnpm install --frozen-lockfile
 COPY web/ ./
 RUN OPENSURGE_RELEASE_TAG="${OPENSURGE_VERSION}" pnpm build
 
-FROM ${GO_IMAGE} AS go-builder
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS go-builder
+ARG TARGETOS=linux
+ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=web-builder /src/internal/webui/dist/ ./internal/webui/dist/
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/opensurge-container ./cmd/opensurge-container \
- && CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/omg ./cmd/omg
+RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/opensurge-container ./cmd/opensurge-container \
+ && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/omg ./cmd/omg
 
+# dnsmasq is a C binary, so this stage intentionally runs on TARGETPLATFORM.
+# buildx/QEMU is used only for this small native build when targeting arm64.
 FROM ${DEBIAN_IMAGE} AS dnsmasq-builder
 ARG DNSMASQ_VERSION=2.93
 ARG DNSMASQ_SHA256=0c00d4e5c97c8306e5fb932b348b34269c9c29a0e7df0e8e82958b407092bc19
@@ -37,7 +41,7 @@ RUN curl --fail --show-error --location --proto '=https' \
  && make -C /tmp/dnsmasq -j"$(nproc)" \
  && install -Dm0755 /tmp/dnsmasq/src/dnsmasq /out/dnsmasq
 
-FROM ${DEBIAN_IMAGE} AS mihomo-fetcher
+FROM --platform=$BUILDPLATFORM ${DEBIAN_IMAGE} AS mihomo-fetcher
 ARG TARGETARCH
 ARG MIHOMO_VERSION=1.19.30
 ARG MIHOMO_AMD64_SHA256=db214c7a2517e63c150d123178d16d102e03a241ccdae4e5e07ffbe9cf56c6f9
@@ -46,7 +50,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl gzip \
  && rm -rf /var/lib/apt/lists/*
 RUN set -eux; \
-    arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+    arch="${TARGETARCH}"; \
     case "$arch" in \
       amd64) asset="mihomo-linux-amd64-compatible-v${MIHOMO_VERSION}.gz"; sha="${MIHOMO_AMD64_SHA256}" ;; \
       arm64) asset="mihomo-linux-arm64-v${MIHOMO_VERSION}.gz"; sha="${MIHOMO_ARM64_SHA256}" ;; \
