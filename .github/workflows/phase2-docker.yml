@@ -189,7 +189,7 @@ jobs:
           dns_pid="$(docker exec opensurge-ci-recreated sh -c 'sleep 120 >/dev/null 2>&1 & echo $!')"
           mihomo_pid="$(docker exec opensurge-ci-recreated sh -c 'sleep 120 >/dev/null 2>&1 & echo $!')"
           now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          cat > /tmp/opensurge-ci-data/runtime/state.json <<EOF
+          docker exec -i opensurge-ci-recreated sh -c 'cat > /data/runtime/state.json' <<EOF
           {
             "pid_dnsmasq": $dns_pid,
             "pid_mihomo": $mihomo_pid,
@@ -211,7 +211,7 @@ jobs:
           docker exec opensurge-ci-recreated \
             omg stop --config /data/config/opensurge.yaml
           docker exec opensurge-ci-recreated sh -c "kill -0 $dns_pid && kill -0 $mihomo_pid"
-          test ! -e /tmp/opensurge-ci-data/runtime/state.json
+          docker exec opensurge-ci-recreated test ! -e /data/runtime/state.json
           docker exec opensurge-ci-recreated sh -c "kill $dns_pid $mihomo_pid"
       - name: Dump logs on failure
         if: failure()
