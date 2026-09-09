@@ -168,7 +168,9 @@ func (c *mihomoRecoveryController) finishManual(err error) {
 }
 
 func (s *Server) monitorMihomoRecovery(ctx context.Context) {
+	dnsmasqRecovery := newDNSMasqRecoveryController()
 	s.evaluateMihomoRecovery(ctx)
+	s.evaluateDNSMasqRecovery(ctx, dnsmasqRecovery)
 	ticker := time.NewTicker(autoMihomoRecoveryInterval)
 	defer ticker.Stop()
 	for {
@@ -177,6 +179,7 @@ func (s *Server) monitorMihomoRecovery(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.evaluateMihomoRecovery(ctx)
+			s.evaluateDNSMasqRecovery(ctx, dnsmasqRecovery)
 		}
 	}
 }
