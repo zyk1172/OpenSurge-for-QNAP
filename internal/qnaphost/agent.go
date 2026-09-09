@@ -92,6 +92,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/status", s.handleStatus)
 	mux.HandleFunc("PUT /v1/network", s.handleNetwork)
+	mux.HandleFunc("DELETE /v1/network", s.handleNetworkReset)
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -123,6 +124,7 @@ func (s *Server) handleNetwork(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	cfg = normalizeNetworkConfig(cfg)
 	if err := validateNetworkConfig(cfg); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
@@ -132,6 +134,19 @@ func (s *Server) handleNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.configureNetwork(r.Context(), cfg); err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	status, err := s.status(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) handleNetworkReset(w http.ResponseWriter, r *http.Request) {
+	if err := s.removeManagedNetwork(r.Context()); err != nil {
 		writeError(w, http.StatusConflict, err)
 		return
 	}
@@ -156,15 +171,15 @@ func (s *Server) status(ctx context.Context) (Status, error) {
 	if !exists {
 		return status, nil
 	}
-	status.Network = networkConfigFromInspect(network)
-	_, status.Connected = network.Containers[s.ContainerName]
-	if !status.Connected {
-		container, err := s.inspectTargetContainer(ctx)
-		if err != nil {
-			return Status{}, err
-		}
-		_, status.Connected = container.NetworkSettings.Networks[s.NetworkName]
+	if network.Labels[ManagedLabel] != "true" {
+		return Status{}, fmt.Errorf("network %q exists but is not OpenSurge-managed", s.NetworkName)
 	}
+	status.Network = networkConfigFromInspect(network, s.ContainerName)
+	container, err := s.inspectTargetContainer(ctx)
+	if err != nil {
+		return Status{}, err
+	}
+	_, status.Connected = container.NetworkSettings.Networks[s.NetworkName]
 	return status, nil
 }
 
@@ -177,35 +192,74 @@ func (s *Server) configureNetwork(ctx context.Context, cfg NetworkConfig) error 
 		return fmt.Errorf("refusing to manage container %q without %s=true label", s.ContainerName, ManagedLabel)
 	}
 
-	if existing, exists, err := s.inspectManagedNetwork(ctx); err != nil {
+	existing, existed, err := s.inspectManagedNetwork(ctx)
+	if err != nil {
 		return err
-	} else if exists {
+	}
+	var previous *NetworkConfig
+	previousConnected := false
+	if existed {
 		if existing.Labels[ManagedLabel] != "true" {
 			return fmt.Errorf("network %q already exists but is not OpenSurge-managed", s.NetworkName)
 		}
-		if sameNetwork(existing, cfg) {
-			if _, connected := container.NetworkSettings.Networks[s.NetworkName]; connected {
-				return nil
-			}
-			return s.docker.do(ctx, http.MethodPost, "/networks/"+url.PathEscape(s.NetworkName)+"/connect", map[string]any{
-				"Container": s.ContainerName,
-				"EndpointConfig": map[string]any{"IPAMConfig": map[string]any{"IPv4Address": cfg.IPv4}},
-			}, nil)
+		previous = networkConfigFromInspect(existing, s.ContainerName)
+		_, previousConnected = container.NetworkSettings.Networks[s.NetworkName]
+		if sameNetwork(existing, cfg) && previous != nil && previous.IPv4 == cfg.IPv4 && previousConnected {
+			return nil
 		}
-		_ = s.docker.do(ctx, http.MethodPost, "/networks/"+url.PathEscape(s.NetworkName)+"/disconnect", map[string]any{
-			"Container": s.ContainerName,
-			"Force":     true,
-		}, nil)
-		if err := s.docker.do(ctx, http.MethodDelete, "/networks/"+url.PathEscape(s.NetworkName), nil, nil); err != nil {
+	}
+
+	if existed {
+		if previousConnected {
+			if err := s.disconnectNetwork(ctx); err != nil {
+				return fmt.Errorf("disconnect previous OpenSurge QNET: %w", err)
+			}
+		}
+		if err := s.deleteNetwork(ctx); err != nil {
+			if previousConnected && previous != nil {
+				_ = s.connectNetwork(ctx, *previous)
+			}
 			return fmt.Errorf("remove previous OpenSurge QNET: %w", err)
 		}
 	}
 
+	if err := s.createAndConnect(ctx, cfg); err == nil {
+		return nil
+	} else {
+		applyErr := err
+		_ = s.removeManagedNetwork(ctx)
+		if previous == nil {
+			return applyErr
+		}
+		if restoreErr := s.createNetwork(ctx, *previous); restoreErr != nil {
+			return fmt.Errorf("%v; rollback previous QNET failed: %w", applyErr, restoreErr)
+		}
+		if previousConnected {
+			if restoreErr := s.connectNetwork(ctx, *previous); restoreErr != nil {
+				return fmt.Errorf("%v; rollback previous QNET connection failed: %w", applyErr, restoreErr)
+			}
+		}
+		return fmt.Errorf("%v; previous QNET restored", applyErr)
+	}
+}
+
+func (s *Server) createAndConnect(ctx context.Context, cfg NetworkConfig) error {
+	if err := s.createNetwork(ctx, cfg); err != nil {
+		return err
+	}
+	if err := s.connectNetwork(ctx, cfg); err != nil {
+		_ = s.deleteNetwork(ctx)
+		return fmt.Errorf("connect OpenSurge container to QNET: %w", err)
+	}
+	return nil
+}
+
+func (s *Server) createNetwork(ctx context.Context, cfg NetworkConfig) error {
 	create := dockerNetworkCreate{
-		Name:   s.NetworkName,
-		Driver: "qnet",
+		Name:    s.NetworkName,
+		Driver:  "qnet",
 		Options: map[string]string{"iface": cfg.ParentInterface},
-		Labels: map[string]string{ManagedLabel: "true"},
+		Labels:  map[string]string{ManagedLabel: "true"},
 		IPAM: dockerIPAM{
 			Driver:  "qnet",
 			Options: map[string]string{"iface": cfg.ParentInterface},
@@ -216,12 +270,46 @@ func (s *Server) configureNetwork(ctx context.Context, cfg NetworkConfig) error 
 	if err := s.docker.do(ctx, http.MethodPost, "/networks/create", create, &created); err != nil {
 		return fmt.Errorf("create QNET: %w", err)
 	}
-	if err := s.docker.do(ctx, http.MethodPost, "/networks/"+url.PathEscape(s.NetworkName)+"/connect", map[string]any{
+	return nil
+}
+
+func (s *Server) connectNetwork(ctx context.Context, cfg NetworkConfig) error {
+	return s.docker.do(ctx, http.MethodPost, "/networks/"+url.PathEscape(s.NetworkName)+"/connect", map[string]any{
 		"Container": s.ContainerName,
 		"EndpointConfig": map[string]any{"IPAMConfig": map[string]any{"IPv4Address": cfg.IPv4}},
-	}, nil); err != nil {
-		_ = s.docker.do(ctx, http.MethodDelete, "/networks/"+url.PathEscape(s.NetworkName), nil, nil)
-		return fmt.Errorf("connect OpenSurge container to QNET: %w", err)
+	}, nil)
+}
+
+func (s *Server) disconnectNetwork(ctx context.Context) error {
+	return s.docker.do(ctx, http.MethodPost, "/networks/"+url.PathEscape(s.NetworkName)+"/disconnect", map[string]any{
+		"Container": s.ContainerName,
+		"Force":     true,
+	}, nil)
+}
+
+func (s *Server) deleteNetwork(ctx context.Context) error {
+	return s.docker.do(ctx, http.MethodDelete, "/networks/"+url.PathEscape(s.NetworkName), nil, nil)
+}
+
+func (s *Server) removeManagedNetwork(ctx context.Context) error {
+	network, exists, err := s.inspectManagedNetwork(ctx)
+	if err != nil || !exists {
+		return err
+	}
+	if network.Labels[ManagedLabel] != "true" {
+		return fmt.Errorf("refusing to remove network %q without %s=true label", s.NetworkName, ManagedLabel)
+	}
+	container, err := s.inspectTargetContainer(ctx)
+	if err != nil {
+		return err
+	}
+	if _, connected := container.NetworkSettings.Networks[s.NetworkName]; connected {
+		if err := s.disconnectNetwork(ctx); err != nil {
+			return err
+		}
+	}
+	if err := s.deleteNetwork(ctx); err != nil && !errors.Is(err, errDockerNotFound) {
+		return err
 	}
 	return nil
 }
@@ -287,9 +375,19 @@ func hostInterfaces() ([]Interface, error) {
 	return result, nil
 }
 
-func validateNetworkConfig(cfg NetworkConfig) error {
+func normalizeNetworkConfig(cfg NetworkConfig) NetworkConfig {
 	cfg.ParentInterface = strings.TrimSpace(cfg.ParentInterface)
-	if !interfaceNamePattern.MatchString(cfg.ParentInterface) {
+	cfg.IPv4 = strings.TrimSpace(cfg.IPv4)
+	cfg.Subnet = strings.TrimSpace(cfg.Subnet)
+	cfg.Gateway = strings.TrimSpace(cfg.Gateway)
+	if prefix, err := netip.ParsePrefix(cfg.Subnet); err == nil {
+		cfg.Subnet = prefix.Masked().String()
+	}
+	return cfg
+}
+
+func validateNetworkConfig(cfg NetworkConfig) error {
+	if !interfaceNamePattern.MatchString(strings.TrimSpace(cfg.ParentInterface)) {
 		return fmt.Errorf("invalid parent interface")
 	}
 	ip, err := netip.ParseAddr(strings.TrimSpace(cfg.IPv4))
@@ -301,8 +399,11 @@ func validateNetworkConfig(cfg NetworkConfig) error {
 		return fmt.Errorf("invalid IPv4 subnet")
 	}
 	prefix = prefix.Masked()
-	if !prefix.Contains(ip) {
-		return fmt.Errorf("IPv4 address is outside the requested subnet")
+	if prefix.Bits() < 8 || prefix.Bits() > 30 {
+		return fmt.Errorf("IPv4 subnet prefix must be between /8 and /30")
+	}
+	if !prefix.Contains(ip) || ip == prefix.Addr() {
+		return fmt.Errorf("IPv4 address is not a usable host inside the requested subnet")
 	}
 	gateway, err := netip.ParseAddr(strings.TrimSpace(cfg.Gateway))
 	if err != nil || !gateway.Is4() || !prefix.Contains(gateway) {
@@ -326,7 +427,7 @@ func sameNetwork(network dockerNetworkInspect, cfg NetworkConfig) bool {
 	return false
 }
 
-func networkConfigFromInspect(network dockerNetworkInspect) *NetworkConfig {
+func networkConfigFromInspect(network dockerNetworkInspect, containerName string) *NetworkConfig {
 	if network.Driver != "qnet" {
 		return nil
 	}
@@ -336,13 +437,14 @@ func networkConfigFromInspect(network dockerNetworkInspect) *NetworkConfig {
 		cfg.Gateway = network.IPAM.Config[0].Gateway
 	}
 	for _, endpoint := range network.Containers {
-		if endpoint.Name == "opensurge" {
-			cfg.IPv4 = strings.TrimSuffix(endpoint.IPv4Address, "/")
-			if slash := strings.IndexByte(cfg.IPv4, '/'); slash >= 0 {
-				cfg.IPv4 = cfg.IPv4[:slash]
-			}
-			break
+		if endpoint.Name != containerName {
+			continue
 		}
+		cfg.IPv4 = endpoint.IPv4Address
+		if slash := strings.IndexByte(cfg.IPv4, '/'); slash >= 0 {
+			cfg.IPv4 = cfg.IPv4[:slash]
+		}
+		break
 	}
 	return cfg
 }
