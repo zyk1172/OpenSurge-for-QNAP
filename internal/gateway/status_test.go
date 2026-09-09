@@ -222,6 +222,7 @@ func TestStatusDegradesWhenPolicyRoutingIsMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := platform.NewSnapshot(platform.BackendLinuxNFTables)
+	snapshot.NetworkNamespace = boot.NetworkNamespace
 	snapshot.Routing = &platform.RoutingConfig{
 		LANInterface: "eth0", LANCIDR: "192.168.2.0/24", TUNDevice: "tun0",
 		TableID: 20241, RulePriority: 20241, RuleMode: platform.RoutingRuleIngressInterface,
