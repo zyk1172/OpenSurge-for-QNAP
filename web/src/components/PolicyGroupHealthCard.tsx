@@ -23,7 +23,11 @@ export function PolicyGroupHealthCard({ group, search, healthByName, testing, on
   const groupDisplayName = policyDisplayName(group.name, healthByName.get(group.name))
   const options = useMemo(() => group.name.toLowerCase().includes(search.toLowerCase()) || groupDisplayName.toLowerCase().includes(search.toLowerCase()) ? group.options : group.options.filter(option => option.toLowerCase().includes(search.toLowerCase()) || policyDisplayName(option, healthByName.get(option)).toLowerCase().includes(search.toLowerCase())), [group.name, group.options, groupDisplayName, healthByName, search])
   const probeable = useMemo(() => group.options.filter(option => healthByName.get(option)?.probeable), [group.options, healthByName])
-  const reachable = probeable.filter(option => healthByName.get(option)?.status === 'reachable').length
+  const healthOptions = useMemo(() => group.options.filter(option => {
+    const status = healthByName.get(option)?.status
+    return status && status !== 'not_applicable'
+  }), [group.options, healthByName])
+  const reachable = healthOptions.filter(option => healthByName.get(option)?.status === 'reachable').length
   const manual = ['selector', 'select'].includes(group.type.toLowerCase())
 
   const select = async (policy: string) => {
@@ -35,7 +39,7 @@ export function PolicyGroupHealthCard({ group, search, healthByName, testing, on
   }
 
   return <article className={`policy-health-group ${navigationActive ? 'is-nav-active' : ''}`} ref={articleRef}>
-    <header className="policy-group-head"><div><span className="group-kicker"><span>{group.type}</span>{group.name.startsWith('device/') && <span>{t('设备策略')}</span>}</span><h2 title={groupDisplayName === group.name ? undefined : group.name}>{groupDisplayName}</h2><p>{t('当前出口')} <strong>{group.selected ? policyDisplayName(group.selected, healthByName.get(group.selected)) : t('未选择')}</strong>{!manual && t(' · 自动策略组')}</p></div><div className="group-health-summary"><span><strong>{reachable}</strong> / {probeable.length} {t('可达')}</span><button type="button" disabled={!probeable.length || probeable.some(name => testing.has(name))} onClick={() => void onTest(probeable)}>{t('检测本组')}</button></div></header>
+    <header className="policy-group-head"><div><span className="group-kicker"><span>{group.type}</span>{group.name.startsWith('device/') && <span>{t('设备策略')}</span>}</span><h2 title={groupDisplayName === group.name ? undefined : group.name}>{groupDisplayName}</h2><p>{t('当前出口')} <strong>{group.selected ? policyDisplayName(group.selected, healthByName.get(group.selected)) : t('未选择')}</strong>{!manual && t(' · 自动策略组')}</p></div><div className="group-health-summary"><span><strong>{reachable}</strong> / {healthOptions.length} {t('可达')}</span><button type="button" disabled={!probeable.length || probeable.some(name => testing.has(name))} onClick={() => void onTest(probeable)}>{t('检测本组')}</button></div></header>
     {error && <div className="notice warn" role="alert">{error}</div>}
     <div className="proxy-node-grid">{options.map(option => {
       const health = healthByName.get(option)

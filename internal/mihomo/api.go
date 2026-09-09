@@ -165,9 +165,11 @@ type proxyProviderRecord struct {
 }
 
 type providerProxyRecord struct {
-	Name  string `json:"name"`
-	Type  string `json:"type"`
-	Alive bool   `json:"alive"`
+	Name    string               `json:"name"`
+	Type    string               `json:"type"`
+	UDP     bool                 `json:"udp"`
+	Alive   *bool                `json:"alive"`
+	History []proxyHistoryRecord `json:"history"`
 }
 
 type ruleProvidersResponse struct {
@@ -362,10 +364,12 @@ func fetchProxyHealthWithClient(ctx context.Context, cfg config.Config, client *
 	}
 
 	proxies := make([]ProxyHealth, 0, len(body.Proxies))
+	seen := make(map[string]struct{}, len(body.Proxies))
 	for name, proxy := range body.Proxies {
 		if proxy.Name == "" {
 			proxy.Name = name
 		}
+		nativeProviderHealth := strings.TrimSpace(proxy.Provider) != ""
 		health := ProxyHealth{
 			Name:      proxy.Name,
 			Type:      proxy.Type,
@@ -373,7 +377,7 @@ func fetchProxyHealthWithClient(ctx context.Context, cfg config.Config, client *
 			Provider:  proxy.Provider,
 			UDP:       proxy.UDP,
 			Status:    "untested",
-			Probeable: proxyIsProbeable(proxy.Type),
+			Probeable: !nativeProviderHealth && proxyIsProbeable(proxy.Type),
 		}
 		if health.Name == config.TailscaleProxyName && cfg.Tailscale.Enabled {
 			health.DisplayName = cfg.Tailscale.DisplayName
@@ -390,29 +394,72 @@ func fetchProxyHealthWithClient(ctx context.Context, cfg config.Config, client *
 			health.DisplayName = cfg.Tailscale.DisplayName + " · Exit Node"
 			health.Role = "exit_node"
 		}
-		if !health.Probeable && health.Role != "tailnet" {
+		if !health.Probeable && health.Role != "tailnet" && !nativeProviderHealth {
 			health.Status = "not_applicable"
 		}
-		if health.Probeable && len(proxy.History) > 0 {
-			latest := proxy.History[len(proxy.History)-1]
-			health.DelayMS = latest.Delay
-			health.TestedAt = latest.Time
-			if latest.Delay > 0 {
-				health.Status = "reachable"
-			} else if health.Probeable {
-				health.Status = "unreachable"
-			}
-		} else if health.Probeable && proxy.Alive != nil {
-			if *proxy.Alive {
-				health.Status = "reachable"
-			} else if health.Probeable {
-				health.Status = "unreachable"
-			}
+		if health.Probeable || nativeProviderHealth {
+			applyProxyRecordHealth(&health, proxy.History, proxy.Alive)
 		}
 		proxies = append(proxies, health)
+		seen[health.Name] = struct{}{}
+	}
+
+	// Provider leaves are not always included in /proxies. Mihomo's provider
+	// endpoint carries their native health-check history, while the individual
+	// /proxies/{name}/delay endpoint is not available for every provider leaf.
+	// Keep this enrichment best-effort so older cores that do not expose the
+	// provider endpoint still retain the normal /proxies health snapshot.
+	if providerBody, providerErr := fetchProxyProviderRecordsWithClient(ctx, cfg, client); providerErr == nil {
+		for providerName, provider := range providerBody.Providers {
+			if provider.Name == "" {
+				provider.Name = providerName
+			}
+			for _, proxy := range provider.Proxies {
+				proxyName := strings.TrimSpace(proxy.Name)
+				if proxyName == "" {
+					continue
+				}
+				if _, exists := seen[proxyName]; exists {
+					continue
+				}
+				health := ProxyHealth{
+					Name:      proxyName,
+					Type:      proxy.Type,
+					Provider:  provider.Name,
+					UDP:       proxy.UDP,
+					Status:    "untested",
+					Probeable: false,
+				}
+				applyProxyRecordHealth(&health, proxy.History, proxy.Alive)
+				proxies = append(proxies, health)
+				seen[proxyName] = struct{}{}
+			}
+		}
 	}
 	sort.Slice(proxies, func(i, j int) bool { return proxies[i].Name < proxies[j].Name })
 	return ProxyHealthSnapshot{TestURL: DefaultProxyDelayTestURL, Proxies: proxies}, nil
+}
+
+func applyProxyRecordHealth(health *ProxyHealth, history []proxyHistoryRecord, alive *bool) {
+	if len(history) > 0 {
+		latest := history[len(history)-1]
+		health.DelayMS = latest.Delay
+		health.TestedAt = latest.Time
+		if latest.Delay > 0 {
+			health.Status = "reachable"
+		} else {
+			health.Status = "unreachable"
+		}
+		return
+	}
+	if alive == nil {
+		return
+	}
+	if *alive {
+		health.Status = "reachable"
+	} else {
+		health.Status = "unreachable"
+	}
 }
 
 func fetchProxiesWithClient(ctx context.Context, cfg config.Config, client *http.Client) (proxiesResponse, error) {
@@ -599,25 +646,8 @@ func fetchProvidersWithClient(ctx context.Context, cfg config.Config, client *ht
 }
 
 func fetchProxyProvidersWithClient(ctx context.Context, cfg config.Config, client *http.Client) ([]ProxyProvider, error) {
-	req, err := newAPIRequest(ctx, cfg, http.MethodGet, "/providers/proxies", nil)
+	body, err := fetchProxyProviderRecordsWithClient(ctx, cfg, client)
 	if err != nil {
-		return nil, err
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("mihomo API returned %s", resp.Status)
-	}
-
-	var body proxyProvidersResponse
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		if errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("empty mihomo API response")
-		}
 		return nil, err
 	}
 
@@ -631,7 +661,7 @@ func fetchProxyProvidersWithClient(ctx context.Context, cfg config.Config, clien
 			proxies = append(proxies, ProviderProxy{
 				Name:  proxy.Name,
 				Type:  proxy.Type,
-				Alive: proxy.Alive,
+				Alive: proxy.Alive != nil && *proxy.Alive,
 			})
 		}
 		providers = append(providers, ProxyProvider{
@@ -649,6 +679,31 @@ func fetchProxyProvidersWithClient(ctx context.Context, cfg config.Config, clien
 		return providers[i].Name < providers[j].Name
 	})
 	return providers, nil
+}
+
+func fetchProxyProviderRecordsWithClient(ctx context.Context, cfg config.Config, client *http.Client) (proxyProvidersResponse, error) {
+	req, err := newAPIRequest(ctx, cfg, http.MethodGet, "/providers/proxies", nil)
+	if err != nil {
+		return proxyProvidersResponse{}, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return proxyProvidersResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return proxyProvidersResponse{}, fmt.Errorf("mihomo API returned %s", resp.Status)
+	}
+
+	var body proxyProvidersResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		if errors.Is(err, io.EOF) {
+			return proxyProvidersResponse{}, fmt.Errorf("empty mihomo API response")
+		}
+		return proxyProvidersResponse{}, err
+	}
+	return body, nil
 }
 
 func updateProxyProviderWithClient(ctx context.Context, cfg config.Config, client *http.Client, providerName string) (ProxyProvider, error) {

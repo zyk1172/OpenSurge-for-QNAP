@@ -50,9 +50,12 @@ func TestProxyHealthEndpointsExposeAndTestCurrentNodes(t *testing.T) {
 func TestProxyHealthTestsRejectUnknownAndNonProbeableNames(t *testing.T) {
 	server := newTestServer(t)
 	server.fetchProxyHealth = func(context.Context, config.Config) (mihomo.ProxyHealthSnapshot, error) {
-		return mihomo.ProxyHealthSnapshot{TestURL: mihomo.DefaultProxyDelayTestURL, Proxies: []mihomo.ProxyHealth{{Name: "REJECT", Type: "Reject", Status: "not_applicable", Probeable: false}}}, nil
+		return mihomo.ProxyHealthSnapshot{TestURL: mihomo.DefaultProxyDelayTestURL, Proxies: []mihomo.ProxyHealth{
+			{Name: "REJECT", Type: "Reject", Status: "not_applicable", Probeable: false},
+			{Name: "Provider-A", Type: "AnyTLS", Status: "reachable", Probeable: false},
+		}}, nil
 	}
-	for _, body := range []string{`{"names":["missing"]}`, `{"names":["REJECT"]}`, `{"names":[]}`} {
+	for _, body := range []string{`{"names":["missing"]}`, `{"names":["REJECT"]}`, `{"names":["Provider-A"]}`, `{"names":[]}`} {
 		response := performAuthorized(server, http.MethodPost, "/api/v1/proxy-health/tests", []byte(body))
 		if response.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("body=%s status=%d response=%s", body, response.Code, response.Body.String())
