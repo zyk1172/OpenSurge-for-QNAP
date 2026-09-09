@@ -1,5 +1,7 @@
 import { languageDisplayName, resolveLanguage, t, type RequestedLanguage } from '../i18n'
 
+const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
+
 export function LanguageSelector({ language, changing, onChange }: {
   language: RequestedLanguage
   changing: boolean
@@ -18,7 +20,7 @@ export function LanguageSelector({ language, changing, onChange }: {
     </span>
     <span className="language-selector-chevron" aria-hidden="true">⌄</span>
     <select
-      aria-label={t('界面语言')}
+      aria-label={t(qnapBuild ? '界面语言' : '选择 OpenSurge Web GUI 和菜单栏使用的语言')}
       value={language}
       disabled={changing}
       onChange={event => onChange(event.target.value as RequestedLanguage)}
