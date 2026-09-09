@@ -27,15 +27,18 @@ services:
         ipv4_address: ${OPENSURGE_IP:?set OPENSURGE_IP to a free static LAN address}
     stop_grace_period: 30s
 
+# QNET is QNAP Container Station's native L2 driver. QNAP recommends it when a
+# container needs its own static LAN address and the NAS host/other containers
+# may also need to reach that address. Do not replace this with host networking.
 networks:
   opensurge_lan:
-    driver: macvlan
+    driver: qnet
     driver_opts:
-      # This must be the QNAP/Linux interface attached to the desired LAN or
-      # Virtual Switch. Do not guess it and do not point it at a NIC reserved
-      # for another workload.
-      parent: ${OPENSURGE_PARENT_INTERFACE:?set the QNAP LAN parent interface}
+      iface: ${OPENSURGE_PARENT_INTERFACE:?set the QNAP LAN interface}
     ipam:
+      driver: qnet
+      options:
+        iface: ${OPENSURGE_PARENT_INTERFACE:?set the QNAP LAN interface}
       config:
         - subnet: ${OPENSURGE_SUBNET:?set the LAN CIDR, e.g. 192.168.2.0/24}
           gateway: ${OPENSURGE_GATEWAY:?set the main router IPv4 address}
