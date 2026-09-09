@@ -69,6 +69,10 @@ jobs:
           OPENSURGE_GATEWAY: 192.168.50.1
           OPENSURGE_PARENT_INTERFACE: eth0
         run: docker compose -f docker-compose.yml config --quiet
+      - name: Check QNAP preflight shell syntax
+        run: sh -n deploy/qnap/preflight.sh
+      - name: Run static QNAP deployment preflight
+        run: make qnap-preflight-static
 
   namespace-lab:
     runs-on: ubuntu-latest
