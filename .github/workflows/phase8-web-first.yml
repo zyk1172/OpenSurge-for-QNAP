@@ -50,7 +50,8 @@ jobs:
           grep -q 'OPENSURGE_SEED_LAN_IP: 192.168.50.2' /tmp/opensurge-qnap-compose.yaml
           grep -q 'OPENSURGE_SEED_LAN_CIDR: 192.168.50.0/24' /tmp/opensurge-qnap-compose.yaml
           grep -q 'OPENSURGE_SEED_UPSTREAM_GATEWAY: 192.168.50.1' /tmp/opensurge-qnap-compose.yaml
-          grep -q '/share/Container/opensurge:/data' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'source: /share/Container/opensurge' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'target: /data' /tmp/opensurge-qnap-compose.yaml
           grep -q 'NET_ADMIN' /tmp/opensurge-qnap-compose.yaml
           grep -q 'NET_RAW' /tmp/opensurge-qnap-compose.yaml
           grep -q '/dev/net/tun' /tmp/opensurge-qnap-compose.yaml
