@@ -14,7 +14,11 @@ import (
 func CurrentBootSession() (BootSession, error) {
 	id, idErr := os.ReadFile("/proc/sys/kernel/random/boot_id")
 	stat, statErr := os.Open("/proc/stat")
-	boot := BootSession{ID: strings.TrimSpace(string(id))}
+	namespace, namespaceErr := os.Readlink("/proc/self/ns/net")
+	boot := BootSession{
+		ID:               strings.TrimSpace(string(id)),
+		NetworkNamespace: strings.TrimSpace(namespace),
+	}
 	if statErr == nil {
 		defer stat.Close()
 		scanner := bufio.NewScanner(stat)
@@ -32,6 +36,9 @@ func CurrentBootSession() (BootSession, error) {
 	}
 	if boot.ID == "" && boot.StartedAt.IsZero() {
 		return BootSession{}, fmt.Errorf("read Linux boot session: id: %v; boot time: %v", idErr, statErr)
+	}
+	if boot.NetworkNamespace == "" {
+		return BootSession{}, fmt.Errorf("read Linux network namespace identity: %v", namespaceErr)
 	}
 	return boot, nil
 }
