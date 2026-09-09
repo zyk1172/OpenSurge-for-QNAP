@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"open-mihomo-gateway/internal/controlapi"
+	"open-mihomo-gateway/internal/linuxnetwork"
 	"open-mihomo-gateway/internal/webgateway"
 	"open-mihomo-gateway/internal/webui"
 )
@@ -26,11 +27,17 @@ func main() {
 	defer cancel()
 
 	control, err := controlapi.New(controlapi.Options{
-		ConfigPath: *configPath,
-		Addr:       *controlAddr,
-		StoreDir:   *storeDir,
-		Runner:     controlapi.DirectRunner{},
-		Static:     webui.Handler(),
+		ConfigPath:        *configPath,
+		Addr:              *controlAddr,
+		StoreDir:          *storeDir,
+		Runner:            controlapi.DirectRunner{},
+		DiscoverNetwork:   linuxnetwork.Discover,
+		DiscoverDefault:   linuxnetwork.DiscoverDefault,
+		ListInterfaces:    linuxnetwork.ListInterfaces,
+		DiscoverNeighbors: linuxnetwork.DiscoverNeighbors,
+		LookupRoute:       linuxnetwork.LookupRoute,
+		PingRouter:        linuxnetwork.PingRouter,
+		Static:            webui.Handler(),
 	})
 	if err != nil {
 		fatal(err)
