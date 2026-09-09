@@ -221,7 +221,7 @@ jobs:
           status_json="$(docker exec opensurge-ci-recreated \
             omg status --config /data/config/opensurge.yaml --format json)"
           echo "status after recreation: $status_json"
-          if ! printf '%s\n' "$status_json" | grep -q '"runtime_state":"interrupted"'; then
+          if ! printf '%s\n' "$status_json" | grep -Eq '"runtime_state"[[:space:]]*:[[:space:]]*"interrupted"'; then
             echo "replacement container did not classify persisted runtime as interrupted" >&2
             exit 1
           fi
