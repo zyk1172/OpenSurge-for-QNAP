@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"open-mihomo-gateway/internal/config"
-	"open-mihomo-gateway/internal/runtime"
 )
 
 // RestartDNSMasq restarts only the dnsmasq process owned by the active gateway
