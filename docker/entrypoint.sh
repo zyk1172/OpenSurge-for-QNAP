@@ -1,6 +1,23 @@
 #!/bin/sh
 set -eu
 
+ROLE="${OPENSURGE_ROLE:-gateway}"
+
+case "$ROLE" in
+  manager)
+    exec /usr/local/bin/opensurge-manager
+    ;;
+  orchestrator)
+    exec /usr/local/bin/opensurge-orchestrator
+    ;;
+  gateway)
+    ;;
+  *)
+    echo "OpenSurge entrypoint: unsupported OPENSURGE_ROLE=$ROLE" >&2
+    exit 1
+    ;;
+esac
+
 DATA_DIR="${OPENSURGE_DATA_DIR:-/data}"
 CONFIG_PATH="${OPENSURGE_CONFIG:-${DATA_DIR}/config/opensurge.yaml}"
 STORE_DIR="${OPENSURGE_STORE:-${DATA_DIR}/control}"
@@ -68,7 +85,7 @@ seed_config() {
   chmod 600 "$tmp"
   mv "$tmp" "$CONFIG_PATH"
   trap - EXIT HUP INT TERM
-  echo "Seeded ${CONFIG_PATH} from Docker deployment values. Existing configs are never overwritten." >&2
+  echo "Seeded ${CONFIG_PATH} from Web deployment values. Existing configs are never overwritten." >&2
 }
 
 umask 077
