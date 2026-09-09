@@ -1,0 +1,92 @@
+# OpenSurge for QNAP Docker seed configuration.
+#
+# This file is copied to /data/config/opensurge.yaml only when no persistent
+# configuration exists. The address values are documentation defaults, not an
+# assumption about the user's LAN. Open the Web UI and replace them before
+# starting the gateway.
+
+gateway:
+  mode: "same_lan"
+  interface: "eth0"
+  lan_ip: "192.168.50.2"
+  lan_prefix_len: 24
+  lan_cidr: "192.168.50.0/24"
+  upstream_interface: "eth0"
+  upstream_gateway: "192.168.50.1"
+
+dhcp:
+  binary: "/usr/local/bin/dnsmasq"
+  enabled: false
+  range_start: "192.168.50.100"
+  range_end: "192.168.50.200"
+  lease_time: "12h"
+  domain: "lan"
+
+device_policy:
+  file: ""
+
+dns:
+  listen: "192.168.50.2"
+  port: 53
+  upstream: "127.0.0.1#1053"
+  ipv6: false
+
+mihomo:
+  binary: "/usr/local/bin/mihomo"
+  config: "/data/runtime/mihomo.yaml"
+  profile_mode: "managed"
+  profile: ""
+  store_fake_ip: true
+  mixed_port: 7890
+  redir_port: 0
+  api_addr: "127.0.0.1:9090"
+  secret: ""
+
+nftables:
+  table_name: "opensurge"
+  fw_mark: 0x29
+  route_table_id: 20241
+  route_rule_priority: 20241
+
+transparent:
+  mode: "tun"
+  tun_device: "tun0"
+  tun_stack: "mixed"
+  tun_auto_route: false
+  tun_auto_detect_interface: false
+  tun_strict_route: false
+  tun_ipv6: "off"
+  ipv6_shared_l2_ready: false
+
+local_system_proxy:
+  enabled: false
+
+upstream_proxy:
+  enabled: false
+  name: "qnap-egress"
+  type: "http"
+  server: "127.0.0.1"
+  port: 18080
+  username: ""
+  password: ""
+  match_domain: "example.com"
+
+tailscale:
+  enabled: false
+  display_name: "Tailnet"
+  hostname: "opensurge-qnap"
+  control_url: "https://controlplane.tailscale.com"
+  auth_key_file: "/data/control/tailscale-auth-key"
+  state_dir: "/data/state/tailscale"
+  accept_routes: false
+  magic_dns_suffixes: ""
+  peer_cidrs: ""
+  subnet_routes: ""
+  allow_mac: false
+  allow_all_devices: false
+  allowed_devices: ""
+  exit_node: ""
+  exit_node_allow_lan_access: false
+
+runtime:
+  dir: "/data/runtime"
