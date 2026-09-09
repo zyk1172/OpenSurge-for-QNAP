@@ -22,6 +22,8 @@ RUN go mod download
 COPY . .
 COPY --from=web-builder /src/internal/webui/dist/ ./internal/webui/dist/
 RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/opensurge-container ./cmd/opensurge-container \
+ && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/opensurge-manager ./cmd/opensurge-manager \
+ && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/opensurge-orchestrator ./cmd/opensurge-orchestrator \
  && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/omg ./cmd/omg
 
 # dnsmasq is a C binary, so this stage intentionally runs on TARGETPLATFORM.
@@ -76,6 +78,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=go-builder /out/opensurge-container /usr/local/bin/opensurge-container
+COPY --from=go-builder /out/opensurge-manager /usr/local/bin/opensurge-manager
+COPY --from=go-builder /out/opensurge-orchestrator /usr/local/bin/opensurge-orchestrator
 COPY --from=go-builder /out/omg /usr/local/bin/omg
 COPY --from=dnsmasq-builder /out/dnsmasq /usr/local/bin/dnsmasq
 COPY --from=mihomo-fetcher /out-mihomo /usr/local/bin/mihomo
@@ -85,7 +89,7 @@ COPY LICENSE THIRD_PARTY_NOTICES.md NOTICE.md /usr/share/opensurge/licenses/
 COPY third_party/licenses/ /usr/share/opensurge/licenses/third_party/
 
 RUN chmod 0755 /usr/local/bin/opensurge-entrypoint \
- && mkdir -p /data/config /data/profiles /data/providers /data/runtime /data/state /data/logs /data/backups /data/licenses /data/control
+ && mkdir -p /data/config /data/profiles /data/providers /data/runtime /data/state /data/logs /data/backups /data/licenses /data/control /run/opensurge
 
 LABEL org.opencontainers.image.title="OpenSurge for QNAP" \
       org.opencontainers.image.description="Web-managed Linux transparent proxy gateway for QNAP NAS" \
@@ -98,7 +102,7 @@ LABEL org.opencontainers.image.title="OpenSurge for QNAP" \
       org.opensurge.dnsmasq.version="${DNSMASQ_VERSION}"
 
 VOLUME ["/data"]
-EXPOSE 8080/tcp 53/tcp 53/udp
+EXPOSE 8080/tcp 61780/tcp 53/tcp 53/udp
 
 HEALTHCHECK --interval=30s --timeout=4s --start-period=20s --retries=3 \
   CMD curl --fail --silent --show-error http://127.0.0.1:8080/health/live >/dev/null || exit 1

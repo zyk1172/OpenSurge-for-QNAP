@@ -1,0 +1,129 @@
+name: Phase 8 Web-first Deployment CI
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'cmd/opensurge-manager/**'
+      - 'cmd/opensurge-orchestrator/**'
+      - 'internal/deployment/**'
+      - 'internal/deploymentweb/**'
+      - 'internal/webgateway/**'
+      - 'docker/**'
+      - 'deploy/qnap/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/phase8-web-first.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  go-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test deployment packages
+        run: go test ./internal/deployment ./internal/deploymentweb
+      - name: Vet deployment packages
+        run: go vet ./internal/deployment ./internal/deploymentweb ./cmd/opensurge-manager ./cmd/opensurge-orchestrator
+      - name: Build manager and orchestrator
+        run: |
+          go build ./cmd/opensurge-manager
+          go build ./cmd/opensurge-orchestrator
+
+  bootstrap-compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Default QNAP Compose must resolve without env file
+        run: docker compose -f deploy/qnap/docker-compose.yml config --quiet
+      - name: Bootstrap Compose must not contain user network parameters
+        run: |
+          resolved="$(docker compose -f deploy/qnap/docker-compose.yml config)"
+          if printf '%s\n' "$resolved" | grep -Eq 'OPENSURGE_(IP|SUBNET|GATEWAY|PARENT_INTERFACE|DATA_PATH):'; then
+            echo 'default Web-first Compose unexpectedly requires user deployment variables' >&2
+            exit 1
+          fi
+          printf '%s\n' "$resolved" | grep -q 'network_mode: host'
+          printf '%s\n' "$resolved" | grep -q 'network_mode: none'
+          printf '%s\n' "$resolved" | grep -q 'source: /var/run/docker.sock'
+          printf '%s\n' "$resolved" | grep -q 'target: /var/run/docker.sock'
+      - name: Shell syntax
+        run: sh -n docker/entrypoint.sh
+
+  manager-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build local image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          provenance: false
+          tags: opensurge-for-qnap:dev
+          cache-from: type=gha,scope=phase8-manager-amd64
+          cache-to: type=gha,mode=max,scope=phase8-manager-amd64
+      - name: Start isolated orchestrator and host-network manager
+        run: |
+          docker volume create opensurge-phase8-run >/dev/null
+          docker volume create opensurge-phase8-manager >/dev/null
+          docker run -d --name opensurge-orchestrator-ci \
+            --network none --no-healthcheck \
+            -e OPENSURGE_ROLE=orchestrator \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v opensurge-phase8-run:/run/opensurge \
+            opensurge-for-qnap:dev
+          docker run -d --name opensurge-manager-ci \
+            --network host --no-healthcheck \
+            -e OPENSURGE_ROLE=manager \
+            -v opensurge-phase8-manager:/data \
+            -v opensurge-phase8-run:/run/opensurge \
+            opensurge-for-qnap:dev
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:61780/health/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs opensurge-orchestrator-ci
+          docker logs opensurge-manager-ci
+          exit 1
+      - name: Verify privilege separation
+        run: |
+          test "$(docker inspect -f '{{.HostConfig.NetworkMode}}' opensurge-orchestrator-ci)" = "none"
+          test "$(docker inspect -f '{{.HostConfig.NetworkMode}}' opensurge-manager-ci)" = "host"
+          if docker exec opensurge-manager-ci test -S /var/run/docker.sock; then
+            echo 'LAN-facing manager unexpectedly has Docker socket access' >&2
+            exit 1
+          fi
+          docker exec opensurge-orchestrator-ci test -S /run/opensurge/orchestrator.sock
+      - name: Authenticate and read Web deployment state
+        run: |
+          curl -fsS http://127.0.0.1:61780/api/auth/state | grep -q '"setup_required":true'
+          curl -fsS -c /tmp/opensurge-phase8-cookies \
+            -H 'Content-Type: application/json' \
+            -H 'Origin: http://127.0.0.1:61780' \
+            --data '{"username":"admin","password":"phase-eight-ci-password"}' \
+            http://127.0.0.1:61780/api/auth/setup | grep -q '"authenticated":true'
+          curl -fsS -b /tmp/opensurge-phase8-cookies \
+            http://127.0.0.1:61780/api/v1/deployment/interfaces | grep -q '"interfaces"'
+          curl -fsS -b /tmp/opensurge-phase8-cookies \
+            http://127.0.0.1:61780/api/v1/deployment | grep -q '"configured":false'
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f opensurge-manager-ci opensurge-orchestrator-ci >/dev/null 2>&1 || true
+          docker volume rm opensurge-phase8-run opensurge-phase8-manager >/dev/null 2>&1 || true

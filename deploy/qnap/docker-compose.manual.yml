@@ -1,0 +1,52 @@
+services:
+  opensurge:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+      args:
+        OPENSURGE_VERSION: ${OPENSURGE_VERSION:-dev}
+    image: opensurge-for-qnap:${OPENSURGE_VERSION:-dev}
+    container_name: opensurge
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.ip_forward: "1"
+      net.ipv4.conf.all.rp_filter: "0"
+      net.ipv4.conf.default.rp_filter: "0"
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      OPENSURGE_ALLOWED_HOSTS: ${OPENSURGE_ALLOWED_HOSTS:-}
+      OPENSURGE_SEED_LAN_IP: ${OPENSURGE_IP:?set OPENSURGE_IP to a free static LAN address}
+      OPENSURGE_SEED_LAN_CIDR: ${OPENSURGE_SUBNET:?set the LAN CIDR, e.g. 192.168.2.0/24}
+      OPENSURGE_SEED_UPSTREAM_GATEWAY: ${OPENSURGE_GATEWAY:?set the main router IPv4 address}
+      OPENSURGE_CONTAINER_INTERFACE: ${OPENSURGE_CONTAINER_INTERFACE:-eth0}
+    volumes:
+      - ${OPENSURGE_DATA_PATH:?set an absolute QNAP path such as /share/Container/opensurge}:/data
+    networks:
+      opensurge_lan:
+        ipv4_address: ${OPENSURGE_IP:?set OPENSURGE_IP to a free static LAN address}
+    logging:
+      driver: json-file
+      options:
+        max-size: "${OPENSURGE_LOG_MAX_SIZE:-10m}"
+        max-file: "${OPENSURGE_LOG_MAX_FILES:-3}"
+    stop_grace_period: 30s
+
+networks:
+  opensurge_lan:
+    driver: qnet
+    driver_opts:
+      iface: ${OPENSURGE_PARENT_INTERFACE:?set the QNAP NIC/bridge, e.g. eth1 or br0}
+    ipam:
+      driver: qnet
+      options:
+        iface: ${OPENSURGE_PARENT_INTERFACE:?set the QNAP NIC/bridge, e.g. eth1 or br0}
+      config:
+        - subnet: ${OPENSURGE_SUBNET:?set the LAN CIDR, e.g. 192.168.2.0/24}
+          gateway: ${OPENSURGE_GATEWAY:?set the main router IPv4 address}

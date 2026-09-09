@@ -7,7 +7,11 @@ on:
       - 'docker/**'
       - 'deploy/qnap/**'
       - 'cmd/opensurge-container/**'
+      - 'cmd/opensurge-manager/**'
+      - 'cmd/opensurge-orchestrator/**'
       - 'internal/controlapi/**'
+      - 'internal/deployment/**'
+      - 'internal/deploymentweb/**'
       - 'internal/dhcp/**'
       - 'internal/gateway/**'
       - 'internal/process/**'
@@ -61,7 +65,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Validate QNAP Compose with explicit second NIC and bind path
+      - name: Validate default Web-first QNAP Compose without env file
+        working-directory: deploy/qnap
+        run: docker compose -f docker-compose.yml config --quiet
+      - name: Validate advanced manual QNET Compose with explicit second NIC and bind path
         working-directory: deploy/qnap
         env:
           OPENSURGE_IP: 192.168.50.2
@@ -71,7 +78,7 @@ jobs:
           OPENSURGE_CONTAINER_INTERFACE: eth0
           OPENSURGE_DATA_PATH: /share/Container/opensurge
         run: |
-          docker compose -f docker-compose.yml config > /tmp/opensurge-compose.yaml
+          docker compose -f docker-compose.manual.yml config > /tmp/opensurge-compose.yaml
           grep -q 'iface: eth1' /tmp/opensurge-compose.yaml
           grep -q '/share/Container/opensurge' /tmp/opensurge-compose.yaml
           grep -q 'OPENSURGE_SEED_LAN_IP: 192.168.50.2' /tmp/opensurge-compose.yaml
@@ -79,9 +86,9 @@ jobs:
         run: |
           sh -n deploy/qnap/preflight.sh
           sh -n docker/entrypoint.sh
-      - name: Run static QNAP deployment preflight
+      - name: Run static QNAP manual deployment preflight
         run: make qnap-preflight-static
-      - name: Reject relative QNAP persistence path
+      - name: Reject relative QNAP persistence path in manual fallback
         run: |
           cp deploy/qnap/.env.example /tmp/opensurge-relative.env
           sed -i 's#^OPENSURGE_DATA_PATH=.*#OPENSURGE_DATA_PATH=./data#' /tmp/opensurge-relative.env
@@ -199,10 +206,6 @@ jobs:
           old_ns="$(docker exec opensurge-ci readlink /proc/self/ns/net)"
           boot_id="$(docker exec opensurge-ci cat /proc/sys/kernel/random/boot_id)"
 
-          # Start the replacement while the original namespace is still alive.
-          # Pass deliberately different seed values. Because /data already has
-          # opensurge.yaml, the replacement must ignore them and preserve the
-          # first container's persistent configuration.
           docker run -d --name opensurge-ci-recreated \
             -e OPENSURGE_SEED_LAN_IP=10.99.0.2 \
             -e OPENSURGE_SEED_LAN_CIDR=10.99.0.0/24 \
@@ -237,8 +240,6 @@ jobs:
             exit 1
           fi
 
-          # Now remove the original container. The replacement keeps the same
-          # persistent /data, matching Container Station recreate semantics.
           docker rm -f opensurge-ci >/dev/null
 
           dns_pid="$(docker exec opensurge-ci-recreated sh -c 'sleep 120 >/dev/null 2>&1 & echo $!')"

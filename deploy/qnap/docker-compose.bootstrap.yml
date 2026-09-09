@@ -7,6 +7,9 @@ x-opensurge-image: &opensurge-image
       OPENSURGE_VERSION: dev
 
 services:
+  # LAN-facing setup/control UI. It shares the host network namespace only so it
+  # can enumerate the real QNAP interfaces and default routes. It has no
+  # NET_ADMIN capability and never receives the Docker socket.
   opensurge-manager:
     <<: *opensurge-image
     container_name: opensurge-manager
@@ -31,6 +34,9 @@ services:
       start_period: 10s
       retries: 3
 
+  # Docker-control sidecar. It has no network namespace and exposes no TCP
+  # ports. The manager can request only the constrained OpenSurge deployment
+  # operations exposed through the shared Unix socket.
   opensurge-orchestrator:
     <<: *opensurge-image
     container_name: opensurge-orchestrator
@@ -57,5 +63,7 @@ services:
       retries: 3
 
 volumes:
+  # Only manager credentials/settings live here. The actual Gateway /data bind
+  # path is selected later in the Web UI.
   opensurge_manager_data:
   opensurge_orchestrator_run:
