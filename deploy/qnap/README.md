@@ -1,238 +1,210 @@
-# QNAP Docker deployment
+# OpenSurge for QNAP — Docker deployment
 
-This directory is the supported QNAP/Container Station deployment entrypoint for OpenSurge for QNAP.
+The supported QNAP deployment runs one `opensurge` container. The QNET parent, static IPv4, LAN CIDR, upstream router, and persistent path are fixed when the container is created; the running Web UI manages OpenSurge itself and does not modify QTS host networking.
 
-- Chinese guide: [README.zh-CN.md](README.zh-CN.md)
-- Persistence model: [PERSISTENCE.md](PERSISTENCE.md)
+The current stabilization target is **IPv4 same-LAN manual gateway**: main-router DHCP remains unchanged, and only selected clients use OpenSurge as their IPv4 gateway and DNS server.
 
-## Supported topology
-
-The initial stable deployment is IPv4 same-LAN manual-gateway mode:
+## Architecture
 
 ```text
-Main router           192.168.2.1
-QNAP NAS              192.168.2.240
-OpenSurge container   192.168.2.241
-Client                192.168.2.100
-  gateway             192.168.2.241
-  DNS                 192.168.2.241
+QNAP NIC / Virtual Switch
+          │
+          │ qnet (bound at container creation)
+          ▼
+┌───────────────────────────────┐
+│ opensurge                     │
+│ Web :8080                     │
+│ Control API :61767 loopback   │
+│ mihomo + dnsmasq              │
+│ TUN + policy routing          │
+│ persistent /data              │
+└───────────────────────────────┘
+          │
+          ▼
+LAN clients use OpenSurge IP as gateway/DNS
 ```
 
-The container gets its own LAN IPv4 through QNAP `qnet`. It does not use host networking and does not require `privileged: true`.
+The default deployment has no Manager/Orchestrator sidecars, no Docker socket, no `privileged: true`, and no runtime QTS/Virtual Switch mutation.
 
-## Dual-NIC QNAP NAS
+The Gateway container requires:
 
-Two interface names exist in the deployment and they are intentionally different concepts:
+- `NET_ADMIN`;
+- `NET_RAW`;
+- `/dev/net/tun`.
 
-- `OPENSURGE_PARENT_INTERFACE`: **QNAP host-side QNET parent**. This is the actual dual-NIC selector. Use `eth0`, `eth1`, `br0`, `bond0`, etc. only after checking QNAP Network & Virtual Switch.
-- `OPENSURGE_CONTAINER_INTERFACE`: interface visible inside the container. In the supported single-QNET-network topology this is normally `eth0`, even if the QNAP parent is `eth1` or `br0`.
+### Same-LAN data plane
 
-List host candidates before deployment:
-
-```sh
-cd deploy/qnap
-sh ./preflight.sh --list-interfaces
-```
-
-or:
-
-```sh
-make qnap-interfaces
-```
-
-Do not infer the physical port from the `eth0`/`eth1` number alone.
-
-## Persistent storage
-
-Use one dedicated absolute QNAP host path for the complete `/data` tree, for example:
-
-```env
-OPENSURGE_DATA_PATH=/share/Container/opensurge
-```
-
-Compose maps:
+For QNAP kernels with TUN and policy routing but no `nf_tables` netlink support, OpenSurge uses:
 
 ```text
-/share/Container/opensurge -> /data
+eth0 ingress
+   ↓
+ip rule iif eth0
+   ↓
+OpenSurge dedicated routing table
+   ↓
+tun0
+   ↓
+mihomo
 ```
 
-Persisting the whole tree is deliberate. `/data/runtime` contains the ownership/reconciliation journal needed to handle an in-place container recreation safely.
+This same-LAN path does not depend on nftables. Isolated downstream topologies that need NAT retain the nftables/fwmark backend and strict capability checks.
 
-Important directories:
+## Prebuilt test image
 
-| Path | Purpose |
-| --- | --- |
-| `/data/config` | Main gateway configuration |
-| `/data/control` | Admin credentials and internal control state |
-| `/data/profiles` | Imported/managed profiles |
-| `/data/providers` | Provider/rule-provider data |
-| `/data/state` | Durable optional-feature state |
-| `/data/backups` | Configuration backups |
-| `/data/runtime` | Runtime journal, applied-state ownership and reconciliation data |
-| `/data/logs` | Component logs |
+Do not build the project on the NAS.
 
-For an in-place update on the same NAS, preserve the complete `/data` tree. For migration to a different NAS, restore user/configuration data but remove stale `runtime/` before the first start on the new host. See [PERSISTENCE.md](PERSISTENCE.md).
+Rolling test release:
 
-## Prepare `.env`
+<https://github.com/zyk1172/OpenSurge-for-QNAP/releases/tag/qnap-test-latest>
+
+TS-264C / x86_64 users should download:
+
+```text
+OpenSurge-for-QNAP-test-amd64.tar.gz
+```
+
+Load it with:
 
 ```sh
-cd deploy/qnap
-cp .env.example .env
+gzip -dc OpenSurge-for-QNAP-test-amd64.tar.gz | docker load
 ```
 
-Set at least:
+The image tag is:
 
-```env
-OPENSURGE_IP=192.168.2.241
-OPENSURGE_SUBNET=192.168.2.0/24
-OPENSURGE_GATEWAY=192.168.2.1
-
-# QNAP host-side NIC / bridge selector
-OPENSURGE_PARENT_INTERFACE=eth1
-
-# Container-side interface; normally eth0
-OPENSURGE_CONTAINER_INTERFACE=eth0
-
-# Dedicated absolute QNAP bind-mount path
-OPENSURGE_DATA_PATH=/share/Container/opensurge
+```text
+opensurge-for-qnap:test
 ```
 
-The static container IP should be outside the router's dynamic DHCP pool or reserved on the router.
+The default Compose uses `pull_policy: never`, so a missing local test image fails explicitly instead of silently pulling a different image.
 
-## Preflight
+## Creation-time parameters
 
-List interfaces first on a multi-NIC NAS:
+| Variable | Purpose | Example |
+|---|---|---|
+| `OPENSURGE_PARENT_INTERFACE` | QNAP QNET parent NIC / Virtual Switch | `eth1` / `br0` |
+| `OPENSURGE_IP` | OpenSurge LAN IPv4 | `192.168.2.241` |
+| `OPENSURGE_SUBNET` | LAN CIDR | `192.168.2.0/24` |
+| `OPENSURGE_GATEWAY` | Upstream router IPv4 | `192.168.2.1` |
+| `OPENSURGE_DATA_PATH` | Persistent QNAP path | `/share/Container/opensurge` |
 
-```sh
-sh ./preflight.sh --list-interfaces
-```
+Do not infer the physical port from an `eth0`/`eth1` number alone. Check QTS Network & Virtual Switch together with host `ip addr` / `ip route` output.
 
-Then run the full deployment gate:
-
-```sh
-sh ./preflight.sh
-```
-
-It validates:
-
-- container IPv4 / subnet / gateway consistency;
-- Docker and Compose V2;
-- Compose interpolation/schema;
-- absolute dedicated `/data` bind path;
-- `/dev/net/tun`;
-- selected QNET parent-interface existence;
-- host route information to the configured gateway;
-- persistent-data path writability;
-- obvious static-IP conflicts;
-- qnet plugin reporting when available.
-
-QNET plugin enumeration is advisory because QNAP versions expose third-party network drivers differently. Actual Compose network creation is authoritative.
-
-CI/static validation:
-
-```sh
-sh ./preflight.sh --env-file .env.example --static
-```
+The container-side data interface is normally still `eth0`; it is a different namespace from the selected QNAP host-side NIC/bridge/bond.
 
 ## Compose
 
-Use the repository file directly:
+Use:
 
 ```text
 deploy/qnap/docker-compose.yml
 ```
 
-It provides:
-
-- QNET static LAN IP;
-- explicit QNAP parent-NIC selection;
-- one persistent `/data` bind mount;
-- first-run config seeding from `OPENSURGE_IP`, `OPENSURGE_SUBNET`, `OPENSURGE_GATEWAY` and `OPENSURGE_CONTAINER_INTERFACE`;
-- `NET_ADMIN` + `NET_RAW` + `/dev/net/tun` only;
-- container sysctls for IPv4 forwarding/rp_filter;
-- `no-new-privileges`;
-- bounded Docker log rotation;
-- no Docker socket, no host network, no default `privileged: true`.
-
-Existing `/data/config/opensurge.yaml` is **never overwritten**. Deployment variables seed only the first configuration.
-
-## Build and start
-
-The current Compose builds from this repository; a stable registry image is not assumed yet.
-
-```sh
-git clone https://github.com/zyk1172/OpenSurge-for-QNAP.git
-cd OpenSurge-for-QNAP/deploy/qnap
-cp .env.example .env
-# edit .env
-mkdir -p /share/Container/opensurge
-sh ./preflight.sh
-docker compose --env-file .env -f docker-compose.yml up -d --build
-```
-
-Verify:
-
-```sh
-docker compose --env-file .env -f docker-compose.yml ps
-docker inspect --format '{{json .State.Health}}' opensurge
-docker logs --tail 100 opensurge
-```
-
-Then open:
+It defines one service:
 
 ```text
-http://<OPENSURGE_IP>:8080
+opensurge
 ```
 
-Create the first administrator account and verify the detected container-side interface, LAN IP, subnet and upstream gateway.
+Provide creation-time values through the installer, Codex/Hermes, Container Station, or the shell environment. Example:
+
+```sh
+export OPENSURGE_PARENT_INTERFACE=br0
+export OPENSURGE_IP=192.168.2.241
+export OPENSURGE_SUBNET=192.168.2.0/24
+export OPENSURGE_GATEWAY=192.168.2.1
+export OPENSURGE_DATA_PATH=/share/Container/opensurge
+
+docker compose -f docker-compose.yml config
+docker compose -f docker-compose.yml up -d
+```
+
+Do not run `docker compose build` on the NAS for the normal test deployment.
+
+## First start and persistence
+
+If this file does not exist:
+
+```text
+/data/config/opensurge.yaml
+```
+
+the entrypoint seeds the initial configuration from creation-time values. An existing persistent configuration is not overwritten by later seed values.
+
+Therefore:
+
+- preserve `/data` when recreating/updating the container on the same NAS;
+- change parent NIC/IP/CIDR/upstream router as container-creation parameters and recreate the container;
+- manage subscriptions, policies, DNS, TUN, providers, and devices in the Web UI.
+
+Recommended host bind mount:
+
+```text
+/share/Container/opensurge -> /data
+```
+
+Important directories:
+
+| Path | Purpose |
+|---|---|
+| `/data/config` | Main configuration |
+| `/data/control` | Admin/control state |
+| `/data/profiles` | Imported/managed profiles |
+| `/data/providers` | Provider data |
+| `/data/state` | Durable feature state |
+| `/data/backups` | Configuration backups |
+| `/data/runtime` | Ownership/recovery journal |
+| `/data/logs` | Component logs |
+
+## Web UI
+
+Open:
+
+```text
+http://<OpenSurge-IP>:8080
+```
+
+Create the first administrator account, then use the QNAP Web surface to manage runtime settings and proxy configuration. Container-creation network values are shown as deployment state rather than mutable QTS controls.
+
+The QNAP build exposes NAS-relevant functions only; desktop-host controls are not presented as QNAP features.
+
+## Basic validation
+
+```sh
+docker ps --filter name=opensurge
+docker inspect --format '{{json .State.Health}}' opensurge
+docker exec opensurge ip -br addr
+docker exec opensurge ip route
+docker exec opensurge ip rule
+docker exec opensurge ls -l /dev/net/tun
+```
+
+For the same-LAN nft-free data plane after Gateway start:
+
+```sh
+docker exec opensurge ip rule show
+docker exec opensurge ip route show table 20241
+```
+
+A QNAP kernel may legitimately reject `nft list ruleset`; that is not a same-LAN failure when OpenSurge is using the TUN ingress-interface backend.
 
 ## Test one client first
 
 Do not migrate the whole LAN immediately. Pick one client and set:
 
 ```text
-IPv4 gateway = OPENSURGE_IP
-DNS          = OPENSURGE_IP
+IPv4 gateway = OpenSurge IP
+DNS          = OpenSurge IP
 ```
 
-Verify DNS, DIRECT, PROXY, UDP and long-lived traffic before moving more clients.
-
-## Upgrade
-
-Keep `OPENSURGE_DATA_PATH` unchanged:
-
-```sh
-docker compose --env-file .env -f docker-compose.yml down
-docker compose --env-file .env -f docker-compose.yml up -d --build
-```
-
-The replacement container gets a new network namespace. The persisted runtime journal lets OpenSurge classify old state as interrupted instead of signalling unrelated reused PIDs.
-
-## Recovery
-
-If the gateway is unhealthy, first return test clients to the main router for gateway/DNS. Then inspect:
-
-```sh
-docker logs --tail 200 opensurge
-
-docker exec opensurge \
-  omg status --config /data/config/opensurge.yaml --format json
-
-docker exec opensurge \
-  omg doctor --config /data/config/opensurge.yaml
-```
-
-If an interrupted runtime exists:
-
-```sh
-docker exec opensurge \
-  omg stop --config /data/config/opensurge.yaml
-```
+Verify DNS, DIRECT, PROXY, UDP/QUIC, long-lived traffic, container restart recovery, and then NAS reboot recovery before moving more clients.
 
 ## Current boundaries
 
-- IPv4 same-LAN manual-gateway mode only.
-- No automatic QNAP Network & Virtual Switch mutation.
-- No full-LAN DHCP takeover in the initial stable release.
+- IPv4 same-LAN manual-gateway mode is the first stable target.
+- No automatic main-router DHCP takeover.
 - No downstream IPv6 takeover.
-- QNET parent-NIC selection is a deployment parameter; the Web UI is not given Docker-socket or QNAP-host network-control access.
+- No automatic QNAP Network & Virtual Switch mutation.
+- Changing QNET parent/static IP/CIDR/upstream router requires container recreation.
+- QNET/kernel behavior still needs coverage across QNAP models and firmware versions.
+- Real-client, reboot, 24h/72h soak, and update/rollback validation remain stable-release gates.
