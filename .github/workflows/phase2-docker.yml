@@ -165,11 +165,13 @@ jobs:
             | grep -q '"interfaces"'
       - name: Reconcile persisted runtime after container recreation
         run: |
-          set -eu
+          set -euo pipefail
           old_ns="$(docker exec opensurge-ci readlink /proc/self/ns/net)"
           boot_id="$(docker exec opensurge-ci cat /proc/sys/kernel/random/boot_id)"
-          docker rm -f opensurge-ci >/dev/null
 
+          # Start the replacement while the original namespace is still alive.
+          # This prevents Linux from legitimately reusing the old namespace inode
+          # and makes the recreation assertion deterministic.
           docker run -d --name opensurge-ci-recreated \
             -v /tmp/opensurge-ci-data:/data \
             opensurge-qnap:ci
@@ -178,6 +180,7 @@ jobs:
               break
             fi
             if [ "$i" -eq 30 ]; then
+              echo "replacement container did not become ready" >&2
               docker logs opensurge-ci-recreated
               exit 1
             fi
@@ -185,7 +188,17 @@ jobs:
           done
 
           new_ns="$(docker exec opensurge-ci-recreated readlink /proc/self/ns/net)"
-          test "$new_ns" != "$old_ns"
+          echo "original namespace:    $old_ns"
+          echo "replacement namespace: $new_ns"
+          if [ "$new_ns" = "$old_ns" ]; then
+            echo "replacement unexpectedly shares the original network namespace" >&2
+            exit 1
+          fi
+
+          # Now remove the original container. The replacement keeps the same
+          # persistent /data, matching Container Station recreate semantics.
+          docker rm -f opensurge-ci >/dev/null
+
           dns_pid="$(docker exec opensurge-ci-recreated sh -c 'sleep 120 >/dev/null 2>&1 & echo $!')"
           mihomo_pid="$(docker exec opensurge-ci-recreated sh -c 'sleep 120 >/dev/null 2>&1 & echo $!')"
           now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -205,13 +218,31 @@ jobs:
           }
           EOF
 
-          docker exec opensurge-ci-recreated \
-            omg status --config /data/config/opensurge.yaml --format json \
-            | grep -q '"runtime_state":"interrupted"'
-          docker exec opensurge-ci-recreated \
-            omg stop --config /data/config/opensurge.yaml
-          docker exec opensurge-ci-recreated sh -c "kill -0 $dns_pid && kill -0 $mihomo_pid"
-          docker exec opensurge-ci-recreated test ! -e /data/runtime/state.json
+          status_json="$(docker exec opensurge-ci-recreated \
+            omg status --config /data/config/opensurge.yaml --format json)"
+          echo "status after recreation: $status_json"
+          if ! printf '%s\n' "$status_json" | grep -q '"runtime_state":"interrupted"'; then
+            echo "replacement container did not classify persisted runtime as interrupted" >&2
+            exit 1
+          fi
+
+          stop_output="$(docker exec opensurge-ci-recreated \
+            omg stop --config /data/config/opensurge.yaml 2>&1)" || {
+              rc=$?
+              echo "$stop_output" >&2
+              echo "interrupted runtime cleanup failed with exit code $rc" >&2
+              exit "$rc"
+            }
+          echo "$stop_output"
+
+          if ! docker exec opensurge-ci-recreated sh -c "kill -0 $dns_pid && kill -0 $mihomo_pid"; then
+            echo "interrupted cleanup signalled a PID owned by the replacement container" >&2
+            exit 1
+          fi
+          if docker exec opensurge-ci-recreated test -e /data/runtime/state.json; then
+            echo "interrupted cleanup left stale runtime state behind" >&2
+            exit 1
+          fi
           docker exec opensurge-ci-recreated sh -c "kill $dns_pid $mihomo_pid"
       - name: Dump logs on failure
         if: failure()
