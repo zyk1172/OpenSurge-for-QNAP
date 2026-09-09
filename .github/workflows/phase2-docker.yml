@@ -200,9 +200,13 @@ jobs:
           boot_id="$(docker exec opensurge-ci cat /proc/sys/kernel/random/boot_id)"
 
           # Start the replacement while the original namespace is still alive.
-          # This prevents Linux from legitimately reusing the old namespace inode
-          # and makes the recreation assertion deterministic.
+          # Pass deliberately different seed values. Because /data already has
+          # opensurge.yaml, the replacement must ignore them and preserve the
+          # first container's persistent configuration.
           docker run -d --name opensurge-ci-recreated \
+            -e OPENSURGE_SEED_LAN_IP=10.99.0.2 \
+            -e OPENSURGE_SEED_LAN_CIDR=10.99.0.0/24 \
+            -e OPENSURGE_SEED_UPSTREAM_GATEWAY=10.99.0.1 \
             -v /tmp/opensurge-ci-data:/data \
             opensurge-qnap:ci
           for i in $(seq 1 30); do
@@ -216,6 +220,14 @@ jobs:
             fi
             sleep 1
           done
+
+          docker exec opensurge-ci-recreated grep -q 'lan_ip: "10.55.0.2"' /data/config/opensurge.yaml
+          docker exec opensurge-ci-recreated grep -q 'lan_cidr: "10.55.0.0/24"' /data/config/opensurge.yaml
+          docker exec opensurge-ci-recreated grep -q 'upstream_gateway: "10.55.0.1"' /data/config/opensurge.yaml
+          if docker exec opensurge-ci-recreated grep -q '10.99.0.2' /data/config/opensurge.yaml; then
+            echo "replacement container overwrote persistent configuration from deployment seed variables" >&2
+            exit 1
+          fi
 
           new_ns="$(docker exec opensurge-ci-recreated readlink /proc/self/ns/net)"
           echo "original namespace:    $old_ns"
