@@ -9,9 +9,7 @@ import (
 	"open-mihomo-gateway/internal/device"
 	"open-mihomo-gateway/internal/dhcp"
 	"open-mihomo-gateway/internal/mihomo"
-	"open-mihomo-gateway/internal/pf"
 	"open-mihomo-gateway/internal/runtime"
-	"open-mihomo-gateway/internal/sysctl"
 )
 
 type Status struct {
@@ -26,14 +24,15 @@ type Status struct {
 	TUN                 string `json:"tun"`
 	TUNInterface        string `json:"tun_interface,omitempty"`
 	TUNError            string `json:"tun_error,omitempty"`
-	PFAnchor            string `json:"pf_anchor"`
+	NFTables            string `json:"nftables"`
 	Forwarding          string `json:"forwarding"`
 	ClientCount         int    `json:"client_count"`
 	DNSIPv6             bool   `json:"dns_ipv6"`
 	TUNIPv6Requested    string `json:"tun_ipv6_requested"`
-	IPv6Packet          string `json:"ipv6_packet"`
-	NativeIPv6Available bool   `json:"native_ipv6_available"`
-	IPv6Reason          string `json:"ipv6_reason"`
+	// IPv6Takeover tells the UI that downstream IPv6 is intentionally not
+	// supported in v1. Clients that still receive IPv6 from the main router can
+	// bypass OpenSurge, so this must be surfaced rather than silently dropped.
+	IPv6Takeover string `json:"ipv6_takeover"`
 }
 
 func (m Manager) Status(ctx context.Context) (Status, error) {
@@ -56,21 +55,13 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 	if m.cfg.Transparent.TUNEnabled() {
 		tunStatus = "stopped"
 	}
-	pfStatus := "unloaded"
+	nftStatus := "not_applied"
 	runtimeState := "none"
 	dnsIPv6 := m.cfg.DNS.IPv6
 	tunIPv6Requested := m.cfg.Transparent.TUNIPv6
-	ipv6PacketStatus := "disabled"
-	nativeIPv6Available := false
-	ipv6Reason := "stopped"
-	if m.cfg.Transparent.TUNIPv6 != config.TUNIPv6Off {
-		ipv6PacketStatus = "stopped"
-	}
+	ipv6Takeover := "unsupported"
 	if exists {
 		dnsIPv6 = state.DNSIPv6
-		tunIPv6Requested = state.TUNIPv6Requested
-		nativeIPv6Available = state.NativeIPv6Available
-		ipv6Reason = state.IPv6Reason
 		bootSession, bootErr := runtime.CurrentBootSession()
 		if bootErr != nil {
 			return Status{}, fmt.Errorf("determine current boot session: %w", bootErr)
@@ -80,10 +71,9 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 			runtimeState = "interrupted"
 		} else {
 			runtimeState = "active"
-			appliedCfg := appliedConfigFromState(m.cfg, state)
+			appliedCfg := m.cfg
 			dhcpRunning := false
 			mihomoRunning := false
-			ipv6PacketRunning := !state.IPv6PacketEffective
 			mihomoManager := mihomo.New(appliedCfg, m.paths)
 			if trackedProcessRunning(m.gatewayDeps(), state.PIDMihomo, state.MihomoProcessFingerprint, mihomoManager.Running) {
 				mihomoRunning = true
@@ -109,15 +99,6 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 					}
 				}
 			}
-			if state.IPv6PacketEffective {
-				packetManager := Manager{cfg: appliedCfg, paths: m.paths, deps: m.deps}.ipv6Packet(m.gatewayDeps())
-				if trackedProcessRunning(m.gatewayDeps(), state.PIDIPv6Packet, state.IPv6PacketFingerprint, packetManager.Running) {
-					ipv6PacketRunning = true
-					ipv6PacketStatus = "ready"
-				} else {
-					ipv6PacketStatus = "failed"
-				}
-			}
 			dhcpManager := dhcp.New(m.cfg, m.paths)
 			if trackedProcessRunning(m.gatewayDeps(), state.PIDDNSMasq, state.DNSMasqProcessFingerprint, dhcpManager.Running) {
 				dhcpRunning = true
@@ -127,22 +108,38 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 			// the already-running TUN data plane stopped. An explicit disabled
 			// response remains a real degraded condition.
 			tunReady := !m.cfg.Transparent.TUNEnabled() || tunStatus == "ready" || tunStatus == "unknown"
-			if dhcpRunning && mihomoRunning && tunReady && ipv6PacketRunning {
+			if dhcpRunning && mihomoRunning && tunReady {
 				gatewayStatus = "running"
 			} else {
 				gatewayStatus = "degraded"
 			}
-			if state.PFAnchorLoaded {
-				pfStatus = "loaded"
-				if loaded, err := pf.New(m.cfg, m.paths).Loaded(); err == nil && !loaded {
-					pfStatus = "unloaded"
+			if state.NATApplied {
+				nftStatus = "applied"
+				if backend, err := m.backend(); err == nil {
+					if observed, err := backend.ObservedState(ctx); err == nil {
+						found := false
+						for _, table := range observed.NFTables {
+							if table == m.cfg.Transparent.NFTTableName {
+								found = true
+							}
+						}
+						if !found {
+							nftStatus = "missing"
+						}
+					}
 				}
 			}
 		}
 	}
 	forwarding := "unknown"
-	if current, err := sysctl.New().Current(); err == nil {
-		forwarding = sysctl.FormatForwarding(current)
+	if backend, err := m.backend(); err == nil {
+		if observed, err := backend.ObservedState(ctx); err == nil {
+			if observed.IPv4Forwarding {
+				forwarding = "enabled"
+			} else {
+				forwarding = "disabled"
+			}
+		}
 	}
 
 	return Status{
@@ -157,14 +154,12 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 		TUN:                 tunStatus,
 		TUNInterface:        tunInterface,
 		TUNError:            tunError,
-		PFAnchor:            pfStatus,
+		NFTables:            nftStatus,
 		Forwarding:          forwarding,
 		ClientCount:         len(clients),
 		DNSIPv6:             dnsIPv6,
 		TUNIPv6Requested:    tunIPv6Requested,
-		IPv6Packet:          ipv6PacketStatus,
-		NativeIPv6Available: nativeIPv6Available,
-		IPv6Reason:          ipv6Reason,
+		IPv6Takeover:        ipv6Takeover,
 	}, nil
 }
 
@@ -219,8 +214,8 @@ func (s Status) Format() string {
 		fmt.Sprintf("mihomo: %s", s.Mihomo),
 		fmt.Sprintf("TUN: %s", tunLabel),
 		fmt.Sprintf("IPv6 DNS queries: %t", s.DNSIPv6),
-		fmt.Sprintf("IPv6 packet path: requested=%s state=%s (%s)", s.TUNIPv6Requested, s.IPv6Packet, s.IPv6Reason),
-		fmt.Sprintf("pf anchor: %s", s.PFAnchor),
+		fmt.Sprintf("Downstream IPv6 takeover: requested=%s state=%s", s.TUNIPv6Requested, s.IPv6Takeover),
+		fmt.Sprintf("nftables: %s", s.NFTables),
 		fmt.Sprintf("IP forwarding: %s", s.Forwarding),
 		fmt.Sprintf("Clients: %d", s.ClientCount),
 	}

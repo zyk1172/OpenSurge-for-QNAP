@@ -2073,9 +2073,18 @@ func TestControlConfigRoundTripsIPv6Controls(t *testing.T) {
 	}
 	input := controlConfigFrom(cfg, fileDigest(path))
 	input.DNS.IPv6 = true
+	// Downstream IPv6 takeover is rejected by validation on the QNAP fork;
+	// only the DNS toggle may persist.
 	input.Transparent.TUNIPv6 = config.TUNIPv6Always
-	input.Transparent.IPv6SharedL2Ready = true
 	payload, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := applyControlConfig(path, input.Revision, payload); err == nil {
+		t.Fatal("applying downstream IPv6 takeover should be rejected on QNAP")
+	}
+	input.Transparent.TUNIPv6 = config.TUNIPv6Off
+	payload, err = json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2086,8 +2095,8 @@ func TestControlConfigRoundTripsIPv6Controls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !updated.DNS.IPv6 || updated.Transparent.TUNIPv6 != config.TUNIPv6Always || !updated.Transparent.IPv6SharedL2Ready {
-		t.Fatalf("IPv6 controls were not persisted: DNS=%v takeover=%q sharedL2=%v", updated.DNS.IPv6, updated.Transparent.TUNIPv6, updated.Transparent.IPv6SharedL2Ready)
+	if !updated.DNS.IPv6 || updated.Transparent.TUNIPv6 != config.TUNIPv6Off {
+		t.Fatalf("DNS toggle was not persisted: DNS=%v takeover=%q", updated.DNS.IPv6, updated.Transparent.TUNIPv6)
 	}
 }
 

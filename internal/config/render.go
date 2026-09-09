@@ -69,9 +69,11 @@ tailscale:
   exit_node: %s
   exit_node_allow_lan_access: %t
 
-pf:
-  anchor_name: %s
-  redirect_tcp_to: %d
+nftables:
+  table_name: %s
+  fw_mark: %d
+  route_table_id: %d
+  route_rule_priority: %d
 
 transparent:
   mode: %s
@@ -109,7 +111,7 @@ runtime:
 		cfg.Tailscale.Enabled, q(cfg.Tailscale.DisplayName), q(cfg.Tailscale.Hostname), q(cfg.Tailscale.ControlURL), q(cfg.Tailscale.AuthKeyFile), q(cfg.Tailscale.StateDir), cfg.Tailscale.AcceptRoutes,
 		q(strings.Join(cfg.Tailscale.MagicDNSSuffixes, ",")), q(strings.Join(cfg.Tailscale.PeerCIDRs, ",")), q(strings.Join(cfg.Tailscale.SubnetRoutes, ",")), cfg.Tailscale.AllowMac, cfg.Tailscale.AllowAllDevices,
 		q(strings.Join(cfg.Tailscale.AllowedDevices, ",")), q(cfg.Tailscale.ExitNode), cfg.Tailscale.ExitNodeAllowLANAccess,
-		q(cfg.PF.AnchorName), cfg.PF.RedirectTCPTo,
+		q(cfg.Transparent.NFTTableName), cfg.Transparent.FwMark, cfg.Transparent.RouteTableID, cfg.Transparent.RouteRulePriority,
 		q(cfg.Transparent.Mode), q(cfg.Transparent.TUNDevice), q(cfg.Transparent.TUNStack), cfg.Transparent.TUNAutoRoute, cfg.Transparent.TUNAutoDetectInterface, cfg.Transparent.TUNStrictRoute,
 		q(cfg.Transparent.TUNIPv6), cfg.Transparent.IPv6SharedL2Ready, q(cfg.Transparent.IPv6PacketBrokerBinary), cfg.Transparent.IPv6PacketMTU,
 		cfg.LocalSystemProxy.Enabled,

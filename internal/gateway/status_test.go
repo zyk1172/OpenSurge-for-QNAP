@@ -179,7 +179,7 @@ func TestStatusMarksPreviousBootRuntimeInterruptedWithoutProbingReusedPID(t *tes
 		PIDMihomo:      os.Getpid(),
 		PIDDNSMasq:     os.Getpid(),
 		BootSessionID:  "previous-boot-session",
-		PFAnchorLoaded: true,
+		NATApplied: true,
 		StartedAt:      time.Now().Add(-time.Hour),
 	}); err != nil {
 		t.Fatal(err)
@@ -189,7 +189,7 @@ func TestStatusMarksPreviousBootRuntimeInterruptedWithoutProbingReusedPID(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Gateway != "degraded" || status.RuntimeState != "interrupted" || status.Mihomo != "stopped" || status.PFAnchor != "unloaded" {
+	if status.Gateway != "degraded" || status.RuntimeState != "interrupted" || status.Mihomo != "stopped" || status.NFTables != "not_applied" {
 		t.Fatalf("status = %#v", status)
 	}
 	if requests != 0 {

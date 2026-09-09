@@ -1,8 +1,6 @@
 gateway:
   interface: "en0"
   lan_ip: "192.168.50.1"
-  # Real prefix length of the downstream LAN. pf NAT, TUN route exclusion,
-  # DHCP range validation, and device address ownership are derived from it.
   lan_prefix_len: 24
   upstream_interface: "en0"
 
@@ -14,15 +12,12 @@ dhcp:
   lease_time: "12h"
   domain: "lan"
 
-# Optional JSON control-plane file for fixed device leases and per-device
-# mihomo policy overlays. Imported rules remain the global layer.
 device_policy:
   file: ""
 
 dns:
   listen: "192.168.50.1"
   port: 53
-  # OpenSurge owns DNS even in imported mode so fake-IP and TUN stay aligned.
   upstream: "127.0.0.1#1053"
   ipv6: false
 
@@ -37,21 +32,23 @@ mihomo:
   api_addr: "127.0.0.1:9090"
   secret: ""
 
-pf:
-  anchor_name: "com.apple/open_mihomo_gateway"
-  redirect_tcp_to: 0
+nftables:
+  table_name: opensurge
+  fw_mark: 0x29
+  route_table_id: 20241
+  route_rule_priority: 20241
 
 transparent:
   mode: "off"
-  tun_device: "utun123"
+  tun_device: "tun0"
   tun_stack: "mixed"
-  tun_auto_route: true
+  tun_auto_route: false
   tun_auto_detect_interface: false
   tun_strict_route: false
   tun_ipv6: "off"
   ipv6_shared_l2_ready: false
-  ipv6_packet_broker_binary: "opensurge-network"
-  ipv6_packet_mtu: 1500
+  ipv6_packet_broker_binary: ""
+  ipv6_packet_mtu: 0
 
 local_system_proxy:
   enabled: false

@@ -1,58 +1,91 @@
 # Third-Party Notices
 
-OpenSurge for Mac is licensed under `GPL-3.0-only`. The independent programs
-and libraries listed below retain their upstream licenses. The macOS installer
-places this notice and the referenced license texts under
-`/Library/Application Support/OpenSurge/share/licenses/`.
+OpenSurge for QNAP is licensed under `GPL-3.0-only`. Independent programs and
+libraries retain their own upstream licenses.
 
-## mihomo
+> **Phase 1 status:** this branch does **not yet publish the QNAP Docker image**.
+> Therefore this file does not claim that a `docker/Dockerfile`, SBOM pipeline,
+> image-embedded license directory, or release-time license verifier already
+> exists. Those become release requirements when the Docker packaging phase is
+> implemented.
 
-- Upstream base version: `1.19.30`
-- Distributed OpenSurge build version: `1.19.30-opensurge.1`
-- License: `GPL-3.0-only`
-- Distributed form: architecture-specific binaries compiled from the pinned
-  upstream source with the OpenSurge packet-listener patch stored under
-  `patches/mihomo`. The listener reuses mihomo's existing gVisor/sing-tun data
-  plane for the OpenSurge downstream IPv6 packet broker.
-- Source archive SHA-256:
-  `971dd4533e4e2c3dad7473e8115200da8c0d7471b4b61da54da896345c5b3850`
+## Upstream runtime components carried by the source baseline
+
+### mihomo
+
 - Upstream: <https://github.com/MetaCubeX/mihomo>
-- Corresponding source:
-  <https://github.com/MetaCubeX/mihomo/tree/ac017cdd246ce8bd547653d927e7bf77d7ee73d5>
-- License text: [`LICENSE`](LICENSE)
+- License: `GPL-3.0-only`
+- Baseline version inherited from OpenSurge for Mac: `1.19.30`
+- QNAP v1 direction: use unpatched upstream mihomo; the upstream macOS
+  `opensurge-packet` patch exists for the removed macOS BPF IPv6 packet broker
+  and is not part of the Linux IPv4 design.
 
-## dnsmasq
+**Before the first Docker release:** pin an exact mihomo source commit/archive,
+record its checksum, preserve the applicable license text, and ensure the
+corresponding source is obtainable for the exact binary shipped.
 
-- Version: `2.93`
+### dnsmasq
+
+- Upstream: <https://thekelleys.org.uk/dnsmasq/>
 - License: `GPL-2.0-only OR GPL-3.0-only`, at the recipient's option
-- Distributed form: built from unmodified upstream source for Apple Silicon or
-  Intel macOS by [`scripts/prepare-gui-release-deps.sh`](scripts/prepare-gui-release-deps.sh)
-- Source archive SHA-256:
-  `cc967771abdafeb43d10db18932d6b59fd4bed2c69c22acf8cb96aff6920d55f`
-- Corresponding source:
-  <https://thekelleys.org.uk/dnsmasq/dnsmasq-2.93.tar.gz>
-- License texts: [`third_party/licenses/dnsmasq-COPYING`](third_party/licenses/dnsmasq-COPYING)
+- Baseline version inherited from the upstream fork point: `2.93`
+- License texts already retained in this repository:
+  [`third_party/licenses/dnsmasq-COPYING`](third_party/licenses/dnsmasq-COPYING)
   and [`LICENSE`](LICENSE)
 
-## gopkg.in/yaml.v3
+**Before the first Docker release:** pin the exact source archive, verify its
+checksum, and make the corresponding source path part of the release metadata.
+
+## Go dependencies
+
+`go.mod` is the authoritative dependency-version manifest for the current
+source tree. Notable direct dependencies include:
+
+### gopkg.in/yaml.v3
 
 - Version: `3.0.1`
-- License: MIT and Apache-2.0, according to the upstream per-file notice
+- License: MIT / Apache-2.0 according to upstream per-file notices
 - Upstream: <https://github.com/go-yaml/yaml/tree/v3.0.1>
-- License texts: [`third_party/licenses/yaml-v3-LICENSE`](third_party/licenses/yaml-v3-LICENSE)
+- License texts:
+  [`third_party/licenses/yaml-v3-LICENSE`](third_party/licenses/yaml-v3-LICENSE)
   and [`third_party/licenses/Apache-2.0.txt`](third_party/licenses/Apache-2.0.txt)
 
-## github.com/metacubex/bbolt
+### github.com/metacubex/bbolt
 
-- Version: `v0.0.0-20260706163408-d4ec34ad7c48`, matching the pinned Mihomo cache implementation
-- Use: read-only recovery of device selector choices from the core's cache
+- Version: `v0.0.0-20260706163408-d4ec34ad7c48`
 - License: MIT
 - Upstream: <https://github.com/metacubex/bbolt/tree/d4ec34ad7c48>
 - License text: [`third_party/licenses/bbolt-MIT.txt`](third_party/licenses/bbolt-MIT.txt)
 
-## React, React DOM, and scheduler
+The first distributable container release must additionally generate and archive
+a complete Go dependency/license report and SBOM rather than relying on this
+human-maintained summary alone.
 
-- Versions: React `19.2.7`, React DOM `19.2.7`, scheduler `0.27.0`
-- License: MIT
-- Upstream: <https://github.com/facebook/react>
-- License text: [`third_party/licenses/react-MIT.txt`](third_party/licenses/react-MIT.txt)
+## Frontend dependencies
+
+The Web UI retains the upstream React-based frontend. `web/package.json` and its
+lockfile are the authoritative dependency-version manifests for Phase 1.
+Existing third-party license texts are preserved under `third_party/licenses/`.
+
+The first distributable container release must generate a frontend dependency
+license report from the actual locked build inputs.
+
+## Required release-time controls (not yet claimed as implemented)
+
+Before publishing the first QNAP/Linux Docker image, the project must add and
+verify all of the following:
+
+1. exact pinned mihomo and dnsmasq source/binary versions;
+2. source URLs/commit IDs and cryptographic checksums;
+3. pinned base-image digest and OS-package manifest;
+4. complete SBOM and dependency license reports;
+5. corresponding-source instructions for GPL-covered binaries;
+6. CI checks that fail when release contents and this notice diverge.
+
+## Upstream attribution
+
+This project is a derivative work of
+[OpenSurge for Mac](https://github.com/YTwsy/OpenSurge-for-Mac) by YTwsy,
+licensed `GPL-3.0-only`. See [NOTICE.md](NOTICE.md) and
+[docs/UPSTREAM.md](docs/UPSTREAM.md). Upstream copyright notices and the
+`LICENSE` file are preserved.

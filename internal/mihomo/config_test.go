@@ -450,7 +450,7 @@ func TestRenderConfigWithTUN(t *testing.T) {
 	cfg.Gateway.Interface = "bridge100"
 	cfg.Gateway.UpstreamInterface = "en0"
 	cfg.Transparent.Mode = config.TransparentModeTUN
-	cfg.Transparent.TUNDevice = "utun123"
+	cfg.Transparent.TUNDevice = "tun0"
 	cfg.Transparent.TUNStack = "mixed"
 	rendered, err := RenderConfig(cfg)
 	if err != nil {
@@ -462,8 +462,10 @@ func TestRenderConfigWithTUN(t *testing.T) {
 		"tun:",
 		"  enable: true",
 		"  stack: mixed",
-		"  device: utun123",
-		"  auto-route: true",
+		"  device: tun0",
+		// auto-route is false because OpenSurge owns all host routing on Linux;
+		// mihomo must not install a second set of rules rollback cannot undo.
+		"  auto-route: false",
 		"  dns-hijack:",
 		"    - any:53",
 		"  route-exclude-address:",

@@ -43,7 +43,7 @@ func TestLoadExampleConfig(t *testing.T) {
 	if cfg.Transparent.Mode != TransparentModeOff {
 		t.Fatalf("Transparent.Mode = %q", cfg.Transparent.Mode)
 	}
-	if cfg.Transparent.TUNDevice != "utun123" {
+	if cfg.Transparent.TUNDevice != "tun0" {
 		t.Fatalf("Transparent.TUNDevice = %q", cfg.Transparent.TUNDevice)
 	}
 	if cfg.LocalSystemProxy.Enabled {
