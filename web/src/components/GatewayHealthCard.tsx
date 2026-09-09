@@ -14,6 +14,7 @@ export function GatewayHealthCard({ overview }: { overview: Overview | null }) {
       <div className="gateway-health-identity"><div className="orb"><span /></div><div><small>GATEWAY</small><h2>{statusLabel(status?.gateway)}</h2><p>{status?.interface ?? '—'} · {status?.lan_ip ?? t('等待状态')}</p></div></div>
       <div className="gateway-health-meta">
         <GatewayMeta label={t('接管模式')} value={topologyLabel(overview?.topology)} />
+        {qnapBuild && <GatewayMeta label={t('数据面')} value={status?.data_plane ?? '—'} tone={status?.routing === 'applied' ? 'ok' : status?.routing === 'missing' || status?.routing === 'unknown' ? 'warn' : ''} />}
         <GatewayMeta label={t('配置状态')} value={configState} tone={overview?.drift ? 'warn' : 'ok'} />
       </div>
     </div>
@@ -21,6 +22,7 @@ export function GatewayHealthCard({ overview }: { overview: Overview | null }) {
       <ServiceState label={status?.dhcp_enabled === false ? 'DNS' : 'DHCP / DNS'} state={status?.dhcp} />
       <ServiceState label="mihomo" state={status?.mihomo} />
       <ServiceState label={status?.tun_interface ? `TUN · ${status.tun_interface}` : 'TUN'} state={status?.tun} />
+      {qnapBuild && <ServiceState label={t('规则与转发')} state={status?.routing} displayState={routingStatusLabel(status?.routing)} detail={status?.routing_error} />}
       {!qnapBuild && <ServiceState label="PF Anchor" state={status?.pf_anchor} />}
       <ServiceState label={t('IPv4 转发')} state={status?.forwarding} />
     </div>
@@ -31,8 +33,16 @@ function GatewayMeta({ label, value, tone = '' }: { label: string; value: string
   return <span className={`gateway-meta ${tone}`.trim()}><small>{t(label)}</small><strong>{t(value)}</strong></span>
 }
 
-function ServiceState({ label, state = '—' }: { label: string; state?: string }) {
-  return <span className="gateway-service-state"><StatusDot status={state} /><span><strong>{t(label)}</strong><small>{t(state)}</small></span></span>
+function ServiceState({ label, state = '—', displayState, detail }: { label: string; state?: string; displayState?: string; detail?: string }) {
+  return <span className="gateway-service-state" title={detail || undefined}><StatusDot status={state} /><span><strong>{t(label)}</strong><small>{t(displayState ?? state)}</small>{detail && <small>{detail}</small>}</span></span>
+}
+
+function routingStatusLabel(state?: string) {
+  if (state === 'applied') return '已同步'
+  if (state === 'missing') return '运行异常'
+  if (state === 'unknown') return '无法连接'
+  if (state === 'not_applied') return '已停止'
+  return '—'
 }
 
 function topologyLabel(topology?: string) {

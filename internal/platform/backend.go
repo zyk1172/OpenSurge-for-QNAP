@@ -28,6 +28,10 @@ type NetworkBackend interface {
 	SetupNAT(ctx context.Context, cfg NATConfig) error
 	RemoveNAT(ctx context.Context) error
 	SetupPolicyRouting(ctx context.Context, cfg RoutingConfig) error
+	// PolicyRoutingPresent verifies the exact selector and routes owned by
+	// OpenSurge. A running TUN process alone is not sufficient proof that the
+	// downstream data plane is still attached to it.
+	PolicyRoutingPresent(ctx context.Context, cfg RoutingConfig) (bool, error)
 	RemovePolicyRouting(ctx context.Context) error
 	SwitchToDirectFallback(ctx context.Context, cfg RoutingConfig) error
 	EnsureTUN(ctx context.Context) error

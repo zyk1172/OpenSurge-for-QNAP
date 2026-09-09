@@ -29,9 +29,9 @@ export function Mode({ title, description, badge, active, expanded, controls, di
 export function Empty({ text }: { text: string }) { return <div className="empty">{t(text)}</div> }
 
 export function StatusDot({ status }: { status: string }) {
-  const state = status.includes('running') || status === 'ready'
+  const state = status.includes('running') || status === 'ready' || status === 'applied'
     ? 'running'
-    : status.includes('degraded') || status === 'failed' || status === 'unknown'
+    : status.includes('degraded') || status === 'failed' || status === 'unknown' || status === 'missing'
       ? 'degraded'
       : 'stopped'
   return <span className={`status-dot ${state}`} aria-label={state} />

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"open-mihomo-gateway/internal/config"
+	"open-mihomo-gateway/internal/platform"
 	"open-mihomo-gateway/internal/runtime"
 )
 
@@ -176,11 +177,11 @@ func TestStatusMarksPreviousBootRuntimeInterruptedWithoutProbingReusedPID(t *tes
 		t.Fatal(err)
 	}
 	if err := runtime.SaveState(paths.StateFile, runtime.State{
-		PIDMihomo:      os.Getpid(),
-		PIDDNSMasq:     os.Getpid(),
-		BootSessionID:  "previous-boot-session",
-		NATApplied: true,
-		StartedAt:      time.Now().Add(-time.Hour),
+		PIDMihomo:     os.Getpid(),
+		PIDDNSMasq:    os.Getpid(),
+		BootSessionID: "previous-boot-session",
+		NATApplied:    true,
+		StartedAt:     time.Now().Add(-time.Hour),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -194,5 +195,56 @@ func TestStatusMarksPreviousBootRuntimeInterruptedWithoutProbingReusedPID(t *tes
 	}
 	if requests != 0 {
 		t.Fatalf("stale runtime made %d mihomo API requests", requests)
+	}
+}
+
+func TestStatusDegradesWhenPolicyRoutingIsMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/version" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"version": "v1.19.30", "meta": true})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.Runtime.Dir = t.TempDir()
+	cfg.Mihomo.Config = filepath.Join(cfg.Runtime.Dir, "mihomo.yaml")
+	cfg.Mihomo.APIAddr = server.URL
+	cfg.Transparent.Mode = config.TransparentModeOff
+	paths := runtime.NewPaths(cfg)
+	if err := runtime.Ensure(paths); err != nil {
+		t.Fatal(err)
+	}
+	boot, err := runtime.CurrentBootSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := platform.NewSnapshot(platform.BackendLinuxNFTables)
+	snapshot.NetworkNamespace = boot.NetworkNamespace
+	snapshot.Routing = &platform.RoutingConfig{
+		LANInterface: "eth0", LANCIDR: "192.168.2.0/24", TUNDevice: "tun0",
+		TableID: 20241, RulePriority: 20241, RuleMode: platform.RoutingRuleIngressInterface,
+	}
+	snapshot.Applied.PolicyRouting = true
+	if err := runtime.SaveState(paths.StateFile, runtime.State{
+		BootSessionID: boot.ID, PIDMihomo: os.Getpid(), PIDDNSMasq: os.Getpid(),
+		StartedAt: time.Now(), RoutingApplied: true, NetworkSnapshot: snapshot,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeBackend{routingPresentSet: true, routingPresent: false}
+	manager := Manager{cfg: cfg, paths: paths, deps: gatewayDeps{
+		geteuid:    func() int { return 0 },
+		newBackend: func() (platform.NetworkBackend, error) { return backend, nil },
+	}}
+
+	status, err := manager.Status(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Gateway != "degraded" || status.Routing != "missing" {
+		t.Fatalf("status=%#v", status)
 	}
 }

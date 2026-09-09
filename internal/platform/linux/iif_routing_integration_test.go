@@ -74,6 +74,35 @@ func TestNetworkIngressInterfaceRoutesTCPAndUDPToTUN(t *testing.T) {
 	if !present {
 		t.Fatal("iif policy rule was not created")
 	}
+	ready, err := backend.PolicyRoutingPresent(ctx, cfg)
+	if err != nil {
+		t.Fatalf("PolicyRoutingPresent: %v", err)
+	}
+	if !ready {
+		t.Fatal("iif policy routing was not fully applied")
+	}
+
+	// The dedicated table is OpenSurge-owned. An unexpected more-specific route
+	// can bypass the TUN even when the expected LAN and default entries still
+	// exist, so health verification must fail closed until it is removed.
+	tableText := "20242"
+	if err := backend.runner.run(ctx, backend.runner.ipPath, "route", "add", "203.0.113.0/24", "dev", lan, "table", tableText); err != nil {
+		t.Fatalf("inject unexpected policy route: %v", err)
+	}
+	ready, err = backend.PolicyRoutingPresent(ctx, cfg)
+	if err != nil {
+		t.Fatalf("PolicyRoutingPresent(with foreign route): %v", err)
+	}
+	if ready {
+		t.Fatal("policy routing stayed healthy with an unexpected route in the OpenSurge-owned table")
+	}
+	if err := backend.runner.run(ctx, backend.runner.ipPath, "route", "del", "203.0.113.0/24", "dev", lan, "table", tableText); err != nil {
+		t.Fatalf("remove unexpected policy route: %v", err)
+	}
+	ready, err = backend.PolicyRoutingPresent(ctx, cfg)
+	if err != nil || !ready {
+		t.Fatalf("policy routing did not recover after removing unexpected route: ready=%v err=%v", ready, err)
+	}
 
 	for _, proto := range []struct {
 		name  string
@@ -100,6 +129,13 @@ func TestNetworkIngressInterfaceRoutesTCPAndUDPToTUN(t *testing.T) {
 	fallback.DirectFallback = true
 	if err := backend.SetupPolicyRouting(ctx, fallback); err != nil {
 		t.Fatalf("SetupPolicyRouting(direct fallback): %v", err)
+	}
+	ready, err = backend.PolicyRoutingPresent(ctx, fallback)
+	if err != nil {
+		t.Fatalf("PolicyRoutingPresent(direct fallback): %v", err)
+	}
+	if !ready {
+		t.Fatal("direct-fallback policy routing was not fully applied")
 	}
 	out, err := backend.runner.output(ctx, backend.runner.ipPath,
 		"-4", "route", "get", "198.51.100.8", "from", "192.0.2.50", "iif", lan)

@@ -413,6 +413,9 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 	if err := backend.SetupPolicyRouting(ctx, routingConfig); err != nil {
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
 	}
+	if err := verifyPolicyRouting(ctx, backend, routingConfig); err != nil {
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+	}
 	state.RoutingApplied = true
 	state.NetworkSnapshot.Applied.PolicyRouting = true
 	if err := deps.saveState(m.paths.StateFile, state); err != nil {
@@ -434,6 +437,53 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 		fmt.Printf("TUN %s active; nftables table %s and routing table %d applied\n",
 			tunDevice.Name, natConfig.TableName, routingConfig.TableID)
 	}
+	return nil
+}
+
+func verifyPolicyRouting(ctx context.Context, backend platform.NetworkBackend, cfg platform.RoutingConfig) error {
+	present, err := backend.PolicyRoutingPresent(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("verify policy routing: %w", err)
+	}
+	if !present {
+		return fmt.Errorf("verify policy routing: OpenSurge policy rule or dedicated routes are missing")
+	}
+	return nil
+}
+
+// reapplyPolicyRouting repairs the part of the data plane that can disappear
+// when mihomo recreates its TUN device. It deliberately uses the persisted
+// routing recipe rather than rebuilding it from desired config, so a recovery
+// cannot silently apply a different topology than the one that is running.
+func (m Manager) reapplyPolicyRouting(ctx context.Context, state *runtime.State, backend platform.NetworkBackend) error {
+	if state == nil || state.NetworkSnapshot == nil || state.NetworkSnapshot.Routing == nil {
+		return fmt.Errorf("runtime state does not contain the applied policy routing recipe")
+	}
+	routing := *state.NetworkSnapshot.Routing
+	if !routing.DirectFallback {
+		requestedTUN := strings.TrimSpace(routing.TUNDevice)
+		if requestedTUN == "" {
+			requestedTUN = strings.TrimSpace(m.cfg.Transparent.TUNDevice)
+		}
+		if requestedTUN == "" {
+			return fmt.Errorf("runtime policy routing recipe does not contain a TUN device")
+		}
+		tunDevice, err := backend.WaitForTUN(ctx, requestedTUN)
+		if err != nil {
+			return fmt.Errorf("wait for replacement TUN: %w", err)
+		}
+		routing.TUNDevice = tunDevice.Name
+	}
+	if err := backend.SetupPolicyRouting(ctx, routing); err != nil {
+		return fmt.Errorf("reapply policy routing: %w", err)
+	}
+	if err := verifyPolicyRouting(ctx, backend, routing); err != nil {
+		return err
+	}
+	state.TUNDevice = routing.TUNDevice
+	state.RoutingApplied = true
+	state.NetworkSnapshot.Routing = &routing
+	state.NetworkSnapshot.Applied.PolicyRouting = true
 	return nil
 }
 
@@ -529,8 +579,13 @@ func (m Manager) restartMihomo(ctx context.Context) error {
 
 	previousPID := state.PIDMihomo
 	previousFingerprint := state.MihomoProcessFingerprint
+	previousRoutingApplied := state.RoutingApplied
 	state.PIDMihomo = 0
 	state.MihomoProcessFingerprint = ""
+	// A Mihomo restart can recreate the TUN and invalidate the dedicated default
+	// route. Persist the transition as degraded before touching the process so a
+	// crash cannot leave runtime state claiming that routing is still healthy.
+	state.RoutingApplied = false
 	if err := deps.saveState(m.paths.StateFile, state); err != nil {
 		return fmt.Errorf("mark mihomo restart in runtime state: %w", err)
 	}
@@ -539,6 +594,7 @@ func (m Manager) restartMihomo(ctx context.Context) error {
 		if trackedProcessRunning(deps, previousPID, previousFingerprint, mihomoManager.Running) {
 			state.PIDMihomo = previousPID
 			state.MihomoProcessFingerprint = previousFingerprint
+			state.RoutingApplied = previousRoutingApplied
 		}
 		return errors.Join(fmt.Errorf("stop mihomo pid %d: %w", previousPID, err), deps.saveState(m.paths.StateFile, state))
 	}
@@ -562,6 +618,34 @@ func (m Manager) restartMihomo(ctx context.Context) error {
 	}
 	if err := deps.saveState(m.paths.StateFile, state); err != nil {
 		return errors.Join(fmt.Errorf("save replacement mihomo pid: %w", err), mihomoManager.Stop(newPID))
+	}
+
+	ReportProgress(ctx, "reapplying_routes")
+	backend, err := m.backend()
+	if err != nil {
+		stopErr := mihomoManager.Stop(newPID)
+		if stopErr == nil {
+			state.PIDMihomo = 0
+			state.MihomoProcessFingerprint = ""
+		}
+		return errors.Join(fmt.Errorf("create network backend while repairing policy routing: %w", err), stopErr, deps.saveState(m.paths.StateFile, state))
+	}
+	if err := m.reapplyPolicyRouting(ctx, &state, backend); err != nil {
+		stopErr := mihomoManager.Stop(newPID)
+		if stopErr == nil {
+			state.PIDMihomo = 0
+			state.MihomoProcessFingerprint = ""
+			state.RoutingApplied = false
+		}
+		return errors.Join(fmt.Errorf("repair policy routing after mihomo restart: %w", err), stopErr, deps.saveState(m.paths.StateFile, state))
+	}
+	if err := deps.saveState(m.paths.StateFile, state); err != nil {
+		// The previous durable state already tracks the replacement PID but marks
+		// routing as unapplied. Keep the replacement process running so recovery
+		// can still identify and stop it safely; killing it here would leave a
+		// durable dead PID with no way to record the correction when storage is
+		// already failing.
+		return fmt.Errorf("save repaired routing state: %w; replacement mihomo remains running and runtime stays degraded for recovery", err)
 	}
 
 	fmt.Printf("mihomo restarted with pid %d\n", newPID)

@@ -240,6 +240,69 @@ func TestRestartMihomoStopFailureRestoresLivePID(t *testing.T) {
 	}
 }
 
+func TestRestartMihomoReappliesPolicyRoutingAfterTUNReplacement(t *testing.T) {
+	cfg := config.Default()
+	cfg.Runtime.Dir = t.TempDir()
+	cfg.Mihomo.Config = filepath.Join(cfg.Runtime.Dir, "mihomo.yaml")
+	paths := runtime.NewPaths(cfg)
+	if err := runtime.Ensure(paths); err != nil {
+		t.Fatal(err)
+	}
+	profileDigest, err := config.MihomoProfileDigest(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := platform.NewSnapshot(platform.BackendLinuxNFTables)
+	snapshot.Routing = &platform.RoutingConfig{
+		LANInterface: "eth0", LANCIDR: "192.168.2.0/24", TUNDevice: "tun0",
+		TableID: 20241, RulePriority: 20241, RuleMode: platform.RoutingRuleIngressInterface,
+	}
+	snapshot.Applied.PolicyRouting = true
+	state := runtime.State{
+		BootSessionID:   "boot-a",
+		PIDMihomo:       12,
+		PIDDNSMasq:      11,
+		TUNDevice:       "tun0",
+		ProfileDigest:   profileDigest,
+		StartedAt:       time.Now(),
+		RoutingApplied:  true,
+		NetworkSnapshot: snapshot,
+	}
+	if err := runtime.SaveState(paths.StateFile, state); err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeBackend{}
+	mihomoManager := &fakeMihomo{startPID: 34}
+	manager := Manager{cfg: cfg, paths: paths, deps: gatewayDeps{
+		geteuid: func() int { return 0 }, loadState: runtime.LoadState, saveState: runtime.SaveState,
+		newBackend: func() (platform.NetworkBackend, error) { return backend, nil },
+		newMihomo:  func(config.Config, runtime.Paths) mihomoService { return mihomoManager },
+		currentBoot: func() (runtime.BootSession, error) {
+			return runtime.BootSession{ID: "boot-a"}, nil
+		},
+		processFingerprint: fakeProcessFingerprint,
+		processMatches:     fakeProcessMatches,
+		now:                time.Now,
+	}}
+
+	if err := manager.RestartMihomo(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if backend.routingCalls != 1 {
+		t.Fatalf("policy routing setup calls = %d, want 1", backend.routingCalls)
+	}
+	if !mihomoManager.startCalled || mihomoManager.stoppedPID != 12 {
+		t.Fatalf("mihomo restart calls: started=%v stopped_pid=%d", mihomoManager.startCalled, mihomoManager.stoppedPID)
+	}
+	updated, exists, err := runtime.LoadState(paths.StateFile)
+	if err != nil || !exists {
+		t.Fatalf("updated state: exists=%v err=%v", exists, err)
+	}
+	if updated.PIDMihomo != 34 || !updated.RoutingApplied || updated.NetworkSnapshot == nil || !updated.NetworkSnapshot.Applied.PolicyRouting {
+		t.Fatalf("updated runtime state=%#v", updated)
+	}
+}
+
 func TestRestartMihomoRejectsPreviousBootRuntimeBeforeProcessValidation(t *testing.T) {
 	cfg := config.Default()
 	cfg.Runtime.Dir = t.TempDir()
@@ -404,17 +467,20 @@ func fakeProcessMatches(pid int, fingerprint string) (bool, error) {
 // fakeBackend is a no-op platform.NetworkBackend for lifecycle tests that only
 // care about ordering and error propagation, not about real host state.
 type fakeBackend struct {
-	ensureTUNErr     error
-	validateErr      error
-	natErr           error
-	routingErr       error
-	waitTUNErr       error
-	forwardingErr    error
-	natCalls         int
-	routingCalls     int
-	removeNATCalls   int
-	removeRoutingCalls int
-	restoreCalls     int
+	ensureTUNErr        error
+	validateErr         error
+	natErr              error
+	routingErr          error
+	routingPresentErr   error
+	routingPresent      bool
+	routingPresentSet   bool
+	waitTUNErr          error
+	forwardingErr       error
+	natCalls            int
+	routingCalls        int
+	removeNATCalls      int
+	removeRoutingCalls  int
+	restoreCalls        int
 	forwardingEnabled   bool
 	forwardingRestored  bool
 	forwardingAttempted bool
@@ -460,6 +526,16 @@ func (f *fakeBackend) RemoveNAT(context.Context) error {
 func (f *fakeBackend) SetupPolicyRouting(context.Context, platform.RoutingConfig) error {
 	f.routingCalls++
 	return f.routingErr
+}
+
+func (f *fakeBackend) PolicyRoutingPresent(context.Context, platform.RoutingConfig) (bool, error) {
+	if f.routingPresentErr != nil {
+		return false, f.routingPresentErr
+	}
+	if !f.routingPresentSet {
+		return true, nil
+	}
+	return f.routingPresent, nil
 }
 
 func (f *fakeBackend) RemovePolicyRouting(context.Context) error {

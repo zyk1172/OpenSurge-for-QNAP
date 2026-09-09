@@ -241,6 +241,75 @@ func (b *Backend) routingTableHasEntries(ctx context.Context, tableID uint32) (b
 	return len(routes) > 0, nil
 }
 
+type ipRouteEntry struct {
+	Dst     string `json:"dst"`
+	Dev     string `json:"dev"`
+	Gateway string `json:"gateway"`
+}
+
+// routingTableMatches verifies the complete OpenSurge-owned routing table, not
+// merely the presence of the expected LAN and default routes. A more-specific
+// foreign route could otherwise bypass the TUN while status still reported the
+// data plane as healthy.
+func (b *Backend) routingTableMatches(ctx context.Context, cfg platform.RoutingConfig) (bool, error) {
+	if cfg.TableID == 0 {
+		return false, nil
+	}
+	out, err := b.runner.output(ctx, b.runner.ipPath, "-j", "route", "show", "table",
+		strconv.FormatUint(uint64(cfg.TableID), 10))
+	if err != nil {
+		if isNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	var routes []ipRouteEntry
+	if err := json.Unmarshal(out, &routes); err != nil {
+		return false, platform.NewError(platform.CodeCommandFailed, "parse policy routing table").Wrap(err)
+	}
+
+	lanRoutePresent := false
+	defaultRoutePresent := false
+	expectedEgress := cfg.TUNDevice
+	expectedGateway := ""
+	if cfg.DirectFallback {
+		expectedEgress = cfg.UpstreamInterface
+		if strings.TrimSpace(expectedEgress) == "" {
+			expectedEgress = cfg.LANInterface
+		}
+		expectedGateway = cfg.UpstreamGateway
+	}
+	for _, route := range routes {
+		destination := strings.TrimSpace(route.Dst)
+		if destination == "" {
+			destination = "default"
+		}
+		switch destination {
+		case strings.TrimSpace(cfg.LANCIDR):
+			if lanRoutePresent || route.Dev != cfg.LANInterface || strings.TrimSpace(route.Gateway) != "" {
+				return false, nil
+			}
+			lanRoutePresent = true
+		case "default":
+			if defaultRoutePresent || route.Dev != expectedEgress || strings.TrimSpace(route.Gateway) != strings.TrimSpace(expectedGateway) {
+				return false, nil
+			}
+			defaultRoutePresent = true
+		default:
+			return false, nil
+		}
+	}
+	return len(routes) == 2 && lanRoutePresent && defaultRoutePresent, nil
+}
+
+func (b *Backend) policyRoutingPresent(ctx context.Context, cfg platform.RoutingConfig) (bool, error) {
+	present, err := b.rulePresent(ctx, cfg)
+	if err != nil || !present {
+		return present, err
+	}
+	return b.routingTableMatches(ctx, cfg)
+}
+
 // validateOwnership proves every kernel identifier OpenSurge wants is free.
 // Same-LAN iif routing has no nftables resource and therefore never probes or
 // reserves an nft table. Isolated-LAN mode keeps the historical nft/fwmark

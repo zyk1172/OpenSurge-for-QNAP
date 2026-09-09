@@ -101,6 +101,10 @@ func (b *Backend) SetupPolicyRouting(ctx context.Context, cfg platform.RoutingCo
 	return nil
 }
 
+func (b *Backend) PolicyRoutingPresent(ctx context.Context, cfg platform.RoutingConfig) (bool, error) {
+	return b.policyRoutingPresent(ctx, cfg)
+}
+
 func (b *Backend) RemovePolicyRouting(ctx context.Context) error {
 	if b.active == nil {
 		return nil
