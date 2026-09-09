@@ -2,6 +2,22 @@
 
 This directory is the supported QNAP/Container Station deployment entrypoint for OpenSurge for QNAP.
 
+## Phase 6 verification status
+
+The deployment hardening baseline has passed the repository CI gates on both supported image architectures:
+
+- Go core tests and vet;
+- QNAP Web unit tests and production bundle;
+- QNAP Compose validation;
+- QNAP deployment preflight syntax and static topology checks;
+- Linux client → gateway → upstream network namespace lab;
+- container start, first-run authentication and Linux network discovery smoke tests;
+- container recreation / interrupted-runtime reconciliation smoke tests;
+- `linux/amd64` image build;
+- `linux/arm64` image build.
+
+These automated checks do **not** replace a final real-QNAP validation of the selected QNET parent interface, static LAN address and physical client traffic.
+
 ## Topology
 
 OpenSurge runs as a Docker container with its own LAN IPv4 address through QNAP's `qnet` network driver.
@@ -145,3 +161,4 @@ OpenSurge owns only its own nftables table/policy-routing state and must never f
 - No automatic QNAP Network & Virtual Switch reconfiguration.
 - No full-LAN DHCP takeover in the initial QNAP release.
 - No downstream IPv6 takeover; clients must not be allowed to bypass the gateway over unmanaged IPv6 when strict whole-device routing is required.
+- Multi-NIC selection is currently configured through `OPENSURGE_PARENT_INTERFACE`; the next deployment-adaptation phase will make dual-NIC selection, persistent-data layout and ready-to-use Compose guidance explicit for QNAP NAS deployment.
