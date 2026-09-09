@@ -3,6 +3,9 @@ export type GatewayStatus = {
   runtime_state?: 'none' | 'active' | 'interrupted'
   interface: string
   lan_ip: string
+  data_plane?: string
+  routing?: 'not_applied' | 'applied' | 'missing' | 'unknown'
+  routing_error?: string
   dhcp: string
   dhcp_enabled: boolean
   mihomo: string
@@ -10,7 +13,8 @@ export type GatewayStatus = {
   tun?: string
   tun_interface?: string
   tun_error?: string
-  pf_anchor: string
+  nftables?: string
+  pf_anchor?: string
   forwarding: string
   dns_ipv6: boolean
   tun_ipv6_requested: 'off' | 'auto' | 'always'

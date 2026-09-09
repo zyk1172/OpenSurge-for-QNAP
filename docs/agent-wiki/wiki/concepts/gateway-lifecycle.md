@@ -1,236 +1,153 @@
-# 网关生命周期
+# QNAP 网关生命周期
 
-当任务涉及 gateway startup、shutdown、rollback、runtime state 或服务职责边界
-时，先读这个页面。
+当任务涉及 gateway start、stop、reload、`restart-mihomo`、runtime state、TUN、策略路由或故障恢复时，先读这个页面。
 
-OpenSurge for Mac 会把宿主 Mac 变成下游 LAN gateway。当前 runtime path
-协调这些职责：
+当前 QNAP 产品是单容器架构。QNAP/QTS 宿主负责提供 QNET、静态容器地址和 `/dev/net/tun`；OpenSurge 只在自己的容器网络命名空间内管理数据面，不应修改 QTS 默认网关、宿主 DNS、Virtual Switch 或其他容器网络。
 
-- dnsmasq 为下游客户端提供 DHCP 和 DNS；
-- mihomo 提供代理能力，并在启用时承担透明 TUN 处理；
-- macOS pf 负责从下游 LAN 到上游接口的 NAT；
-- macOS IPv4 forwarding 由 sysctl 管理，并在停止时恢复。
-- 显式启用时，macOS 上游网络服务的 HTTP/HTTPS 系统代理作为 TUN 兼容层，并由
-  runtime state 保存启动前快照。
-- 启用下游 IPv6 接管时，BPF broker 和 IPv6 gateway alias 纳入同一个
-  runtime/rollback 所有权；自动拓扑还拥有 dnsmasq RA/SLAAC，手工旁路由不发布 RA。
+## 运行时职责
 
-## 下游 LAN 网段
+- `mihomo`：加载已应用配置，提供 mixed-port、REST API 和透明 TUN。
+- `dnsmasq`：提供受管 DNS；仅在启用 DHCP 的拓扑中承担 DHCP。
+- IPv4 forwarding：必须在容器网络命名空间内可用。
+- same-LAN/QNET：使用 `ip rule iif <lan>` + OpenSurge 专用路由表，不依赖 nftables。
+- isolated-LAN：保留 nftables/fwmark 后端；该模式必须实际具备 nftables 内核能力。
+- runtime state：记录 boot session、子进程指纹、TUN、策略路由配方及 cleanup intent，是异常恢复的依据。
 
-下游网段由 `gateway.lan_ip` 与 `gateway.lan_prefix_len` 共同决定，`internal/lan`
-的 `lan.Scope` 是唯一推导入口。`gateway.lan_prefix_len` 省略时按 /24，接受
-/8–/30。所有需要判断“同网段”的地方都必须走 `cfg.LANScope()`，不要重新比较前三段
-IPv4：
+## same-LAN 数据面
 
-- pf NAT 的源 CIDR 和 mihomo `route-exclude-address`；
-- dnsmasq `dhcp-range` 的 netmask 与 DHCP 地址池校验；
-- `dhcp.bypass_gateway` 的可达性校验；
-- 设备登记地址、`device_policy.protected_ipv4` 与 same-LAN 流量观察过滤。
+QNAP 单容器的首选路径是：
 
-前缀填错的后果是静默的：过窄会把同网段设备当成外部流量，过宽会把外部地址当成
-本地并从 TUN 排除。GUI 的「根据当前网络重新填入」和 `GET /api/v1/network/defaults`
-从 macOS 网络快照的真实掩码回填这个字段。
+```text
+LAN client
+  -> QNET eth0
+  -> ip rule iif eth0 lookup <OpenSurge table>
+  -> LAN CIDR dev eth0
+  -> default dev tun0
+  -> mihomo
+```
+
+这一模式不要求 `nf_tables`、TPROXY 或 REDIRECT。策略路由健康不能只看 Mihomo 或 `tun0` 是否存在；必须同时确认：
+
+1. 精确的 `ip rule` selector、priority 和 table；
+2. 专用表中的 LAN route；
+3. 专用表中的 default TUN route，或 direct fallback 时的真实 upstream route；
+4. 专用表不存在额外、可能绕过 TUN 的路由。
+
+只要以上任一条件无法确认，status 必须是 degraded，而不能报告 healthy。
 
 ## Start 顺序
 
-`internal/gateway/manager.go` 负责当前顺序。
+`internal/gateway/manager.go` 是生命周期权威实现。正常启动顺序：
 
-`start` 会：
+1. 要求容器内 root；
+2. 拒绝已有未清理 runtime state 的重复启动；
+3. normalize/validate desired config；
+4. preflight dnsmasq、mihomo、TUN、capabilities、interface、forwarding 和拓扑；
+5. 写并验证 Mihomo/dnsmasq 配置；
+6. 在网络变更前保存 runtime snapshot；
+7. 启用或确认 IPv4 forwarding；
+8. 启动 Mihomo，并记录 PID + process fingerprint；
+9. 启动 dnsmasq，并记录 PID + process fingerprint；
+10. 等待实际 TUN 设备 ready；
+11. isolated-LAN 才应用 nftables；same-LAN 跳过 nftables；
+12. 应用策略路由；
+13. 立即从内核回读并严格核验策略规则和专用路由表；
+14. 核验成功后才把 `RoutingApplied=true` 持久化并宣布 Gateway running。
 
-1. 要求 root 权限；
-2. 如果 runtime state 已存在则拒绝启动；
-3. 确保 runtime directories 存在；
-4. preflight dnsmasq、mihomo、pf、sysctl、interfaces 和 LAN IP 归属；
-5. 写入 mihomo、dnsmasq 和 pf config artifacts；
-6. 记录启动前 IPv4 forwarding、PF enabled 状态；若启用本机系统代理协同，同时
-   检查现有代理冲突并保存 HTTP/HTTPS 快照；
-7. 在修改 host network 前保存 runtime state；
-8. 启用 IPv4 forwarding；
-9. 启动 mihomo；
-10. 最多等待 10 秒让 mihomo 运行时确认 TUN ready；若失败，先给 mihomo 3 秒
-    SIGTERM 清理窗口，再按需 SIGKILL 并 rollback；
-11. 若下游 IPv6 生效，启动 BPF broker、记录 PID/fingerprint，再添加并等待 IPv6
-    gateway alias 完成 DAD；
-12. 启动 dnsmasq；自动拓扑此时才开始发布 RA/SLAAC/RDNSS，手工旁路由只启动 IPv6
-    DNS listener；
-13. 加载 PF anchor；
-14. 所有网关服务 ready 后，才把上游 network service 的 HTTP/HTTPS 代理指向本机
-    mihomo mixed-port。
+Start 中任何网络或进程步骤失败都必须 rollback。不能因为 Mihomo API 可访问或 TUN 已出现就跳过策略路由验证。
 
-Rollback 是 start 契约的一部分。如果系统代理可能已经写入，会先恢复其启动前状态，
-再尝试停止已经启动的服务、卸载 PF 状态并恢复 forwarding。系统代理恢复失败时保留
-runtime state 和服务，避免 macOS 继续指向已经停止的本机代理端口。
+## Runtime state 与进程身份
 
-在 `same_wifi_dhcp` 中，gateway start 发生前，恢复状态机已经可能把 Mac 设为
-固定 IPv4，并要求操作者关闭路由器 DHCP。gateway rollback 只恢复本次 start
-拥有的进程、PF、forwarding 和 runtime state，不能重新开启路由器 DHCP，也不会
-在未确认 DHCP server 可用时把 Mac 冒险切回自动 DHCP。
+Linux/QNAP 进程身份通过 `/proc/<pid>` 生成指纹，不依赖 `ps/procps`。status、stop 和 restart 在信号子进程前必须验证 PID 与指纹匹配，避免 PID reuse 时误杀其他进程。
 
-因此固定 IPv4 已应用、但 gateway 尚未 active 时必须提供“放弃 DHCP 接管”：
+正常 restart 期间，runtime state 必须先进入保守状态：
 
-- 若 DHCP OFFER 已可见，恢复 Mac 自动 DHCP 并完成恢复，菜单栏可退出 OpenSurge；
-- 若没有 DHCP OFFER，明确以 `complete_static` 结束：不冒险切换 Mac，保留固定
-  IPv4，也不声称路由器 DHCP 或其他客户端自动获取能力已恢复；这是用户主动放弃
-  后的终态，因此菜单栏可退出 OpenSurge；
-- TUN 启动失败时保留 `router_dhcp_disabled_confirmed` 和失败说明，让操作者选择
-  解决冲突后重试，或走上述放弃/恢复分支。
+```text
+PIDMihomo = 0
+RoutingApplied = false
+```
 
-## Stop 顺序
+随后才停止旧 Mihomo。这样即使容器或控制流程中途异常，也不会留下“路由仍健康”的错误持久化声明。
 
-`stop` 会：
+## restart-mihomo
 
-1. 要求 root 权限；
-2. 如果存在 runtime state，则加载它；
-3. 若 runtime state 有系统代理快照，先恢复 HTTP/HTTPS 代理；恢复失败则保留服务和 state；
-4. 停止 dnsmasq；
-5. 若拥有下游 IPv6，且 runtime state 记录 RA 实际生效，则发送 router/prefix
-   lifetime-zero withdrawal；随后删除 gateway alias，并停止 BPF broker；
-6. 停止 mihomo；
-7. 如果 PF anchor 已加载，则卸载 PF anchor；
-8. 恢复 IPv4 forwarding 到启动前的值；
-9. 移除 runtime state。
+`restart-mihomo` 是运行时修复，不是配置 reload。它只使用已经应用并记录在 runtime snapshot 中的配置和路由配方。
 
-Stop 应该能容忍部分 runtime pieces 已经缺失。这个项目会修改 host network，
-所以清理质量是正确性的一部分。
+顺序：
 
-若停止任一服务、PF 或 forwarding 恢复失败，manager 会保留 runtime state 与 applied
-device-policy snapshot，避免把仍运行或 degraded 的网关误记为已完全停止，并允许后续
-重试清理。所有清理步骤仍会尽量执行；只有这一轮清理没有错误时才移除 state。
+1. 校验当前 boot/runtime ownership；
+2. 确认 desired profile digest 与 applied runtime 一致；
+3. 对已生成的 Mihomo config 执行真实校验；
+4. 把 runtime 中的 Mihomo PID 清零，并把 `RoutingApplied` 标为 false 后持久化；
+5. 停止旧 Mihomo；
+6. 归档旧 Mihomo 日志；
+7. 启动 replacement Mihomo，记录新 PID/fingerprint；
+8. 等待 replacement TUN ready；
+9. 从 runtime snapshot 重新应用策略路由；
+10. 严格核验 rule + 完整专用路由表；
+11. 核验成功后将 routing 标为 applied 并持久化。
 
-### 系统重启后的中断状态
+这个动作不停止 dnsmasq，不恢复 IPv4 forwarding，也不修改 QNAP/QTS 宿主网络、QNET、Virtual Switch、容器创建参数或其他容器。
 
-root Helper 与 Control Service 会由 launchd 在开机后恢复，但 dnsmasq、mihomo、PF anchor
-与 IPv4 forwarding 不会被 runtime state 文件冒充为已经恢复。每次正常 start 都把当前
-boot session 和子进程启动指纹写进 state。Status 发现 state 来自上一次开机时，必须报告
-`runtime_state=interrupted`，不得根据旧 PID 探测 mihomo API；`reload` 与
-`restart-mihomo` 也必须拒绝这份不完整数据面。
+如果路由修复失败，replacement Mihomo 必须停止，并把 runtime 持久化为 degraded。如果最后一次“路由已恢复”状态写盘失败，则不能为了表面整洁再杀掉已经被前一份 durable state 追踪的 replacement PID；应保持它可被后续 recovery/stop 精确识别，同时 durable state 继续维持 `RoutingApplied=false`，让 status fail closed。
 
-对 interrupted runtime 执行 stop 是专门的 reconciliation，不是普通 stop：它不向旧 PID
-发送信号，不卸载本次开机的 PF，不改写本次开机的 IPv4 forwarding；若 state 记录了
-系统代理临时接管，则与普通 Stop 一样无条件恢复启动前的 HTTP/HTTPS 快照；
-接管期间手动修改的 HTTP/HTTPS 设置也会被该快照替换。若恢复失败，则 fail closed 并
-保留 state。
-最后移除旧 runtime state 与 applied device-policy snapshot，用户随后可显式
-重新启动完整网关。旧版本没有 boot session 字段的 state 通过 `started_at` 与本次系统
-启动时间比较迁移；没有任何 boot 归属证据的 state 不能被当作当前运行态。
+## Status
 
-即使在同一次开机内，PID 也可能在 dnsmasq/mihomo 异常退出后复用。新 runtime state
-同时保存进程启动指纹；status、stop 与 restart 只有在 PID 和启动指纹都匹配时才把它当作
-OpenSurge 子进程。指纹不匹配表示原子进程已经消失，清理不得终止占用该 PID 的其他进程。
+status 不可信任 runtime 布尔值本身。对于 active runtime，应同时检查：
 
-Helper 是长驻父进程，`StartDetached` 成功后必须由唯一后台 `cmd.Wait()` 回收子进程。
-`Process.Release()` 只丢弃 Go 句柄，不会回收 Unix zombie；zombie 仍会通过 signal(0)
-存活检查，导致正常 stop 也耗完整个 TERM 宽限期。后台 Wait 不把子进程寿命绑定到某次
-HTTP/Helper 请求；boot session、PID 指纹、TERM/KILL 顺序和网络恢复契约均不因此改变。
+- PID/fingerprint 与实际进程；
+- Mihomo runtime/TUN；
+- dnsmasq；
+- IPv4 forwarding；
+- `PolicyRoutingPresent()` 的真实内核结果；
+- isolated-LAN 时的 nftables ownership/存在性。
 
-## Reload 顺序
+QNAP Web 至少应展示：
 
-`reload` 只接受正在健康运行的网关。它先在同级临时 runtime 中使用同一份 desired 配置
-渲染 mihomo、dnsmasq 与 PF artifacts，执行静态检查、接口/LAN IP、protected/reservation
-冲突检查和真实 `mihomo -t`。这一步不写 applied snapshot，也不改变 host network。
+```text
+data_plane
+routing
+routing_error
+mihomo
+TUN
+DNS/DHCP
+IPv4 forwarding
+```
 
-共享 L2 的 reservation 检查保留每个地址的一次 ICMP/ARP 检查，最多四个并发，避免
-离线设备逐个消耗探测等待。错误仍按配置顺序报告；无回应不代表地址空闲。重载前候选
-校验和 stop 后正常 start 的最终检查都必须保留，不能把并发优化变成跳过安全检查。
+same-LAN 上 `nftables=not_required` 是正常状态，不是故障。
 
-全部通过后才调用完整 `stop`，再用已经通过校验的同一份 immutable config 调用完整
-`start`。成功会自然写入新的 applied device-policy snapshot/digest；若使用 imported
-profile，也把 profile 内容 digest 写进 runtime state，作为运行版本的唯一依据。预校验失败保持现有运行态；
-stop 失败保留 state；stop 已成功但 start 失败时网关保持 stopped，由 Control API 根据
-拓扑进入明确的重试/恢复路径。Reload 不承诺零中断，也不做 mihomo/dnsmasq 热替换。
-新 mihomo 进程仍必须通过同一套 TUN readiness，否则 start fail closed 并 rollback。
+## Stop 与 interrupted recovery
 
-运行中应用 imported profile 额外包一层 config 事务：先保留旧 config，写入并验证新
-desired config，再调用上述 reload。失败时恢复旧 config；如果 reload 已完成 stop 且
-runtime state 不存在，则尝试用旧 config 重新 start。只有新 start 成功、runtime state
-记录新 profile digest 且 `runtime/mihomo.yaml` 已重新生成后，控制面才可把来源标记为
-applied。网关停止时应用 profile 只更新 desired，留待下次正常 start。
+正常 stop：
 
-## 过程反馈与完成边界
+1. 读取并验证当前 runtime；
+2. 按 snapshot 精确恢复/删除 OpenSurge 自己拥有的网络对象；
+3. 停止 dnsmasq；
+4. 停止 Mihomo；
+5. 只有 cleanup 全部成功后才移除 runtime state 和 applied device-policy snapshot。
 
-生命周期通过 context 中的 `gateway.Progress` 回调报告真实阶段，包括校验、停止、启动、
-恢复和 rollback；观察者不得决定动作是否继续，也不得在动作返回后继续更新已结束的
-operation。全局 Web 进度不使用估算百分比，初次 start 和 reload 走同一条反馈链。
-网关启动成功仍不等于局域网客户端验收通过；原有 DHCP/DNS/TUN 客户端验收阶段保留。
+不允许执行全局 `ip route flush`、`ip rule flush` 或 `nft flush ruleset`。所有删除都必须限定在 OpenSurge 自己的 selector、table 和对象。
 
-Tailscale 只发起原有的一次 best-effort 预热。生命周期最多等待两秒让请求写出，不等待
-4 秒 Tailnet / 15 秒 Exit Node 探测结果；预热请求使用独立、有界的 context，避免 HTTP
-生命周期结束时顺带取消。该边界只改变等待时间，不增加出口就绪门禁、周期探测、重试、
-自动切换或内核恢复逻辑，详见 [Tailscale 出站](tailscale-outbound.md)。
+如果 runtime 属于旧 boot/container network namespace，进入 interrupted reconciliation：不根据旧 PID 发信号，只按持久化 snapshot 做内容限定的网络恢复，然后清理旧 runtime。
 
-## Mihomo 独立恢复
+## Reload
 
-`restart-mihomo` 用于上游接口断开并重新关联后，Mihomo/TUN 进程仍存活但出站 socket
-没有恢复，或 Mihomo 进程已经退出而网关 runtime 仍存在的场景。它不是配置 reload：
+Reload 是完整配置切换：先在不改网络的情况下生成并验证 candidate；通过后执行完整 stop，再按 candidate 完整 start。它不承诺零中断，也不能用 `restart-mihomo` 代替。
 
-1. 要求 root 权限和已有 gateway runtime state；
-2. 对当前已经生成的 applied Mihomo config 运行真实 `mihomo -t`；
-3. 先把 runtime state 中的 Mihomo PID 清零，再停止旧进程；
-4. 把旧 `mihomo.log` 归档为带 UTC 时间戳的 `mihomo-before-restart-*.log`；
-5. 使用同一份 applied config 启动 Mihomo，等待替代 TUN ready；
-6. 从 runtime snapshot 重新应用并核验 policy routing，再原子写回新 PID 和路由状态。
+运行中应用订阅/profile 时，只有 reload/start 成功并且新的 profile digest 被 runtime 持久化后，来源才可以标记为 applied。
 
-这个动作不停止 dnsmasq、不卸载 PF、不恢复 IPv4 forwarding，也不修改 Mac 静态地址、
-router 或 DNS。TUN 被 Mihomo 重建时，旧的默认 TUN 路由可能随接口消失，因此不能把
-“Mihomo 进程和 TUN 存在”当作数据面仍然可用；启动和 status 都必须核验精确的
-`ip rule`、专用表 LAN 路由和默认 TUN/直连路由。核验失败时 start fail closed，运行中
-status 报告 `routing=missing` 或 `routing=unknown`，不能继续报告 healthy。若已启用系统代理协同，替代进程失败时先恢复启动前系统代理，避免端点
-继续指向已停止的 mihomo；state 保持 Mihomo PID 为 0，便于再次执行恢复或完整
-`stop`。旧事故日志不会被新进程清空。Control API 在 same-WiFi DHCP 拓扑中只允许 active、
-client validated 或明确跳过客户端验收的接管阶段执行，且成功或失败都不改变 DHCP 恢复
-状态机。替代进程必须通过 TUN readiness。
+## 不变量
 
-Control Service 会在当前 boot、有效 active runtime 和允许的 DHCP 接管阶段内监测这条
-恢复路径。Mihomo 进程缺失立即触发一次自动恢复；controller 的 `connection refused`
-需要连续两次观测才触发。每个未恢复 incident 最多自动尝试一次；命令完成后仍要等新的
-连续健康 status 才算恢复，持续异常会转为 `failed` 并在连通性页显示手动兜底。配置或
-status 读取失败、runtime 非 active、以及不允许恢复的 DHCP 接管阶段都属于 unknown：
-既不触发恢复，也不能累计健康确认或清除本次 incident 的单次尝试保护。上次开机留下的
-interrupted runtime 同样不会触发。
-
-start、stop、reload、手动/自动 `restart-mihomo`、prepared policy workspace，以及所有
-配置 apply/rollback 共享 Control Service 生命周期互斥锁。runtime 目录中的跨进程
-advisory lock 还会排斥直接运行的 `sudo omg`；CLI 生命周期入口必须先根据 config 定位并
-取得这把锁，再在锁内重新读取 desired config，然后才构造 Manager。不能先把配置读进内存、
-等待锁、再启动旧 candidate。配置 apply 则从 revision 检查、prepared core 交接、候选写入、
-真实校验、reload/start 到失败 rollback 全程持有同一把锁，不能在持久化和运行切换之间留缝。
-
-App 的候选启动复用 Manager 生命周期：锁内检查 revision/停止状态、合成候选、停止 prepared
-core，再确定 IPv6 自动解析和设备策略快照、执行既有预检、渲染并做一次真实 `mihomo -t`。
-`StartCandidateLocked` 只在最终校验成功后、网络接管前调用配置提交。后续启动使用已生成文件，
-不重新读取草稿。校验/提交失败保留旧 desired；提交后接管失败按原 rollback 恢复网络，保留
-已验证的新 desired 供重试。已有运行中 reload/apply 的预校验和恢复契约不变。
-
-候选启动动作上限为 110 秒，真实校验同时受动作 context 和 90 秒进程上限约束。Helper 连接
-仍为 2 分钟，Web operation 仍为 3 分钟；不将所有操作扩大为多轮校验的预算。取消/超时后
-不再提交或开始下一接管阶段；已发生的修改继续通过独立有界的 rollback 恢复。
-
-Web GUI 的直接 start 也在锁内检查请求捕获时的 gateway state 仍是 stopped；策略页每次
-read/select/test 同样绑定 captured running/stopped state。若外部 CLI 在请求排队期间改变
-状态，本次请求必须要求刷新，不能把 running 快照中的空草稿误当成停止态配置。Control
-Service 发现跨进程锁正在被外部生命周期命令持有时，把 Mihomo 缺失视为受控停机窗口，
-不触发自动恢复。锁文件不保存状态，进程退出后以内核释放的文件锁为准，不能根据文件是否
-存在判断忙闲。这个自动化只实现了窄的
-Mihomo-only 重启边界；在真实 same-WiFi 断开/重连门槛完成前，不得把单元测试描述成物理
-链路恢复已经验收。
-
-## same-WiFi 固定 IPv4 确认
-
-恢复状态机第 2 步不能只以 `networksetup -setmanual` 返回成功作为完成证据。Control API
-随后必须回读目标网络服务，确认其 IPv4 配置方式为手动，且 IPv4、子网掩码和路由器与
-本次目标配置一致；确认失败时返回 `static_ipv4_not_applied`，让 Web GUI 提示操作者检查
-macOS“系统设置 → 网络 → 详细信息 → TCP/IP”，并且不得进入 `mac_static`。
-
-## 产品不变量
-
-生命周期服务于全屋代理能力。不要把 DHCP、mihomo、pf 或 forwarding 当作互不
-相关的 demo。只有组合后的 LAN path 仍然可理解、可回滚、可验证，gateway 改动
-才算正确。
+- QNAP normal mode 是单个 `opensurge` 容器。
+- QNET parent/static IP/subnet/upstream router 是容器创建时参数，不由 Web 运行时修改。
+- same-LAN 不依赖 nftables。
+- 生命周期不能修改 QTS 宿主默认网络。
+- 进程、TUN、策略路由三者必须作为一个数据面整体判断。
+- runtime snapshot 是 recovery 的权威配方，不能在恢复时偷偷改用新的 desired topology。
+- 所有成功声明都必须有真实运行时证据。
 
 ## 验证
 
-用 `make test` 验证代码层行为。宣称真实网关生命周期在 host network 上
-工作前，运行 `make lab-test`。涉及透明代理行为时，运行 `make lab-test-tun`。
-涉及下游 IPv6 alias、RA/SLAAC、BPF packet path 或撤销时，按拓扑运行
-`make lab-test-ipv6-userspace`、`make lab-test-ipv6-same-wifi` 或
-`make lab-test-ipv6-same-lan`。
+普通代码验证运行 `go test ./...` 和 `go vet ./...`。Linux/QNAP 策略路由变更必须通过 Phase 11 namespace gate，真实执行 TCP/UDP `iif -> dedicated table -> TUN` 验证。修改容器、Web 或持久化边界时还必须通过 Phase 2 Docker CI 与 Phase 10 QNAP Single-Container CI。
+
+自动化测试通过并不等于真实 TS-264C 已验收。发布测试镜像后仍要在真实 QNAP 上确认 TUN、`ip rule`、专用路由表、DNS/Mihomo、stop/start cleanup 和一台实际 LAN 客户端。

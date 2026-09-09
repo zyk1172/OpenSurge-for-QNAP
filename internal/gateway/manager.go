@@ -579,8 +579,13 @@ func (m Manager) restartMihomo(ctx context.Context) error {
 
 	previousPID := state.PIDMihomo
 	previousFingerprint := state.MihomoProcessFingerprint
+	previousRoutingApplied := state.RoutingApplied
 	state.PIDMihomo = 0
 	state.MihomoProcessFingerprint = ""
+	// A Mihomo restart can recreate the TUN and invalidate the dedicated default
+	// route. Persist the transition as degraded before touching the process so a
+	// crash cannot leave runtime state claiming that routing is still healthy.
+	state.RoutingApplied = false
 	if err := deps.saveState(m.paths.StateFile, state); err != nil {
 		return fmt.Errorf("mark mihomo restart in runtime state: %w", err)
 	}
@@ -589,6 +594,7 @@ func (m Manager) restartMihomo(ctx context.Context) error {
 		if trackedProcessRunning(deps, previousPID, previousFingerprint, mihomoManager.Running) {
 			state.PIDMihomo = previousPID
 			state.MihomoProcessFingerprint = previousFingerprint
+			state.RoutingApplied = previousRoutingApplied
 		}
 		return errors.Join(fmt.Errorf("stop mihomo pid %d: %w", previousPID, err), deps.saveState(m.paths.StateFile, state))
 	}
@@ -629,11 +635,17 @@ func (m Manager) restartMihomo(ctx context.Context) error {
 		if stopErr == nil {
 			state.PIDMihomo = 0
 			state.MihomoProcessFingerprint = ""
+			state.RoutingApplied = false
 		}
 		return errors.Join(fmt.Errorf("repair policy routing after mihomo restart: %w", err), stopErr, deps.saveState(m.paths.StateFile, state))
 	}
 	if err := deps.saveState(m.paths.StateFile, state); err != nil {
-		return errors.Join(fmt.Errorf("save repaired routing state: %w", err), mihomoManager.Stop(newPID))
+		// The previous durable state already tracks the replacement PID but marks
+		// routing as unapplied. Keep the replacement process running so recovery
+		// can still identify and stop it safely; killing it here would leave a
+		// durable dead PID with no way to record the correction when storage is
+		// already failing.
+		return fmt.Errorf("save repaired routing state: %w; replacement mihomo remains running and runtime stays degraded for recovery", err)
 	}
 
 	fmt.Printf("mihomo restarted with pid %d\n", newPID)

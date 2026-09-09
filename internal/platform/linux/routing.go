@@ -247,6 +247,10 @@ type ipRouteEntry struct {
 	Gateway string `json:"gateway"`
 }
 
+// routingTableMatches verifies the complete OpenSurge-owned routing table, not
+// merely the presence of the expected LAN and default routes. A more-specific
+// foreign route could otherwise bypass the TUN while status still reported the
+// data plane as healthy.
 func (b *Backend) routingTableMatches(ctx context.Context, cfg platform.RoutingConfig) (bool, error) {
 	if cfg.TableID == 0 {
 		return false, nil
@@ -282,16 +286,20 @@ func (b *Backend) routingTableMatches(ctx context.Context, cfg platform.RoutingC
 		}
 		switch destination {
 		case strings.TrimSpace(cfg.LANCIDR):
-			if route.Dev == cfg.LANInterface {
-				lanRoutePresent = true
+			if lanRoutePresent || route.Dev != cfg.LANInterface || strings.TrimSpace(route.Gateway) != "" {
+				return false, nil
 			}
+			lanRoutePresent = true
 		case "default":
-			if route.Dev == expectedEgress && route.Gateway == expectedGateway {
-				defaultRoutePresent = true
+			if defaultRoutePresent || route.Dev != expectedEgress || strings.TrimSpace(route.Gateway) != strings.TrimSpace(expectedGateway) {
+				return false, nil
 			}
+			defaultRoutePresent = true
+		default:
+			return false, nil
 		}
 	}
-	return lanRoutePresent && defaultRoutePresent, nil
+	return len(routes) == 2 && lanRoutePresent && defaultRoutePresent, nil
 }
 
 func (b *Backend) policyRoutingPresent(ctx context.Context, cfg platform.RoutingConfig) (bool, error) {
