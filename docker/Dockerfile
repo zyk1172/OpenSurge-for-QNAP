@@ -11,7 +11,7 @@ RUN npm install --global pnpm@10.15.1
 COPY web/package.json web/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY web/ ./
-RUN OPENSURGE_RELEASE_TAG="${OPENSURGE_VERSION}" pnpm build
+RUN OPENSURGE_TARGET=qnap OPENSURGE_RELEASE_TAG="${OPENSURGE_VERSION}" pnpm build
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS go-builder
 ARG TARGETOS=linux
@@ -22,6 +22,7 @@ RUN go mod download
 COPY . .
 COPY --from=web-builder /src/internal/webui/dist/ ./internal/webui/dist/
 RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/opensurge-container ./cmd/opensurge-container \
+ && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/opensurge-host-agent ./cmd/opensurge-host-agent \
  && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/omg ./cmd/omg
 
 # dnsmasq is a C binary, so this stage intentionally runs on TARGETPLATFORM.
@@ -76,6 +77,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=go-builder /out/opensurge-container /usr/local/bin/opensurge-container
+COPY --from=go-builder /out/opensurge-host-agent /usr/local/bin/opensurge-host-agent
 COPY --from=go-builder /out/omg /usr/local/bin/omg
 COPY --from=dnsmasq-builder /out/dnsmasq /usr/local/bin/dnsmasq
 COPY --from=mihomo-fetcher /out-mihomo /usr/local/bin/mihomo
@@ -84,8 +86,8 @@ COPY deploy/qnap/config.qnap-docker.yaml /usr/share/opensurge/config.qnap-docker
 COPY LICENSE THIRD_PARTY_NOTICES.md NOTICE.md /usr/share/opensurge/licenses/
 COPY third_party/licenses/ /usr/share/opensurge/licenses/third_party/
 
-RUN chmod 0755 /usr/local/bin/opensurge-entrypoint \
- && mkdir -p /data/config /data/profiles /data/providers /data/runtime /data/state /data/logs /data/backups /data/licenses /data/control
+RUN chmod 0755 /usr/local/bin/opensurge-entrypoint /usr/local/bin/opensurge-host-agent \
+ && mkdir -p /data/config /data/profiles /data/providers /data/runtime /data/state /data/logs /data/backups /data/licenses /data/control /run/opensurge-host
 
 LABEL org.opencontainers.image.title="OpenSurge for QNAP" \
       org.opencontainers.image.description="Web-managed Linux transparent proxy gateway for QNAP NAS" \
