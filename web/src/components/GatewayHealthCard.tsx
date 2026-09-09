@@ -23,7 +23,7 @@ export function GatewayHealthCard({ overview }: { overview: Overview | null }) {
       <ServiceState label="mihomo" state={status?.mihomo} />
       <ServiceState label={status?.tun_interface ? `TUN · ${status.tun_interface}` : 'TUN'} state={status?.tun} />
       {qnapBuild
-        ? <ServiceState label={t('策略路由')} state={status?.routing} displayState={routingStatusLabel(status?.routing)} detail={status?.routing_error} />
+        ? <ServiceState label={t('规则与转发')} state={status?.routing} displayState={routingStatusLabel(status?.routing)} detail={status?.routing_error} />
         : <ServiceState label="PF Anchor" state={status?.pf_anchor} />}
       <ServiceState label={t('IPv4 转发')} state={status?.forwarding} />
     </div>
@@ -39,10 +39,10 @@ function ServiceState({ label, state = '—', displayState, detail }: { label: s
 }
 
 function routingStatusLabel(state?: string) {
-  if (state === 'applied') return '已应用'
-  if (state === 'missing') return '缺失'
-  if (state === 'unknown') return '无法确认'
-  if (state === 'not_applied') return '未应用'
+  if (state === 'applied') return '已同步'
+  if (state === 'missing') return '运行异常'
+  if (state === 'unknown') return '无法连接'
+  if (state === 'not_applied') return '已停止'
   return '—'
 }
 
