@@ -61,18 +61,34 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Validate QNAP Compose
+      - name: Validate QNAP Compose with explicit second NIC and bind path
         working-directory: deploy/qnap
         env:
           OPENSURGE_IP: 192.168.50.2
           OPENSURGE_SUBNET: 192.168.50.0/24
           OPENSURGE_GATEWAY: 192.168.50.1
-          OPENSURGE_PARENT_INTERFACE: eth0
-        run: docker compose -f docker-compose.yml config --quiet
-      - name: Check QNAP preflight shell syntax
-        run: sh -n deploy/qnap/preflight.sh
+          OPENSURGE_PARENT_INTERFACE: eth1
+          OPENSURGE_CONTAINER_INTERFACE: eth0
+          OPENSURGE_DATA_PATH: /share/Container/opensurge
+        run: |
+          docker compose -f docker-compose.yml config > /tmp/opensurge-compose.yaml
+          grep -q 'iface: eth1' /tmp/opensurge-compose.yaml
+          grep -q '/share/Container/opensurge' /tmp/opensurge-compose.yaml
+          grep -q 'OPENSURGE_SEED_LAN_IP: 192.168.50.2' /tmp/opensurge-compose.yaml
+      - name: Check deployment shell syntax
+        run: |
+          sh -n deploy/qnap/preflight.sh
+          sh -n docker/entrypoint.sh
       - name: Run static QNAP deployment preflight
         run: make qnap-preflight-static
+      - name: Reject relative QNAP persistence path
+        run: |
+          cp deploy/qnap/.env.example /tmp/opensurge-relative.env
+          sed -i 's#^OPENSURGE_DATA_PATH=.*#OPENSURGE_DATA_PATH=./data#' /tmp/opensurge-relative.env
+          if sh deploy/qnap/preflight.sh --env-file /tmp/opensurge-relative.env --static; then
+            echo 'relative persistence path unexpectedly passed preflight' >&2
+            exit 1
+          fi
 
   namespace-lab:
     runs-on: ubuntu-latest
@@ -137,12 +153,16 @@ jobs:
           provenance: false
           tags: opensurge-qnap:ci
           cache-from: type=gha,scope=phase2-linux/amd64
-      - name: Start Web/control plane
+      - name: Start Web/control plane with first-run deployment seed
         run: |
           rm -rf /tmp/opensurge-ci-data
           mkdir -p /tmp/opensurge-ci-data
           docker run -d --name opensurge-ci \
             -p 127.0.0.1:18080:8080 \
+            -e OPENSURGE_SEED_LAN_IP=10.55.0.2 \
+            -e OPENSURGE_SEED_LAN_CIDR=10.55.0.0/24 \
+            -e OPENSURGE_SEED_UPSTREAM_GATEWAY=10.55.0.1 \
+            -e OPENSURGE_CONTAINER_INTERFACE=eth0 \
             -v /tmp/opensurge-ci-data:/data \
             opensurge-qnap:ci
           for i in $(seq 1 30); do
@@ -153,6 +173,12 @@ jobs:
           done
           docker logs opensurge-ci
           exit 1
+      - name: Verify first-run Compose values seeded persistent config
+        run: |
+          docker exec opensurge-ci grep -q 'lan_ip: "10.55.0.2"' /data/config/opensurge.yaml
+          docker exec opensurge-ci grep -q 'lan_cidr: "10.55.0.0/24"' /data/config/opensurge.yaml
+          docker exec opensurge-ci grep -q 'upstream_gateway: "10.55.0.1"' /data/config/opensurge.yaml
+          docker exec opensurge-ci grep -q 'interface: "eth0"' /data/config/opensurge.yaml
       - name: Verify first-run auth boundary
         run: |
           test "$(curl -sS -o /tmp/body -w '%{http_code}' http://127.0.0.1:18080/api/v1/overview)" = "401"
