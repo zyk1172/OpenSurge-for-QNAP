@@ -5,6 +5,7 @@ CLIENT_NS="opensurge-lab-client"
 GATEWAY_NS="opensurge-lab-gateway"
 UPSTREAM_NS="opensurge-lab-upstream"
 TEST_BIN="${OPEN_SURGE_LAB_TEST_BIN:-/tmp/opensurge-linux-network.test}"
+GATEWAY_TEST_BIN="${OPEN_SURGE_GATEWAY_TEST_BIN:-/tmp/opensurge-gateway.test}"
 
 log() { printf '[labnetns] %s\n' "$*"; }
 
@@ -20,7 +21,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 cleanup
 
-for tool in ip nft ping; do
+for tool in ip nft ping dnsmasq dig; do
   command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
 done
 
@@ -32,6 +33,10 @@ fi
 if [[ ! -x "$TEST_BIN" ]]; then
   log "building Linux network integration test binary"
   go test -c -o "$TEST_BIN" ./internal/platform/linux
+fi
+if [[ ! -x "$GATEWAY_TEST_BIN" ]]; then
+  log "building gateway fault-injection test binary"
+  go test -c -o "$GATEWAY_TEST_BIN" ./internal/gateway
 fi
 
 log "creating isolated client -> gateway -> upstream topology"
@@ -89,10 +94,14 @@ log "running OpenSurge nftables/policy-routing integration tests inside gateway 
 sudo ip netns exec "$GATEWAY_NS" env OPEN_SURGE_NETWORK_TESTS=1 \
   "$TEST_BIN" -test.v -test.run '^TestNetwork'
 
-log "proving the lab namespace still routes after the integration suite"
-# The integration suite intentionally exercises failure/restore paths. Remove
-# any test-scoped residue inside the disposable namespace before the topology
-# continuity check; destroying the namespace is the ultimate isolation boundary.
+log "injecting a real dnsmasq crash and proving safe replacement"
+sudo ip netns exec "$GATEWAY_NS" env OPEN_SURGE_DNSMASQ_FAULT_TESTS=1 \
+  "$GATEWAY_TEST_BIN" -test.v -test.run '^TestDNSMasqCrashRecoveryLinux$'
+
+log "proving the lab namespace still routes after integration and crash recovery"
+# The network integration suite intentionally exercises failure/restore paths.
+# Remove only test-scoped residue inside the disposable namespace before the
+# continuity check; destroying the namespace remains the final isolation wall.
 sudo ip netns exec "$GATEWAY_NS" nft delete table inet opensurge 2>/dev/null || true
 sudo ip netns exec "$GATEWAY_NS" ip rule del fwmark 0x29 table 20241 2>/dev/null || true
 sudo ip netns exec "$GATEWAY_NS" ip route flush table 20241 2>/dev/null || true
