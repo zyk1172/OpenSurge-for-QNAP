@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -100,5 +101,27 @@ func TestFingerprintTreatsMissingProcessAsAbsent(t *testing.T) {
 	fingerprint, err := Fingerprint(impossiblePID)
 	if err != nil || fingerprint != "" {
 		t.Fatalf("missing process fingerprint = %q, %v", fingerprint, err)
+	}
+}
+
+func TestLinuxProcessIdentityUsesProcfsWithoutPS(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("procfs identity is Linux-only")
+	}
+	identity, err := linuxProcessIdentity(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{"linux-proc-v1|", "start=", "|exe=", "|command="} {
+		if !strings.Contains(identity, token) {
+			t.Fatalf("procfs identity %q does not contain %q", identity, token)
+		}
+	}
+}
+
+func TestNormalizeProcCmdline(t *testing.T) {
+	got := normalizeProcCmdline([]byte("/usr/local/bin/mihomo\x00-d\x00/data/mihomo\x00\x00"))
+	if want := "/usr/local/bin/mihomo -d /data/mihomo"; got != want {
+		t.Fatalf("normalizeProcCmdline() = %q, want %q", got, want)
 	}
 }
