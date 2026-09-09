@@ -3,6 +3,8 @@ package runtime
 import (
 	"testing"
 	"time"
+
+	"open-mihomo-gateway/internal/platform"
 )
 
 func TestStateBelongsToBootPrefersSessionID(t *testing.T) {
@@ -26,6 +28,38 @@ func TestStateBelongsToBootMigratesLegacyStartedAt(t *testing.T) {
 	}
 	if (State{}).BelongsToBoot(BootSession{StartedAt: bootedAt}) {
 		t.Fatal("state without boot evidence was accepted")
+	}
+}
+
+func TestStateBelongsToBootIncludesLinuxNetworkNamespace(t *testing.T) {
+	state := State{
+		BootSessionID: "boot-a",
+		StartedAt:     time.Now(),
+		NetworkSnapshot: &platform.NetworkSnapshot{
+			SchemaVersion:    platform.SnapshotSchemaVersion,
+			Backend:          platform.BackendLinuxNFTables,
+			NetworkNamespace: "net:[100]",
+		},
+	}
+	if !state.BelongsToBoot(BootSession{ID: "boot-a", NetworkNamespace: "net:[100]"}) {
+		t.Fatal("same Linux boot and network namespace was rejected")
+	}
+	if state.BelongsToBoot(BootSession{ID: "boot-a", NetworkNamespace: "net:[200]"}) {
+		t.Fatal("container restart with same host boot_id but a new network namespace was accepted")
+	}
+}
+
+func TestStateBelongsToBootRejectsLinuxSnapshotMissingNamespaceWhenCurrentKnown(t *testing.T) {
+	state := State{
+		BootSessionID: "boot-a",
+		StartedAt:     time.Now(),
+		NetworkSnapshot: &platform.NetworkSnapshot{
+			SchemaVersion: platform.SnapshotSchemaVersion,
+			Backend:       platform.BackendLinuxNFTables,
+		},
+	}
+	if state.BelongsToBoot(BootSession{ID: "boot-a", NetworkNamespace: "net:[200]"}) {
+		t.Fatal("Linux runtime without persisted namespace identity was accepted")
 	}
 }
 
