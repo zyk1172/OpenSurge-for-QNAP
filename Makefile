@@ -1,6 +1,6 @@
 # OpenSurge for QNAP — Linux/QNAP Docker gateway derived from OpenSurge for Mac.
 
-.PHONY: test test-network-linux lab-test-linux build web-install web-build web-test lint doctor status image image-smoke compose-qnap-check
+.PHONY: test test-network-linux lab-test-linux build web-install web-build web-test lint doctor status image image-smoke compose-qnap-check qnap-preflight qnap-preflight-static
 
 test:
 	go test ./...
@@ -58,3 +58,12 @@ compose-qnap-check:
 	OPENSURGE_GATEWAY=192.168.50.1 \
 	OPENSURGE_PARENT_INTERFACE=eth0 \
 	docker compose -f docker-compose.yml config --quiet
+
+# Full QNAP host preflight. Expects deploy/qnap/.env to exist.
+qnap-preflight:
+	cd deploy/qnap && sh ./preflight.sh
+
+# CI-safe validation: syntax/topology/Compose only; skips qnet, TUN, interface,
+# data-path and address-conflict probes that require a real QNAP host.
+qnap-preflight-static:
+	cd deploy/qnap && sh ./preflight.sh --env-file .env.example --static
