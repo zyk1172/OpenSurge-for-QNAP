@@ -1,118 +1,165 @@
-# OpenSurge for Mac 常见问题
+# OpenSurge for QNAP 常见问题
 
-本文先记录 v0.1.26 中与系统重启恢复、Mihomo 自动恢复、合盖运行、Mac 本机联网、
-TUN 启动、设备身份和每设备出口有关的常见问题。
-完整安装与 DHCP 恢复流程仍以
-[OpenSurge for Mac App 使用指南](app-user-guide.zh-CN.md)为准。
+完整安装与日常使用流程见 [OpenSurge for QNAP 使用指南](app-user-guide.zh-CN.md) 和 [QNAP Docker 部署指南](../deploy/qnap/README.zh-CN.md)。
 
-## Mac 重启后为什么显示“重启后待清理”？
+## 为什么 QNAP 版只有一个容器？
 
-OpenSurge 不会仅凭重启前留下的 runtime state 自动重新接管网络。Mac 重启会终止
-dnsmasq、mihomo，并重置当次运行的 PF/forwarding；原来的进程 PID 也可能已经被其他
-进程复用。请在总览或**网络设置**点击**安全清理旧状态**：OpenSurge 会识别这是上一
-次开机留下的中断状态，不会向旧 PID 发送信号，也不会改动本次开机的
-PF/forwarding。清理完成后可按页面提示恢复网络或重新启动完整网关。系统重启后的中断
-状态不会显示“恢复 Mihomo”，因为 DHCP/DNS、PF 与 forwarding 并未随它一起恢复。
+当前默认架构把 Web、Control API、mihomo、dnsmasq、TUN 和策略路由集中在一个 `opensurge` 容器中。
 
-如果上一次运行启用了 Mac 本机系统代理协同，清理会把 HTTP/HTTPS 恢复为 OpenSurge
-启动前保存的状态。这个开关是明确的临时接管：接管期间手动修改的 HTTP/HTTPS 设置也会
-被启动前快照替换。若 macOS 无法恢复设置，清理会失败关闭并保留 state，以便排查后
-重试。
+QNET、静态 IP 和父网卡必须在创建容器时确定，因此默认架构不再使用额外 Manager/Orchestrator 容器，也不需要把 Docker Socket 暴露给 Web。
 
-## Mac 睡眠唤醒后为什么提示 Mihomo 连接被拒绝？
+## 为什么容器里只看到 eth0，而我选择的是 br0 / eth1？
 
-如果诊断显示访问 `127.0.0.1:9090` 为 `connection refused`，说明本机 Mihomo controller
-当时没有监听，不是普通的代理节点超时。只要本次开机的网关 runtime 仍有效，v0.1.26
-会自动尝试一次 Mihomo-only 恢复：验证 applied 配置、归档旧日志并重启 Mihomo，以重建
-TUN 和出站 socket；不会停止 DHCP/DNS、卸载 PF 或修改 IPv4 forwarding。进程缺失会
-立即触发，本地 controller 拒绝连接则需要连续两次探测确认，避免短暂波动误触发。
+这是正常现象。
 
-健康、观察和自动恢复期间都不会显示手动入口；只有这次自动恢复未成功时，**连通性**页
-才显示“恢复 Mihomo”作为手动兜底。若页面显示“重启后待清理”，应先安全清理旧状态并
-重新启动完整网关。若睡眠唤醒后反复发生，请从**诊断**页保存当前状态和 Mihomo 日志，
-用于区分进程崩溃、被系统终止或其他唤醒路径问题。
+- `br0` / `eth1` 等是 QNAP 宿主侧 QNET 父接口；
+- `eth0` 是容器 network namespace 内的接口。
 
-## 如何让 Mac 合盖后继续运行 OpenSurge？
+两者不要求同名。物理网卡选择发生在创建 QNET 网络时。
 
-在菜单栏面板或 Web GUI 侧栏打开**合盖保持运行**。这个开关临时禁用整机睡眠，包括
-空闲和合盖睡眠；它不依赖网关是否启动，也不改变 DHCP、DNS、PF、forwarding 或 Mihomo
-状态。开关默认关闭且不保存偏好；选择**退出 OpenSurge**、Control Service 意外退出或
-Mac 重启后，root Helper 会释放本次临时接管。
+## 为什么 Web 里不能修改 QNET 父网卡或静态 IP？
 
-普通 `caffeinate` 只能阻止空闲睡眠，不能满足合盖继续运行，因此 OpenSurge 使用 macOS
-系统级 `pmset disablesleep`，并以存活租约和持久 ownership marker 确保异常退出或重启后
-恢复正常睡眠。若睡眠已被其他工具全局禁用，OpenSurge 会拒绝接管，不会在关闭开关时
-破坏其他工具的状态。合盖运行会增加耗电与发热，请勿把仍在运行的 Mac 放入不通风的包内。
+它们是 Docker/QNET 创建参数，不是 OpenSurge 运行配置。
 
-## 下游设备接管正常，但 Mac 本机无法访问网络怎么办？
+需要修改时：
 
-如果下游设备的 DHCP、DNS 和透明代理都正常，而 Mac 本机出现 DNS 或访问异常，先检查
-是否启用了 SafeDNS、DNS Proxy、内容过滤或其他 Network Extension。这些组件可能只干扰
-Mac 本机的 TUN DNS 路径，因此“下游设备正常”不能证明本机路径也正常。
+1. 停止 Gateway；
+2. 保留 `/data`；
+3. 修改 Compose 创建参数；
+4. 重建 `opensurge` 容器。
 
-可以在网关停止并完成必要的 DHCP 恢复后，进入**网络设置 → Desired 网络配置**，保持
-**mihomo TUN**，启用**Mac 本机系统代理协同**并保存配置。下次启动时，OpenSurge 会把
-当前上游网络服务的 HTTP/HTTPS 系统代理指向本机 mihomo mixed-port；停止、启动回滚或
-mihomo 重启失败时会恢复启动前状态。
+Web 只管理能够安全持久化到 OpenSurge 配置中的运行参数。
 
-这个开关默认关闭，只影响遵循系统代理的 Mac 应用，不替代 TUN，也不改变下游设备。
-如果系统已经启用 HTTP/HTTPS 代理、PAC 或自动代理发现，OpenSurge 会拒绝启动，避免
-覆盖现有配置；请先确认这些设置的来源，不要直接删除未知的系统代理配置。
+## QNAP 缺少 nftables，是否就不能透明代理？
 
-## TUN 启动时报冲突怎么办？
+不一定。
 
-OpenSurge 会在实际启动时等待 mihomo 报告 TUN ready。若 TUN 无法就绪，会停止本次启动、
-回滚已拥有的网关状态，并尽量在错误信息中补充冲突路由的接口或网关。常见原因是另一个
-VPN、代理或 Network Extension 已经通过其他 `utun` 占有默认路由。
+当前 same-LAN QNAP 后端可以在 TUN、`NET_ADMIN` 和 Linux policy routing 可用时使用：
 
-根据错误信息检查并停止冲突的全局 TUN/VPN，再重试启动。不要仅凭系统中存在 `utun`
-就手工删除接口，也不要同时运行两个都要求接管公网默认路由的 TUN。若仍失败，请在
-**诊断**页收集当前状态、路由和 mihomo 日志，再判断具体冲突。
+```text
+ip rule iif <LAN interface>
+→ OpenSurge dedicated table
+→ tun0
+→ mihomo
+```
 
-## 为什么发现不了设备 MAC？没有 MAC 的设备如何切换到 DHCP 接管？
+因此 same-LAN 模式不要求 `nf_tables`。
 
-旁路由模式从当前经过 Mac 的流量和 macOS 邻居表尽力补充 MAC。设备尚未与 Mac 通信、
-邻居记录已经过期，或者网络使用客户端隔离、Proxy ARP、集中转发时，都可能只有 IPv4
-而没有可用 MAC。这不一定是 macOS 或 OpenSurge 回归。
+需要 NAT 的隔离下游拓扑仍可能要求 nftables/fwmark 能力。
 
-在**旁路由模式**中，可以只登记固定 IPv4，MAC 是可选身份信息；但必须确保主路由长期
-保留该地址，不会把同一个 IPv4 分给其他设备。切换到**局域网 DHCP 接管**时：
+## `/dev/net/tun` 不存在怎么办？
 
-- 所有登记设备已有 MAC：直接切换，不弹出迁移提示。
-- 当前能为 IP-only 设备找到唯一 MAC：弹窗列出 MAC，确认后写入设备资料并切换。
-- 仍有设备无法取得 MAC：弹窗提示这些设备的策略将在 DHCP 模式下暂停。可以检查设备、
-  仍然切换并暂停这些策略，或取消。
+先区分“宿主没有 TUN 驱动”和“容器没有映射设备”。
 
-设备资料、Profile 和规则不会被删除；DHCP 模式不会继续用旧 IPv4 猜测设备身份。取得
-真实 MAC 后，进入**设备 → 登记新设备**，使用原固定 IPv4 补充 MAC，保存并重载，专属
-策略就会恢复。不要填写伪造或随意生成的 MAC。
+宿主检查：
 
-## 如何为每台设备设置独立出口？
+```sh
+ls -l /dev/net/tun
+grep -w tun /proc/misc
+```
 
-1. 在网关停止且配置可编辑时，进入**网络设置 → Desired 网络配置**，启用
-   **每设备策略**并保存。
-2. 进入**设备 → 登记新设备**，从 DHCP 租约或当前观察设备中选择目标，也可以手工填写。
-3. 将**设备路由方式**设为**独立设备出口**，选择允许使用的出口候选。
-4. 保存设备配置并启动或重载网关，使专属 selector 和设备规则进入 applied 配置。
-5. 应用后可在设备页点击该设备的出口选择器切换候选；这类 selector 切换通常即时影响
-   新连接，不需要修改 Mac 本机的出口方式。
+如果宿主 TUN 正常，Compose 仍必须包含：
 
-选择**跟随网关规则**的设备继续使用导入或托管的全局规则；选择**独立设备出口**的设备
-会优先使用自己的公网出口，局域网和私网目标仍保持直连。Mac 本机的**按规则 / 固定出口 /
-本机直连**开关不会改变下游设备策略。
+```yaml
+devices:
+  - /dev/net/tun:/dev/net/tun
+```
 
-## 如何让某台设备取消 OpenSurge 网关接管？
+以及 `NET_ADMIN` / `NET_RAW`。
 
-此功能只在**局域网 DHCP 接管**中提供。先在**网络设置**确认主路由网关和
-DNS，再到**设备 → 设备出口**把目标设备的**设备路由方式**改为
-**IPv4 直连主路由**，保存并重载网关。OpenSurge 仍为它保留并分配固定 IPv4，
-但 DHCP 会向这个 MAC 单独下发主路由作为 Router 和 DNS。
+如果宿主内核本身没有 TUN 支持，Docker 镜像无法凭空补出宿主内核能力。
 
-应用后，请重新连接该设备的网络，使新的 IPv4 主路由网关和 DNS 生效。IPv4 直连期间
-该设备的代理、普通设备规则和 OpenSurge 流量统计暂停；Profile 和规则不会被删除，
-切回**跟随网关规则**或**独立设备出口**并续租后恢复。
+## 为什么 `nft list ruleset` 报错，但 Gateway 仍可能正常？
 
-若下游 IPv6 已启用，OpenSurge 会阻止该设备经过 packet path 的 IPv6 出站，但不会关闭
-其他设备的 IPv6。设备仍可能显示 SLAAC 地址或 RDNSS；这是“IPv6 出站已阻止”，不是
-“设备没有 IPv6”。必须关闭主路由 RA/DHCPv6 或使用 RA Guard，否则设备可能完全绕过
-OpenSurge，直接从主路由走 IPv6。
+部分 QNAP 5.10 内核没有 `nf_tables` netlink 支持。在 same-LAN nft-free TUN 模式中，nftables 本来就不是必需的数据面组件。
+
+应检查：
+
+```sh
+ip rule show
+ip route show table 20241
+```
+
+以及 TUN / Mihomo / DNS 实际状态，而不是仅根据 `nft` 命令判断 Gateway 是否可用。
+
+## 导入订阅后为什么没有立即生效？
+
+导入只创建草稿。
+
+网关停止时使用 **设为下次启动版本**；网关运行时使用 **应用并重载**。
+
+Web 会在后端返回后重新读取持久化 sources 状态。只有确认 `desired=true` 或 `applied=true` 才显示成功。
+
+## “设为下次启动版本”会不会因为容器重启而丢失？
+
+正常情况下不会。选择状态和相关配置都保存在 `/data`。
+
+因此升级/重建容器时必须继续挂载同一个持久化目录。
+
+## 为什么保存运行参数时 Gateway 会短暂停止？
+
+运行中的网络参数不能只修改内存状态。当前 Web 流程是：
+
+```text
+停止 Gateway
+→ 保存 /data/config/opensurge.yaml
+→ 重新读取 revision 校验
+→ 重新启动 Gateway
+```
+
+这样可以避免页面显示成功但实际配置没有落盘。
+
+## NAS 或容器异常重启后为什么显示 interrupted？
+
+OpenSurge 不会把上一次 network namespace 的 runtime 状态直接当成当前仍然有效。
+
+先点击 **安全清理旧状态**。清理依据持久化 snapshot/journal 和 ownership 信息，只处理能够确认属于 OpenSurge 的对象，然后再启动新的 Gateway。
+
+## 为什么不自动修改 QTS 的默认网关、DNS 或 Virtual Switch？
+
+这是安全边界。
+
+OpenSurge Gateway 本身需要网络管理能力，但 QNAP Web 不应该同时获得对整个 NAS 管理网络的任意修改权限。QNET 父接口等宿主参数由部署阶段决定；运行时只管理容器自己的数据面。
+
+## NAS 需要安装 Go、Node.js 或 gcc 吗？
+
+不需要。
+
+测试镜像由 GitHub Actions 预构建。NAS 只需要 Docker/Container Station、QNET、TUN 和必要的内核网络能力。
+
+## 为什么不用 NAS 自己 build 镜像？
+
+QNAP NAS 不是构建服务器。正常测试流程是：
+
+```text
+GitHub Actions 构建
+→ 下载 amd64/arm64 tar.gz
+→ SHA256 校验
+→ docker load
+→ 重建容器
+```
+
+这样更快，也避免在性能较弱的 NAS 上安装开发依赖和长时间编译。
+
+## 如何安全升级测试镜像？
+
+1. 备份当前镜像 tag；
+2. 下载并校验新测试镜像；
+3. `docker load`；
+4. 保持同一个 `/data` 和 QNET 创建参数；
+5. 重建 `opensurge`；
+6. 检查 Web、配置、订阅和管理员状态；
+7. 再启动 Gateway。
+
+不要把删除 `/data` 当成升级步骤。
+
+## 第一阶段应该如何测试客户端？
+
+只测试一台设备：
+
+```text
+IPv4 Gateway = OpenSurge IP
+DNS          = OpenSurge IP
+```
+
+主路由 DHCP 暂时保持原状。确认 DNS、DIRECT、PROXY、UDP/QUIC、长连接和下载都稳定后，再增加客户端。
