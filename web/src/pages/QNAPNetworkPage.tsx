@@ -19,10 +19,13 @@ export function QNAPNetworkPage({
   const [actual, setActual] = useState<NetworkDefaults | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [lifecycleBusy, setLifecycleBusy] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
 
   const running = overview?.status.gateway === 'running' || overview?.status.gateway === 'degraded'
+  const interrupted = overview?.status.runtime_state === 'interrupted'
+  const stopped = overview?.status.gateway === 'stopped'
 
   const load = async () => {
     setLoading(true)
@@ -47,8 +50,30 @@ export function QNAPNetworkPage({
     setDraft(current => current ? { ...current, ...next } : current)
   }
 
+  const runLifecycle = async () => {
+    if (lifecycleBusy || saving || (!running && !stopped && !interrupted)) return
+    setLifecycleBusy(true)
+    setError('')
+    setMessage('')
+    const action = interrupted || running ? 'stop' : 'start'
+    try {
+      const operation = await api.gateway(action)
+      await waitForOperation(operation.id)
+      const success = interrupted ? '旧运行状态已安全清理。' : running ? '网关已停止。' : '网关已启动。'
+      setMessage(t(success))
+      onNotify({ tone: 'success', title: t(interrupted ? 'QNAP 恢复完成' : action === 'start' ? 'QNAP 网关已启动' : 'QNAP 网关已停止'), message: t(success) })
+      await Promise.all([load(), Promise.resolve(onChanged())])
+    } catch (cause) {
+      const failure = cause instanceof Error ? cause.message : String(cause)
+      setError(failure)
+      onNotify({ tone: 'error', title: t('QNAP 网关操作失败'), message: failure })
+    } finally {
+      setLifecycleBusy(false)
+    }
+  }
+
   const saveRuntime = async () => {
-    if (!draft || saving) return
+    if (!draft || saving || lifecycleBusy) return
     setSaving(true)
     setError('')
     setMessage('')
@@ -93,10 +118,12 @@ export function QNAPNetworkPage({
       eyebrow="QNAP NETWORK"
       title="QNAP 网关网络"
       description="物理网卡、QNET、静态 IP、CIDR 与主路由在创建容器时确定；运行中的容器不再伪装成可以修改 QNAP 宿主网络。"
+      action={<button id="gateway-control" className={running ? 'danger' : 'primary'} type="button" disabled={lifecycleBusy || saving || (!running && !stopped && !interrupted)} onClick={() => void runLifecycle()}>{t(lifecycleBusy ? '正在执行…' : interrupted ? '安全清理旧状态' : running ? '停止网关' : '启动网关')}</button>}
     />
 
+    {interrupted && <div className="notice warn" role="status"><strong>{t('检测到上一次容器或 NAS 重启留下的运行状态。')}</strong><p>{t('先执行安全清理；QNAP 版不会触碰宿主 QTS 网络设置。')}</p></div>}
     {error && <div className="notice warn" role="alert"><strong>{t('操作未完成')}</strong><p>{error}</p></div>}
-    {message && <div className="ok-notice" role="status"><strong>{t('已保存')}</strong><p>{message}</p></div>}
+    {message && <div className="ok-notice" role="status"><strong>{t('操作完成')}</strong><p>{message}</p></div>}
 
     <section className="section">
       <SectionTitle title="容器创建时网络" subtitle="只读 · 修改以下任一项需要重建 OpenSurge 容器" />
@@ -145,12 +172,12 @@ export function QNAPNetworkPage({
         </article>
       </div>
       <div className="source-actions">
-        <button type="button" onClick={() => void load()} disabled={saving}>{t('重新读取')}</button>
-        <button className="primary" type="button" onClick={() => void saveRuntime()} disabled={saving}>{saving ? t('正在保存…') : t(running ? '保存并重启网关' : '保存运行参数')}</button>
+        <button type="button" onClick={() => void load()} disabled={saving || lifecycleBusy}>{t('重新读取')}</button>
+        <button className="primary" type="button" onClick={() => void saveRuntime()} disabled={saving || lifecycleBusy}>{saving ? t('正在保存…') : t(running ? '保存并重启网关' : '保存运行参数')}</button>
       </div>
     </section>}
 
-    <section className="section">
+    <section className="section" id="gateway-control-bottom">
       <SectionTitle title="如何修改物理网卡或静态 IP" subtitle="这是容器部署操作，不是 OpenSurge 运行配置" />
       <p>{t('停止并重建容器时修改 Compose 中的 QNET 父接口、IPv4、CIDR 或主路由。保留同一个 /data 持久化目录即可保留管理员、订阅、规则、设备策略和运行配置。')}</p>
     </section>
