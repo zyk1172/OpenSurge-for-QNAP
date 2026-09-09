@@ -53,7 +53,8 @@ jobs:
           fi
           printf '%s\n' "$resolved" | grep -q 'network_mode: host'
           printf '%s\n' "$resolved" | grep -q 'network_mode: none'
-          printf '%s\n' "$resolved" | grep -q '/var/run/docker.sock:/var/run/docker.sock'
+          printf '%s\n' "$resolved" | grep -q 'source: /var/run/docker.sock'
+          printf '%s\n' "$resolved" | grep -q 'target: /var/run/docker.sock'
       - name: Shell syntax
         run: sh -n docker/entrypoint.sh
 
