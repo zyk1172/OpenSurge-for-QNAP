@@ -9,7 +9,10 @@ on:
       - 'cmd/opensurge-container/**'
       - 'internal/webgateway/**'
       - 'internal/webui/**'
+      - 'internal/platform/linux/**'
+      - 'tests/labnetns/**'
       - 'web/**'
+      - 'Makefile'
       - 'go.mod'
       - 'go.sum'
       - '.github/workflows/phase2-docker.yml'
@@ -33,6 +36,24 @@ jobs:
           OPENSURGE_GATEWAY: 192.168.50.1
           OPENSURGE_PARENT_INTERFACE: eth0
         run: docker compose -f docker-compose.yml config --quiet
+
+  namespace-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install network lab tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nftables iproute2 iputils-ping
+      - name: Compile integration test binary before entering namespaces
+        run: go test -c -o /tmp/opensurge-linux-network.test ./internal/platform/linux
+      - name: Run client -> gateway -> upstream namespace lab
+        env:
+          OPEN_SURGE_LAB_TEST_BIN: /tmp/opensurge-linux-network.test
+        run: bash ./tests/labnetns/lab-test.sh
 
   image-build:
     strategy:
