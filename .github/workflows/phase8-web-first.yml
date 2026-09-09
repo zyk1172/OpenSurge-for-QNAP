@@ -47,7 +47,7 @@ jobs:
       - name: Bootstrap Compose must not contain user network parameters
         run: |
           resolved="$(docker compose -f deploy/qnap/docker-compose.yml config)"
-          if printf '%s\n' "$resolved" | grep -Eq 'OPENSURGE_(IP|SUBNET|GATEWAY|PARENT_INTERFACE|DATA_PATH)'; then
+          if printf '%s\n' "$resolved" | grep -Eq 'OPENSURGE_(IP|SUBNET|GATEWAY|PARENT_INTERFACE|DATA_PATH):'; then
             echo 'default Web-first Compose unexpectedly requires user deployment variables' >&2
             exit 1
           fi
