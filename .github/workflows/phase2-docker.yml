@@ -1,0 +1,103 @@
+name: Phase 2 Docker CI
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'docker/**'
+      - 'deploy/qnap/**'
+      - 'cmd/opensurge-container/**'
+      - 'internal/webgateway/**'
+      - 'internal/webui/**'
+      - 'web/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/phase2-docker.yml'
+  push:
+    branches: [phase2/docker-productization]
+
+permissions:
+  contents: read
+
+jobs:
+  compose-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate QNAP Compose
+        working-directory: deploy/qnap
+        env:
+          OPENSURGE_IP: 192.168.50.2
+          OPENSURGE_SUBNET: 192.168.50.0/24
+          OPENSURGE_GATEWAY: 192.168.50.1
+          OPENSURGE_PARENT_INTERFACE: eth0
+        run: docker compose -f docker-compose.yml config --quiet
+
+  image-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build ${{ matrix.platform }} image without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: false
+          provenance: false
+          build-args: |
+            OPENSURGE_VERSION=pr-${{ github.event.pull_request.number || github.run_number }}
+            VCS_REF=${{ github.sha }}
+          cache-from: type=gha,scope=phase2-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=phase2-${{ matrix.platform }}
+
+  container-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build local amd64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          provenance: false
+          tags: opensurge-qnap:ci
+          cache-from: type=gha,scope=phase2-linux/amd64
+      - name: Start Web/control plane
+        run: |
+          mkdir -p /tmp/opensurge-ci-data
+          docker run -d --name opensurge-ci \
+            -p 127.0.0.1:18080:8080 \
+            -v /tmp/opensurge-ci-data:/data \
+            opensurge-qnap:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18080/health/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs opensurge-ci
+          exit 1
+      - name: Verify first-run auth boundary
+        run: |
+          test "$(curl -sS -o /tmp/body -w '%{http_code}' http://127.0.0.1:18080/api/v1/overview)" = "401"
+          curl -fsS http://127.0.0.1:18080/api/auth/state | grep -q '"setup_required":true'
+      - name: Dump logs on failure
+        if: failure()
+        run: docker logs opensurge-ci || true
+      - name: Cleanup
+        if: always()
+        run: docker rm -f opensurge-ci >/dev/null 2>&1 || true
