@@ -7,7 +7,7 @@ STATIC_ONLY=0
 
 usage() {
   cat <<'EOF'
-Usage: ./preflight.sh [--env-file PATH] [--static]
+Usage: sh ./preflight.sh [--env-file PATH] [--static]
 
 Checks the QNAP Docker deployment before `docker compose up`.
 
@@ -60,8 +60,8 @@ read_env() {
   key=$1
   default=${2-}
 
-  eval "current=\${$key-}"
-  if [ -n "${current}" ]; then
+  current=$(printenv "$key" 2>/dev/null || true)
+  if [ -n "$current" ]; then
     printf '%s\n' "$current"
     return 0
   fi
@@ -151,6 +151,8 @@ validate_network() {
 }
 
 [ -f "$ENV_FILE" ] || fail "environment file not found: $ENV_FILE (copy .env.example to .env first)"
+command_exists printenv || fail "printenv command not found"
+command_exists awk || fail "awk command not found"
 
 OPENSURGE_IP=$(read_env OPENSURGE_IP)
 OPENSURGE_SUBNET=$(read_env OPENSURGE_SUBNET)
