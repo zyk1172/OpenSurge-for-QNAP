@@ -1,16 +1,17 @@
-name: Phase 8 Web-first Deployment CI
+name: Phase 10 QNAP Single-Container CI
 
 on:
   pull_request:
     branches: [master]
     paths:
-      - 'cmd/opensurge-manager/**'
-      - 'cmd/opensurge-orchestrator/**'
-      - 'internal/deployment/**'
-      - 'internal/deploymentweb/**'
-      - 'internal/webgateway/**'
+      - 'cmd/opensurge-container/**'
+      - 'internal/controlapi/**'
+      - 'internal/gateway/**'
+      - 'internal/linuxnetwork/**'
+      - 'internal/runtime/**'
       - 'docker/**'
       - 'deploy/qnap/**'
+      - 'web/**'
       - 'go.mod'
       - 'go.sum'
       - '.github/workflows/phase8-web-first.yml'
@@ -19,7 +20,75 @@ permissions:
   contents: read
 
 jobs:
-  go-gate:
+  compose-single-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      OPENSURGE_IP: 192.168.50.2
+      OPENSURGE_SUBNET: 192.168.50.0/24
+      OPENSURGE_GATEWAY: 192.168.50.1
+      OPENSURGE_PARENT_INTERFACE: eth1
+      OPENSURGE_DATA_PATH: /share/Container/opensurge
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve creation-time QNAP Compose
+        working-directory: deploy/qnap
+        run: docker compose -f docker-compose.yml config > /tmp/opensurge-qnap-compose.yaml
+      - name: Require exactly one OpenSurge service
+        working-directory: deploy/qnap
+        run: |
+          services="$(docker compose -f docker-compose.yml config --services)"
+          test "$services" = "opensurge"
+          ! grep -q 'opensurge-manager' /tmp/opensurge-qnap-compose.yaml
+          ! grep -q 'opensurge-orchestrator' /tmp/opensurge-qnap-compose.yaml
+          ! grep -q '/var/run/docker.sock' /tmp/opensurge-qnap-compose.yaml
+          ! grep -qE '^[[:space:]]+build:' /tmp/opensurge-qnap-compose.yaml
+      - name: Verify QNET and persistent creation parameters
+        run: |
+          grep -q 'iface: eth1' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'ipv4_address: 192.168.50.2' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'OPENSURGE_SEED_LAN_IP: 192.168.50.2' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'OPENSURGE_SEED_LAN_CIDR: 192.168.50.0/24' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'OPENSURGE_SEED_UPSTREAM_GATEWAY: 192.168.50.1' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'source: /share/Container/opensurge' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'target: /data' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'NET_ADMIN' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'NET_RAW' /tmp/opensurge-qnap-compose.yaml
+          grep -q '/dev/net/tun' /tmp/opensurge-qnap-compose.yaml
+
+  qnap-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.1
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install locked dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+      - name: Unit tests
+        working-directory: web
+        run: pnpm test
+      - name: Build QNAP target
+        working-directory: web
+        env:
+          OPENSURGE_TARGET: qnap
+          OPENSURGE_RELEASE_TAG: phase10-ci
+        run: pnpm build
+      - name: Guard QNAP-only pages against Mac host controls
+        run: |
+          ! grep -Eq 'Finder|合盖|Wi-Fi DHCP|mac_static|applyStatic|restoreMacDHCP|revealSourceSnapshot' web/src/pages/QNAPNetworkPage.tsx web/src/pages/QNAPSourcesPage.tsx
+          grep -q '修改以下任一项需要重建 OpenSurge 容器' web/src/pages/QNAPNetworkPage.tsx
+          grep -q 'desired/运行版本' web/src/pages/QNAPSourcesPage.tsx
+
+  persistence:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -28,102 +97,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Test deployment packages
-        run: go test ./internal/deployment ./internal/deploymentweb
-      - name: Vet deployment packages
-        run: go vet ./internal/deployment ./internal/deploymentweb ./cmd/opensurge-manager ./cmd/opensurge-orchestrator
-      - name: Build manager and orchestrator
-        run: |
-          go build ./cmd/opensurge-manager
-          go build ./cmd/opensurge-orchestrator
-
-  bootstrap-compose:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - name: Default QNAP Compose must resolve without env file
-        run: docker compose -f deploy/qnap/docker-compose.yml config --quiet
-      - name: Bootstrap Compose must not contain user network parameters
-        run: |
-          resolved="$(docker compose -f deploy/qnap/docker-compose.yml config)"
-          if printf '%s\n' "$resolved" | grep -Eq 'OPENSURGE_(IP|SUBNET|GATEWAY|PARENT_INTERFACE|DATA_PATH):'; then
-            echo 'default Web-first Compose unexpectedly requires user deployment variables' >&2
-            exit 1
-          fi
-          printf '%s\n' "$resolved" | grep -q 'network_mode: host'
-          printf '%s\n' "$resolved" | grep -q 'network_mode: none'
-          printf '%s\n' "$resolved" | grep -q 'source: /var/run/docker.sock'
-          printf '%s\n' "$resolved" | grep -q 'target: /var/run/docker.sock'
-      - name: Shell syntax
-        run: sh -n docker/entrypoint.sh
-
-  manager-smoke:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - name: Build local image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile
-          platforms: linux/amd64
-          load: true
-          push: false
-          provenance: false
-          tags: opensurge-for-qnap:dev
-          cache-from: type=gha,scope=phase8-manager-amd64
-          cache-to: type=gha,mode=max,scope=phase8-manager-amd64
-      - name: Start isolated orchestrator and host-network manager
-        run: |
-          docker volume create opensurge-phase8-run >/dev/null
-          docker volume create opensurge-phase8-manager >/dev/null
-          docker run -d --name opensurge-orchestrator-ci \
-            --network none --no-healthcheck \
-            -e OPENSURGE_ROLE=orchestrator \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v opensurge-phase8-run:/run/opensurge \
-            opensurge-for-qnap:dev
-          docker run -d --name opensurge-manager-ci \
-            --network host --no-healthcheck \
-            -e OPENSURGE_ROLE=manager \
-            -v opensurge-phase8-manager:/data \
-            -v opensurge-phase8-run:/run/opensurge \
-            opensurge-for-qnap:dev
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:61780/health/ready >/dev/null; then
-              exit 0
-            fi
-            sleep 1
-          done
-          docker logs opensurge-orchestrator-ci
-          docker logs opensurge-manager-ci
-          exit 1
-      - name: Verify privilege separation
-        run: |
-          test "$(docker inspect -f '{{.HostConfig.NetworkMode}}' opensurge-orchestrator-ci)" = "none"
-          test "$(docker inspect -f '{{.HostConfig.NetworkMode}}' opensurge-manager-ci)" = "host"
-          if docker exec opensurge-manager-ci test -S /var/run/docker.sock; then
-            echo 'LAN-facing manager unexpectedly has Docker socket access' >&2
-            exit 1
-          fi
-          docker exec opensurge-orchestrator-ci test -S /run/opensurge/orchestrator.sock
-      - name: Authenticate and read Web deployment state
-        run: |
-          curl -fsS http://127.0.0.1:61780/api/auth/state | grep -q '"setup_required":true'
-          curl -fsS -c /tmp/opensurge-phase8-cookies \
-            -H 'Content-Type: application/json' \
-            -H 'Origin: http://127.0.0.1:61780' \
-            --data '{"username":"admin","password":"phase-eight-ci-password"}' \
-            http://127.0.0.1:61780/api/auth/setup | grep -q '"authenticated":true'
-          curl -fsS -b /tmp/opensurge-phase8-cookies \
-            http://127.0.0.1:61780/api/v1/deployment/interfaces | grep -q '"interfaces"'
-          curl -fsS -b /tmp/opensurge-phase8-cookies \
-            http://127.0.0.1:61780/api/v1/deployment | grep -q '"configured":false'
-      - name: Cleanup
-        if: always()
-        run: |
-          docker rm -f opensurge-manager-ci opensurge-orchestrator-ci >/dev/null 2>&1 || true
-          docker volume rm opensurge-phase8-run opensurge-phase8-manager >/dev/null 2>&1 || true
+      - name: Profile persistence tests
+        run: go test ./internal/controlapi -run 'TestApplyProfileLeavesStoppedGatewayPendingForNextStart|TestApplyProfileFlowStyleUsesAuthoritativeRenderer' -count=1
+      - name: QNAP container runner tests
+        run: go test ./internal/controlapi -run 'Container|QNAP' -count=1

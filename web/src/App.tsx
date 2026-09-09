@@ -10,8 +10,10 @@ import { ConnectivityPage } from './pages/ConnectivityPage'
 import { DevicesPage } from './pages/DevicesPage'
 import { DiagnosticsPage } from './pages/DiagnosticsPage'
 import { NetworkPage } from './pages/NetworkPage'
+import { QNAPNetworkPage } from './pages/QNAPNetworkPage'
 import { PoliciesPage, type PoliciesViewState } from './pages/PoliciesPage'
 import { SourcesPage } from './pages/SourcesPage'
+import { QNAPSourcesPage } from './pages/QNAPSourcesPage'
 import { needsNetworkRecoveryWarning, statusLabel } from './status'
 import { operationStatusUnknownMessage } from './operations'
 import type { Overview } from './types'
@@ -245,12 +247,16 @@ export function App() {
     </aside>
     <main className="workspace">
       {authenticationRequired ? <section className="session-expired" role="alert"><span aria-hidden="true">!</span><div><h1>{t('Web GUI 与 OpenSurge 的安全连接已过期')}</h1>{qnapBuild ? <p><a href="/auth/">重新登录</a></p> : <p>{t('请点击 macOS 菜单栏中的 OpenSurge 图标，然后选择“打开 OpenSurge 面板”。')}</p>}</div></section> : <>
-        {overview?.recovery.required && needsNetworkRecoveryWarning(overview.recovery.stage) && <RecoveryBanner recovery={overview.recovery.stage} onOpen={() => go('network', 'control')} />}
+        {!qnapBuild && overview?.recovery.required && needsNetworkRecoveryWarning(overview.recovery.stage) && <RecoveryBanner recovery={overview.recovery.stage} onOpen={() => go('network', 'control')} />}
         {error && <div className="error-banner" role="alert"><span>!</span><p>{error}</p><button onClick={() => void refresh()}>{t('重试')}</button></div>}
         <PageErrorBoundary key={page}>
           {page === 'dashboard' && <DashboardPage overview={overview} onOpenNetwork={action => go('network', action === 'cleanup' ? 'control' : action === 'stop' ? 'bottom' : 'none')} />}
-          {page === 'network' && <NetworkPage overview={overview} onChanged={refresh} onNavigate={() => go('devices')} onNotify={notify} />}
-          {page === 'sources' && <SourcesPage overview={overview} onChanged={refresh} onNotify={notify} />}
+          {page === 'network' && (qnapBuild
+            ? <QNAPNetworkPage overview={overview} onChanged={refresh} onNavigate={() => go('devices')} onNotify={notify} />
+            : <NetworkPage overview={overview} onChanged={refresh} onNavigate={() => go('devices')} onNotify={notify} />)}
+          {page === 'sources' && (qnapBuild
+            ? <QNAPSourcesPage overview={overview} onChanged={refresh} onNotify={notify} />
+            : <SourcesPage overview={overview} onChanged={refresh} onNotify={notify} />)}
           {page === 'devices' && <DevicesPage overview={overview} onChanged={refresh} onNavigate={go} onDirtyChange={setDevicesDirty} onNotify={notify} />}
           {page === 'policies' && <PoliciesPage overview={overview} onChanged={refresh} viewState={policiesViewState} onViewStateChange={updatePoliciesViewState} restoreScrollY={policiesScrollPosition.current} onScrollPositionChange={updatePoliciesScrollPosition} />}
           {page === 'connectivity' && <ConnectivityPage overview={overview} onChanged={refresh} />}

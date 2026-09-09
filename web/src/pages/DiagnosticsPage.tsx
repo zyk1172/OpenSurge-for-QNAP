@@ -5,6 +5,7 @@ import type { Diagnostics, DoctorRunStatus, Overview } from '../types'
 import { t } from '../i18n'
 
 const doctorPollIntervalMs = 500
+const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
 
 export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
   const [details, setDetails] = useState<Diagnostics | null>(null)
@@ -62,7 +63,7 @@ export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
   const running = doctorStatus?.state === 'running'
   const checks = doctorStatus?.checks ?? []
   return <>
-    <PageHeader eyebrow="DIAGNOSTICS" title="诊断、连接与 Provider" description="错误保持结构化；日志经过已知凭据脱敏，菜单栏只复制压缩摘要。" />
+    <PageHeader eyebrow="DIAGNOSTICS" title="诊断、连接与 Provider" description={qnapBuild ? '查看 QNAP 容器的数据面、Provider、连接和日志；不会执行任何 QTS 宿主网络修改。' : '错误保持结构化；日志经过已知凭据脱敏，菜单栏只复制压缩摘要。'} />
     <section className="split">
       <div>
         <div className="diagnostic-doctor-head">
@@ -72,9 +73,9 @@ export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
         {doctorError && <div className="notice warn" role="alert">{t('Doctor 状态暂不可用：{{error}}', { error: doctorError })}</div>}
         {doctorStatus?.state === 'failed' && <div className="notice warn" role="alert">{t('Doctor 后台任务失败：{{error}}', { error: doctorStatus.error || t('未知错误') })}</div>}
         {checks.map(check => <div className="check" key={check.name}><span className={check.ok ? 'ok-mark' : 'bad-mark'}>{check.ok ? '✓' : '!'}</span><div><strong>{check.name}</strong><small>{check.message}</small></div></div>)}
-        {!checks.length && !doctorError && doctorStatus?.state !== 'failed' && <div className="empty">{t(running ? '检查在 Control Service 后台执行；离开本页不会启动第二份任务。' : '点击“运行 Doctor”后才会执行完整检查；总览与菜单栏刷新不会触发。')}</div>}
+        {!checks.length && !doctorError && doctorStatus?.state !== 'failed' && <div className="empty">{t(running ? '检查在 Control Service 后台执行；离开本页不会启动第二份任务。' : qnapBuild ? '点击“运行 Doctor”后才会执行完整检查；普通 Web 刷新不会触发。' : '点击“运行 Doctor”后才会执行完整检查；总览与菜单栏刷新不会触发。')}</div>}
       </div>
-      <div><SectionTitle title="Proxy Providers" subtitle="可从这里观察和刷新，不在菜单栏中执行" />{overview?.providers.proxy_providers.map(provider => <div className="row" key={provider.name}><StatusDot status={provider.proxies.some(proxy => proxy.alive) ? 'running' : 'degraded'} /><div className="grow"><strong>{provider.name}</strong><small>{provider.proxy_count} proxies · {provider.vehicle_type}</small></div><button onClick={() => void api.refreshProvider(provider.name)}>{t('刷新')}</button></div>)}</div>
+      <div><SectionTitle title="Proxy Providers" subtitle={qnapBuild ? '从这里观察和刷新 Provider' : '可从这里观察和刷新，不在菜单栏中执行'} />{overview?.providers.proxy_providers.map(provider => <div className="row" key={provider.name}><StatusDot status={provider.proxies.some(proxy => proxy.alive) ? 'running' : 'degraded'} /><div className="grow"><strong>{provider.name}</strong><small>{provider.proxy_count} proxies · {provider.vehicle_type}</small></div><button onClick={() => void api.refreshProvider(provider.name)}>{t('刷新')}</button></div>)}</div>
     </section>
     <section className="section"><SectionTitle title="Live Connections" subtitle={details?.connection_error || `${details?.connections.connections.length ?? 0} active connections`} /><div className="inventory"><span>↑ {details?.connections.upload_total ?? 0} bytes</span><span>↓ {details?.connections.download_total ?? 0} bytes</span>{details?.connections.connections.slice(0, 12).map(connection => <span key={connection.id}>{connection.rule || 'MATCH'} · {(connection.chains ?? []).join(' → ') || connection.id.slice(0, 8)}</span>)}</div></section>
     <section className="section"><SectionTitle title="Recent logs" subtitle="每个进程最多 80 行；API 会遮蔽 mihomo secret 与 upstream credentials" />{Object.entries(details?.logs ?? {}).map(([name, lines]) => <div key={name}><h3>{name}</h3><pre>{lines.join('\n') || 'No log output'}</pre></div>)}</section>
@@ -85,7 +86,7 @@ export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
 function doctorSubtitle(status: DoctorRunStatus | null): string {
   if (!status) return t('正在读取最近一次结果')
   if (status.state === 'idle') return t('完整检查仅在你显式运行时执行，最长可能需要 90 秒')
-  if (status.state === 'running') return t('正在后台执行完整检查，不阻塞总览与菜单栏刷新')
+  if (status.state === 'running') return t('正在后台执行完整检查，不阻塞总览刷新')
   if (!status.current) return t('配置已变化；以下是旧版本结果，请重新运行')
   if (status.state === 'failed') return t('后台任务没有完成')
   return t(status.healthy ? '当前配置的基础检查通过' : '当前配置存在需要处理的问题')
