@@ -9,6 +9,7 @@ import (
 	"open-mihomo-gateway/internal/device"
 	"open-mihomo-gateway/internal/dhcp"
 	"open-mihomo-gateway/internal/mihomo"
+	"open-mihomo-gateway/internal/platform"
 	"open-mihomo-gateway/internal/runtime"
 )
 
@@ -17,6 +18,7 @@ type Status struct {
 	RuntimeState        string `json:"runtime_state,omitempty"`
 	Interface           string `json:"interface"`
 	LANIP               string `json:"lan_ip"`
+	DataPlane           string `json:"data_plane"`
 	DHCP                string `json:"dhcp"`
 	DHCPEnabled         bool   `json:"dhcp_enabled"`
 	Mihomo              string `json:"mihomo"`
@@ -55,13 +57,30 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 	if m.cfg.Transparent.TUNEnabled() {
 		tunStatus = "stopped"
 	}
+	dataPlane := "tun-nft-fwmark"
 	nftStatus := "not_applied"
+	if m.cfg.Gateway.SameLAN() {
+		dataPlane = "tun-iif-route"
+		nftStatus = "not_required"
+	}
 	runtimeState := "none"
 	dnsIPv6 := m.cfg.DNS.IPv6
 	tunIPv6Requested := m.cfg.Transparent.TUNIPv6
 	ipv6Takeover := "unsupported"
 	if exists {
 		dnsIPv6 = state.DNSIPv6
+		if state.NetworkSnapshot != nil && state.NetworkSnapshot.Routing != nil {
+			mode := state.NetworkSnapshot.Routing.RuleMode
+			if mode == "" {
+				mode = platform.RoutingRuleFWMark
+			}
+			if mode == platform.RoutingRuleIngressInterface {
+				dataPlane = "tun-iif-route"
+				nftStatus = "not_required"
+			} else {
+				dataPlane = "tun-nft-fwmark"
+			}
+		}
 		bootSession, bootErr := runtime.CurrentBootSession()
 		if bootErr != nil {
 			return Status{}, fmt.Errorf("determine current boot session: %w", bootErr)
@@ -113,7 +132,7 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 			} else {
 				gatewayStatus = "degraded"
 			}
-			if state.NATApplied {
+			if dataPlane != "tun-iif-route" && state.NATApplied {
 				nftStatus = "applied"
 				if backend, err := m.backend(); err == nil {
 					if observed, err := backend.ObservedState(ctx); err == nil {
@@ -147,6 +166,7 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 		RuntimeState:        runtimeState,
 		Interface:           m.cfg.Gateway.Interface,
 		LANIP:               m.cfg.Gateway.LANIP,
+		DataPlane:           dataPlane,
 		DHCP:                dhcpStatus,
 		DHCPEnabled:         m.cfg.DHCP.Enabled,
 		Mihomo:              mihomoStatus,
@@ -210,6 +230,7 @@ func (s Status) Format() string {
 		fmt.Sprintf("Runtime state: %s", s.RuntimeState),
 		fmt.Sprintf("Interface: %s", s.Interface),
 		fmt.Sprintf("LAN IP: %s", s.LANIP),
+		fmt.Sprintf("Data plane: %s", s.DataPlane),
 		fmt.Sprintf("%s: %s", dnsmasqLabel, s.DHCP),
 		fmt.Sprintf("mihomo: %s", s.Mihomo),
 		fmt.Sprintf("TUN: %s", tunLabel),
