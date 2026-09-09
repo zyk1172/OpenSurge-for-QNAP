@@ -109,13 +109,25 @@ func (b *Backend) RemovePolicyRouting(ctx context.Context) error {
 }
 
 func (b *Backend) SwitchToDirectFallback(ctx context.Context, cfg platform.RoutingConfig) error {
-	if b.active == nil || strings.TrimSpace(b.active.nat.TableName) == "" {
+	if b.active == nil {
 		return platform.NewError(platform.CodeInvalidArgument,
-			"direct fallback requires the persisted/applied NAT recipe")
+			"direct fallback requires an applied OpenSurge routing recipe")
 	}
 	cfg.DirectFallback = true
 	if err := b.applyPolicyRouting(ctx, cfg); err != nil {
 		return err
+	}
+	b.active.routing = cfg
+
+	// Same-LAN iif mode preserves the client's source address and sends packets
+	// directly back to the real router on the same L2 segment. It needs no
+	// masquerade and therefore remains usable on QNAP kernels without nf_tables.
+	if effectiveRuleMode(cfg) == platform.RoutingRuleIngressInterface {
+		return nil
+	}
+	if strings.TrimSpace(b.active.nat.TableName) == "" {
+		return platform.NewError(platform.CodeInvalidArgument,
+			"fwmark direct fallback requires the persisted/applied NAT recipe")
 	}
 	nat := b.active.nat
 	nat.Masquerade = true
@@ -123,7 +135,6 @@ func (b *Backend) SwitchToDirectFallback(ctx context.Context, cfg platform.Routi
 	if err := b.applyNAT(ctx, nat); err != nil {
 		return err
 	}
-	b.active.routing = cfg
 	b.active.nat = nat
 	return nil
 }

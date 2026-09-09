@@ -1,0 +1,36 @@
+name: Phase 11 QNAP TUN iif CI
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'internal/gateway/**'
+      - 'internal/platform/**'
+      - 'internal/runtime/**'
+      - '.github/workflows/phase11-qnap-iif.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qnap-iif-routing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Require built-in iproute2
+        run: |
+          command -v ip
+          ip -Version
+      - name: Compile Linux network integration tests
+        run: go test -c -o /tmp/opensurge-linux-network.test ./internal/platform/linux
+      - name: Verify TCP and UDP ingress-interface routing without nftables
+        run: |
+          sudo env OPEN_SURGE_NETWORK_TESTS=1 \
+            /tmp/opensurge-linux-network.test \
+            -test.v \
+            -test.run '^TestNetworkIngressInterfaceRoutesTCPAndUDPToTUN$'

@@ -67,16 +67,30 @@ type NetworkConfig struct {
 	SkipOwnershipCheck bool   `json:"-"`
 }
 
+type RoutingRuleMode string
+
+const (
+	// RoutingRuleFWMark is the historical Linux data plane: nftables marks
+	// forwarded LAN traffic, then an ip rule sends that mark to OpenSurge's
+	// dedicated routing table.
+	RoutingRuleFWMark RoutingRuleMode = "fwmark"
+	// RoutingRuleIngressInterface is the QNAP same-LAN data plane. Packets that
+	// entered through the dedicated QNET interface are selected directly by
+	// `ip rule iif`, so nf_tables is not required.
+	RoutingRuleIngressInterface RoutingRuleMode = "iif"
+)
+
 type RoutingConfig struct {
-	LANInterface      string `json:"lan_interface"`
-	UpstreamInterface string `json:"upstream_interface,omitempty"`
-	LANCIDR           string `json:"lan_cidr"`
-	TUNDevice         string `json:"tun_device"`
-	UpstreamGateway   string `json:"upstream_gateway,omitempty"`
-	TableID           uint32 `json:"table_id"`
-	RulePriority      uint32 `json:"rule_priority"`
-	FwMark            uint32 `json:"fw_mark"`
-	DirectFallback    bool   `json:"direct_fallback"`
+	LANInterface      string          `json:"lan_interface"`
+	UpstreamInterface string          `json:"upstream_interface,omitempty"`
+	LANCIDR           string          `json:"lan_cidr"`
+	TUNDevice         string          `json:"tun_device"`
+	UpstreamGateway   string          `json:"upstream_gateway,omitempty"`
+	TableID           uint32          `json:"table_id"`
+	RulePriority      uint32          `json:"rule_priority"`
+	FwMark            uint32          `json:"fw_mark,omitempty"`
+	RuleMode          RoutingRuleMode `json:"rule_mode,omitempty"`
+	DirectFallback    bool            `json:"direct_fallback"`
 }
 
 type NATConfig struct {
@@ -127,18 +141,18 @@ type ObservedState struct {
 // recipe. NetworkNamespace prevents an isolated container restart from replaying
 // cleanup into a newly created namespace where the old rules no longer exist.
 type NetworkSnapshot struct {
-	SchemaVersion   int               `json:"schema_version"`
-	Backend         BackendName       `json:"backend"`
-	CapturedAt      time.Time         `json:"captured_at"`
-	NetworkNamespace string           `json:"network_namespace,omitempty"`
-	IPv4Forwarding  string            `json:"ipv4_forwarding,omitempty"`
-	RPFilter        map[string]string `json:"rp_filter,omitempty"`
-	NFTablesTable   string            `json:"nftables_table,omitempty"`
-	Rules           []string          `json:"rules,omitempty"`
-	Routes          []string          `json:"routes,omitempty"`
-	Routing         *RoutingConfig    `json:"routing,omitempty"`
-	NAT             *NATConfig        `json:"nat,omitempty"`
-	Applied         AppliedSteps      `json:"applied"`
+	SchemaVersion    int               `json:"schema_version"`
+	Backend          BackendName       `json:"backend"`
+	CapturedAt       time.Time         `json:"captured_at"`
+	NetworkNamespace string            `json:"network_namespace,omitempty"`
+	IPv4Forwarding   string            `json:"ipv4_forwarding,omitempty"`
+	RPFilter         map[string]string `json:"rp_filter,omitempty"`
+	NFTablesTable    string            `json:"nftables_table,omitempty"`
+	Rules            []string          `json:"rules,omitempty"`
+	Routes           []string          `json:"routes,omitempty"`
+	Routing          *RoutingConfig    `json:"routing,omitempty"`
+	NAT              *NATConfig        `json:"nat,omitempty"`
+	Applied          AppliedSteps      `json:"applied"`
 }
 
 type AppliedSteps struct {

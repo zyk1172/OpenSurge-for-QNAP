@@ -121,8 +121,16 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Install network lab tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq nftables iproute2 iputils-ping dnsmasq dnsutils
+      - name: Install network lab tools from Ubuntu archive
+        run: |
+          sudo apt-get \
+            -o Dir::Etc::sourcelist="sources.list.d/ubuntu.sources" \
+            -o Dir::Etc::sourceparts="-" \
+            update -qq
+          sudo apt-get \
+            -o Dir::Etc::sourcelist="sources.list.d/ubuntu.sources" \
+            -o Dir::Etc::sourceparts="-" \
+            install -y -qq nftables iproute2 iputils-ping dnsmasq dnsutils
       - name: Compile integration test binaries before entering namespaces
         run: |
           go test -c -o /tmp/opensurge-linux-network.test ./internal/platform/linux

@@ -273,9 +273,15 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 		}
 	}
 
-	// Build the complete cleanup recipe before the first host mutation. TUN has a
-	// configured deterministic name, so it can be persisted before mihomo creates
-	// the interface.
+	// Same-LAN QNET traffic enters and exits on the same container interface, so
+	// it can be selected safely with `ip rule iif` and does not need nftables or
+	// source NAT. Isolated-LAN keeps the historical nftables/fwmark data plane.
+	useIngressRouting := m.cfg.Gateway.SameLAN()
+	ruleMode := platform.RoutingRuleFWMark
+	if useIngressRouting {
+		ruleMode = platform.RoutingRuleIngressInterface
+	}
+
 	natConfig := platform.NATConfig{
 		LANInterface:      m.cfg.Gateway.Interface,
 		UpstreamInterface: m.cfg.Gateway.UpstreamInterface,
@@ -294,14 +300,20 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 		TableID:           m.cfg.Transparent.RouteTableID,
 		RulePriority:      m.cfg.Transparent.RouteRulePriority,
 		FwMark:            m.cfg.Transparent.FwMark,
+		RuleMode:          ruleMode,
+	}
+	if useIngressRouting {
+		routingConfig.FwMark = 0
 	}
 
 	snapshot, err := backend.Snapshot(ctx)
 	if err != nil {
 		return err
 	}
-	snapshot.NFTablesTable = natConfig.TableName
-	snapshot.NAT = &natConfig
+	if !useIngressRouting {
+		snapshot.NFTablesTable = natConfig.TableName
+		snapshot.NAT = &natConfig
+	}
 	snapshot.Routing = &routingConfig
 
 	state := runtime.State{
@@ -375,22 +387,26 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
 	}
 	state.TUNDevice = tunDevice.Name
-	natConfig.TUNDevice = tunDevice.Name
 	routingConfig.TUNDevice = tunDevice.Name
-	state.NetworkSnapshot.NAT = &natConfig
+	if !useIngressRouting {
+		natConfig.TUNDevice = tunDevice.Name
+		state.NetworkSnapshot.NAT = &natConfig
+	}
 	state.NetworkSnapshot.Routing = &routingConfig
 	if err := deps.saveState(m.paths.StateFile, state); err != nil {
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
 	}
 
-	ReportProgress(ctx, "applying_firewall")
-	if err := backend.SetupNAT(ctx, natConfig); err != nil {
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
-	}
-	state.NATApplied = true
-	state.NetworkSnapshot.Applied.NAT = true
-	if err := deps.saveState(m.paths.StateFile, state); err != nil {
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+	if !useIngressRouting {
+		ReportProgress(ctx, "applying_firewall")
+		if err := backend.SetupNAT(ctx, natConfig); err != nil {
+			return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		}
+		state.NATApplied = true
+		state.NetworkSnapshot.Applied.NAT = true
+		if err := deps.saveState(m.paths.StateFile, state); err != nil {
+			return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		}
 	}
 
 	ReportProgress(ctx, "applying_routes")
@@ -411,8 +427,13 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 		fmt.Printf("dnsmasq started with pid %d\n", pid)
 	}
 	m.warmManagedTailscale(ctx, deps)
-	fmt.Printf("TUN %s active; nftables table %s and routing table %d applied\n",
-		tunDevice.Name, natConfig.TableName, routingConfig.TableID)
+	if useIngressRouting {
+		fmt.Printf("TUN %s active; ingress-interface routing table %d applied; nftables not required for same-LAN mode\n",
+			tunDevice.Name, routingConfig.TableID)
+	} else {
+		fmt.Printf("TUN %s active; nftables table %s and routing table %d applied\n",
+			tunDevice.Name, natConfig.TableName, routingConfig.TableID)
+	}
 	return nil
 }
 
@@ -747,6 +768,7 @@ func (m Manager) preflightWithOwnership(ctx context.Context, backend platform.Ne
 	if err != nil {
 		return err
 	}
+	sameLAN := m.cfg.Gateway.SameLAN()
 	// Real platform backends return a non-nil Missing map. Test doubles may omit
 	// it; in that case capability gating is intentionally left to the test.
 	if caps.Missing != nil {
@@ -759,8 +781,8 @@ func (m Manager) preflightWithOwnership(ctx context.Context, backend platform.Ne
 		if !caps.TUNDeviceNode {
 			return platform.NewError(platform.CodeTUNUnavailable, "/dev/net/tun is required")
 		}
-		if !caps.NFTables || !caps.NFTablesJSON {
-			return platform.NewError(platform.CodeNFTablesUnavailable, "nftables with JSON output is required")
+		if !sameLAN && (!caps.NFTables || !caps.NFTablesJSON) {
+			return platform.NewError(platform.CodeNFTablesUnavailable, "nftables with JSON output is required for isolated-LAN mode")
 		}
 		if !caps.IProute2 {
 			return platform.NewError(platform.CodeIPRoute2Unavailable, "iproute2 is required")
@@ -771,7 +793,7 @@ func (m Manager) preflightWithOwnership(ctx context.Context, backend platform.Ne
 	}
 
 	sameInterface := strings.TrimSpace(m.cfg.Gateway.Interface) == strings.TrimSpace(m.cfg.Gateway.UpstreamInterface)
-	if m.cfg.Gateway.SameLAN() {
+	if sameLAN {
 		if !sameInterface {
 			return fmt.Errorf("gateway.mode %s requires gateway and upstream interfaces to match", m.cfg.Gateway.Mode)
 		}
@@ -791,7 +813,7 @@ func (m Manager) preflightWithOwnership(ctx context.Context, backend platform.Ne
 		FwMark:             m.cfg.Transparent.FwMark,
 		RouteTableID:       m.cfg.Transparent.RouteTableID,
 		RouteRulePriority:  m.cfg.Transparent.RouteRulePriority,
-		SameLAN:            m.cfg.Gateway.SameLAN(),
+		SameLAN:            sameLAN,
 		SkipOwnershipCheck: !checkOwnership,
 	}
 	if err := backend.ValidateTopology(ctx, topology); err != nil {
