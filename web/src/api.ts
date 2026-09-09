@@ -9,6 +9,27 @@ export class RequestError extends Error {
 
 export const authenticationRequiredEvent = 'opensurge:authentication-required'
 
+let operationIDCounter = 0
+
+// crypto.randomUUID() is restricted to secure browser contexts in some engines.
+// QNAP is commonly administered over plain LAN HTTP, so operation correlation
+// must not depend on that API being available. These IDs are request correlation
+// keys, not authentication secrets.
+export function createOperationID(): string {
+  const cryptoAPI = globalThis.crypto
+  if (cryptoAPI && typeof cryptoAPI.randomUUID === 'function') return cryptoAPI.randomUUID()
+
+  if (cryptoAPI && typeof cryptoAPI.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16)
+    cryptoAPI.getRandomValues(bytes)
+    return `op-${Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')}`
+  }
+
+  operationIDCounter += 1
+  const randomPart = Math.random().toString(36).slice(2, 14)
+  return `op-${Date.now().toString(36)}-${operationIDCounter.toString(36)}-${randomPart}`
+}
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     credentials: 'same-origin',
@@ -106,7 +127,7 @@ class OperationStatusUnknownError extends Error {
 // Tracking starts before the mutation is acknowledged. The same observer is
 // shared by the page awaiting completion and the global, navigation-safe card.
 async function trackedRequest<T>(kind: string, path: string, init: RequestInit, asynchronous = false): Promise<T> {
-  const id = crypto.randomUUID()
+  const id = createOperationID()
   const now = new Date().toISOString()
   recordOperation({ id, kind, state: 'running', phase: 'submitting', created_at: now, updated_at: now, phase_started_at: now })
   const response = request<T>(path, { ...init, headers: { ...init.headers, [asynchronous ? 'Idempotency-Key' : 'X-OpenSurge-Operation-ID']: id } })

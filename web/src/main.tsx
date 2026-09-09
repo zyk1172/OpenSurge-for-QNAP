@@ -4,6 +4,9 @@ import { App } from './App'
 import { activateLanguage, initialRequestedLanguage, prepareLanguage } from './i18n'
 import './styles.css'
 
+const productTarget = (import.meta.env.VITE_OPENSURGE_TARGET ?? 'mac').trim().toLowerCase()
+document.title = productTarget === 'qnap' ? 'OpenSurge for QNAP' : 'OpenSurge for Mac'
+
 async function start() {
   const language = initialRequestedLanguage()
   await prepareLanguage(language)
