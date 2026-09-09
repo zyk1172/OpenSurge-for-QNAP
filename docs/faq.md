@@ -1,145 +1,165 @@
-# OpenSurge for Mac FAQ
+# OpenSurge for QNAP FAQ
 
-This page records common v0.1.26 questions about reboot recovery, automatic
-Mihomo recovery, lid-closed operation, local-Mac connectivity, TUN startup,
-device identity, and per-device egress. Follow the
-[OpenSurge for Mac App User Guide](app-user-guide.md) for the complete install
-and DHCP recovery workflow.
+See the [OpenSurge for QNAP User Guide](app-user-guide.md) and [QNAP Docker deployment guide](../deploy/qnap/README.md) for the complete workflow.
 
-## Why does OpenSurge require cleanup after macOS reboots?
+## Why does the QNAP edition use one container?
 
-OpenSurge does not treat a runtime state file left by the previous boot as an
-automatically restored gateway. A reboot terminates dnsmasq and mihomo and
-resets that run's PF/forwarding state; the recorded PIDs may also have been
-reused by unrelated processes. On the dashboard or in **Network Settings**,
-select **Safely Clear Old State**. OpenSurge recognizes the interrupted runtime,
-does not signal the old PIDs, and does not change PF or forwarding owned by the
-current boot. Follow the page to restore the network or start the complete
-gateway again after cleanup. Do not use **Restart Mihomo only** in this state,
-because DHCP/DNS, PF, and forwarding were not restored with it.
+The current default architecture keeps the Web UI, Control API, mihomo, dnsmasq, TUN, and policy routing in one `opensurge` container.
 
-## Why did Mihomo refuse connections after the Mac woke up?
+QNET, static IP, and the parent interface must be chosen when the container is created, so the default architecture no longer needs Manager/Orchestrator sidecars or a Docker socket exposed to the Web UI.
 
-A `connection refused` error from `127.0.0.1:9090` means the local Mihomo
-controller was not listening; it is not an ordinary proxy-node timeout. When
-the current-boot gateway runtime is still valid, v0.1.26 automatically makes
-one Mihomo-only recovery attempt. It validates the applied configuration,
-archives the old log, and restarts Mihomo without stopping DHCP/DNS, unloading
-PF, or changing IPv4 forwarding. A missing process triggers immediately; a
-refused controller must be observed twice to avoid reacting to a brief flap.
+## Why do I see eth0 inside the container when QNAP uses br0 / eth1?
 
-No manual card appears while the runtime is healthy, being observed, or being
-recovered. **Restart Mihomo** appears on Connectivity only if the automatic
-attempt does not restore health. An interrupted runtime from a previous boot
-still requires **Safely Clear Old State** and a complete gateway restart.
+That is expected.
 
-## How can OpenSurge keep running while the MacBook lid is closed?
+- `br0`, `eth1`, etc. are QNAP host-side QNET parent interfaces.
+- `eth0` is the interface inside the container network namespace.
 
-Enable **合盖保持运行** (Keep Running with Lid Closed) in the menu bar panel or
-Web GUI sidebar. It temporarily disables system sleep, including idle and
-lid-close sleep, independently of gateway state. The switch is off by default
-and is not persisted. Quitting OpenSurge, losing the Control Service, or
-rebooting the Mac releases OpenSurge's temporary ownership.
+They do not need to have the same name.
 
-Plain `caffeinate` does not override lid-close sleep, so OpenSurge uses the
-system-wide `pmset disablesleep` setting behind a live Helper lease and a
-persistent ownership marker. It refuses to take ownership if another tool has
-already disabled sleep. Lid-closed operation can significantly increase heat
-and battery drain; never place a running Mac in an unventilated bag.
+## Why can’t the Web UI change the QNET parent or static IP?
 
-## Downstream devices work, but the Mac itself has no network access
+Those are Docker/QNET creation parameters rather than OpenSurge runtime settings.
 
-If downstream DHCP, DNS, and transparent proxying work while the Mac has DNS or
-connectivity failures, check for SafeDNS, DNS Proxy, content filtering, or
-another Network Extension. Such software can disrupt only the Mac-local TUN DNS
-path, so downstream success does not prove that local traffic is healthy.
+To change them:
 
-After safely stopping the gateway and completing any required DHCP recovery,
-open **Network Settings → Desired Network Configuration**, keep **mihomo TUN**
-enabled, turn on **Mac local system-proxy coordination**, and save. On the next
-start, OpenSurge points the current upstream network service's HTTP and HTTPS
-proxy settings at the local mihomo mixed-port. Stop, startup rollback, or a
-failed mihomo restart restores the pre-start settings.
+1. stop the Gateway;
+2. preserve `/data`;
+3. change the Compose creation parameters;
+4. recreate the `opensurge` container.
 
-This option is off by default. It affects only Mac applications that honor
-system proxy settings, does not replace TUN, and does not change downstream
-devices. OpenSurge refuses to start if HTTP/HTTPS proxying, PAC, or proxy
-auto-discovery is already enabled, rather than overwriting an existing setup.
-Identify the owner of those settings before changing them.
+The Web UI manages only runtime settings that can be safely persisted as OpenSurge configuration.
 
-## TUN startup reports a conflict
+## Does missing nftables mean transparent proxying cannot work?
 
-During a real start, OpenSurge waits for mihomo to report TUN ready. If readiness
-fails, it stops the attempted start, rolls back gateway state it owns, and tries
-to include the conflicting route's interface or gateway in the error. A common
-cause is another VPN, proxy, or Network Extension whose `utun` already owns the
-default route.
+Not necessarily.
 
-Use the reported evidence to stop the conflicting global TUN or VPN, then retry.
-Do not delete an interface merely because a `utun` exists, and do not run two
-TUNs that both require the public default route. If the failure remains, collect
-the current status, routes, and mihomo log from **Diagnostics**.
+The supported same-LAN QNAP backend can use ingress-interface policy routing when TUN, `NET_ADMIN`, and Linux policy routing are available:
 
-## Why is a device MAC unavailable, and what happens when switching to DHCP?
+```text
+ip rule iif <LAN interface>
+→ OpenSurge dedicated table
+→ tun0
+→ mihomo
+```
 
-In same-LAN manual-gateway mode, OpenSurge supplements current traffic with the
-macOS neighbor table on a best-effort basis. A device that has not communicated
-with the Mac, an expired neighbor entry, client isolation, Proxy ARP, or
-centralized forwarding can leave only an IPv4 observation. This is not by itself
-proof of a macOS or OpenSurge regression.
+So same-LAN mode does not require `nf_tables`.
 
-Manual-gateway mode permits registration by fixed IPv4 alone, with MAC as
-optional identity metadata. The main router must keep that IPv4 stable and must
-not assign it to another device. When switching to DHCP takeover:
+Isolated downstream topologies that require NAT may still require the nftables/fwmark backend.
 
-- If every registration already has a MAC, the switch proceeds without a
-  migration dialog.
-- If a unique current MAC is available for an IP-only device, the dialog shows
-  it for confirmation before saving and switching.
-- If a MAC remains unavailable, the dialog explains that the affected policies
-  will pause in DHCP mode. You can inspect devices, switch while pausing those
-  policies, or cancel.
+## What if `/dev/net/tun` is missing?
 
-Device records, Profiles, and rules are preserved. DHCP mode does not guess
-identity from the old IPv4. Once the real MAC is known, open
-**Devices → Register a device**, use the original fixed IPv4 to add that MAC,
-save, and reload. Never invent a MAC address.
+First distinguish between a missing host TUN driver and a missing container device mapping.
 
-## How do I give each device an independent egress?
+Host checks:
 
-1. While the gateway is stopped and configuration is editable, open
-   **Network Settings → Desired Network Configuration**, enable
-   **Per-device policies**, and save.
-2. Open **Devices → Register a device** and select a DHCP lease or currently
-   observed device, or enter it manually.
-3. Set **Device routing mode** to **Independent device egress** and choose the
-   permitted egress candidates.
-4. Save the device configuration and start or reload the gateway so its selector
-   and rules become applied.
-5. After application, use that device's egress selector on the Devices page to
-   switch candidates. Selector changes normally affect new connections
-   immediately and do not require changing the local-Mac routing mode.
+```sh
+ls -l /dev/net/tun
+grep -w tun /proc/misc
+```
 
-**Follow gateway rules** continues to use the imported or managed global rules.
-**Independent device egress** prioritizes the device's own public egress while
-keeping LAN and private destinations direct. The local Mac's
-**Rule / Fixed egress / Direct** control does not change downstream policies.
+If host TUN works, Compose still needs:
 
-## How do I let one device bypass the OpenSurge gateway?
+```yaml
+devices:
+  - /dev/net/tun:/dev/net/tun
+```
 
-This option is available only in **Same-LAN DHCP takeover**. Confirm the
-main-router gateway and DNS under **Network Settings**, then open
-**Devices → Device egress**, change that device's routing mode to **IPv4 direct
-via main router**, save, and reload. OpenSurge still reserves and assigns the
-fixed IPv4, while DHCP sends that MAC the main router as its Router and DNS.
+plus `NET_ADMIN` / `NET_RAW`.
 
-Reconnect the device after applying so the new IPv4 Router and DNS take effect.
-Its IPv4 proxying, ordinary device rules, and OpenSurge traffic accounting are
-paused; its Profile and rules return after switching back and renewing the
-lease.
+If the host kernel itself has no TUN support, the Docker image cannot add a missing host-kernel capability.
 
-When downstream IPv6 is enabled, OpenSurge blocks IPv6 egress from that device
-on the packet path without disabling IPv6 for other devices. The client may
-still show a SLAAC address or RDNSS; this means **IPv6 egress blocked**, not
-that IPv6 is absent. Disable the main-router RA/DHCPv6 or enforce RA Guard,
-otherwise the client can bypass OpenSurge and use the main router over IPv6.
+## Why can `nft list ruleset` fail while the Gateway still works?
+
+Some QNAP 5.10 kernels do not provide `nf_tables` netlink support. In same-LAN nft-free TUN mode, nftables is not required.
+
+Check:
+
+```sh
+ip rule show
+ip route show table 20241
+```
+
+and the actual TUN, Mihomo, and DNS state instead of treating the `nft` command alone as the Gateway health signal.
+
+## Why doesn’t an imported subscription become active immediately?
+
+Import creates a draft first.
+
+When the Gateway is stopped, choose **Use on next start**. While it is running, choose **Apply and reload**.
+
+The Web UI rereads persisted source state after the backend operation and reports success only after `desired=true` or `applied=true` is confirmed.
+
+## Will “next start” state survive a container restart?
+
+Yes, when persistence is configured correctly. Source state and the selected configuration are stored under `/data`.
+
+Keep the same persistent bind mount when updating or recreating the container.
+
+## Why does saving runtime settings briefly stop the Gateway?
+
+A running network configuration should not be changed only in memory. The current flow is:
+
+```text
+stop Gateway
+→ persist /data/config/opensurge.yaml
+→ reread and verify revision
+→ restart Gateway
+```
+
+This prevents the UI from showing success when the configuration was not actually persisted.
+
+## Why is runtime state marked interrupted after a NAS/container crash?
+
+OpenSurge does not assume that kernel/network objects from the previous container namespace are still valid.
+
+Run **Safe cleanup** first. Cleanup uses persisted snapshots, journals, and ownership data to remove only objects that can be proven to belong to OpenSurge, then a new Gateway can be started.
+
+## Why doesn’t OpenSurge automatically change QTS default routes, DNS, or Virtual Switch?
+
+That is an intentional security boundary.
+
+The Gateway needs network-management capability inside its container, but the LAN Web UI should not also have arbitrary control over the NAS management network. QNET host parameters are fixed at deployment time; runtime control stays inside the OpenSurge data plane.
+
+## Does the NAS need Go, Node.js, or gcc?
+
+No.
+
+Test images are prebuilt by GitHub Actions. The NAS needs Docker/Container Station, QNET, TUN, and the required host-kernel networking capabilities.
+
+## Why not build the image on the NAS?
+
+The normal workflow is:
+
+```text
+GitHub Actions build
+→ download amd64/arm64 tar.gz
+→ verify SHA256
+→ docker load
+→ recreate container
+```
+
+This avoids installing development dependencies and spending substantial CPU time compiling on a NAS.
+
+## How do I upgrade a test image safely?
+
+1. keep a backup tag for the current image;
+2. download and verify the new test archive;
+3. `docker load` it;
+4. preserve the same `/data` and QNET creation parameters;
+5. recreate `opensurge`;
+6. verify Web login, configuration, subscriptions, and admin state;
+7. start the Gateway.
+
+Do not delete `/data` as part of a normal upgrade.
+
+## How should I test the first real client?
+
+Use one device only:
+
+```text
+IPv4 Gateway = OpenSurge IP
+DNS          = OpenSurge IP
+```
+
+Keep main-router DHCP unchanged during initial testing. Validate DNS, DIRECT, PROXY, UDP/QUIC, long-lived connections, and downloads before adding more clients.

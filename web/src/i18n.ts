@@ -2,6 +2,37 @@ export type RequestedLanguage = 'system' | 'zh-Hans' | 'en'
 export type ResolvedLanguage = 'zh-Hans' | 'en'
 
 const languageCacheKey = 'opensurge-ui-language'
+const productTarget = (import.meta.env.VITE_OPENSURGE_TARGET ?? 'mac').trim().toLowerCase()
+
+// Shared Web pages still serve the upstream Mac target as well as QNAP. Keep
+// platform-neutral business components shared, but replace desktop-only copy at
+// the translation boundary so the QNAP bundle never describes its container as
+// a Mac or claims PF/macOS network behavior.
+const qnapSourceOverrides: Record<string, string> = {
+  '本机 Mac': 'OpenSurge 网关',
+  '分别设置当前 Mac 和下游设备如何选择出口；两者互不影响。': '设置 OpenSurge 网关与下游设备的出口和分流规则；两者互不影响。',
+  '当前 Mac 的设备设置': 'OpenSurge 网关本机设置',
+  '尚未登记设备。使用上方“登记新设备”可从当前经过 Mac 的设备开始。': '尚未登记设备。使用上方“登记新设备”可从当前经过 OpenSurge 网关的设备开始。',
+  'OpenSurge 会先验证完整候选配置。验证通过后，DHCP/DNS、mihomo、PF 与 IPv4 forwarding 会短暂重启。': 'OpenSurge 会先验证完整候选配置。验证通过后，DNS、mihomo 与 TUN 数据面会短暂重载。',
+  '继续使用订阅或托管的网关规则；不跟随 Mac 本机的规则 / 全局 / 直连开关。': '继续使用订阅或托管的网关规则；与 OpenSurge 网关本机出口选择相互独立。',
+  '已观察到邻居 MAC {{mac}}，等待该 IPv4 经过 Mac': '已观察到邻居 MAC {{mac}}，等待该 IPv4 经过 OpenSurge 网关',
+  '固定 IPv4 已登记，等待流量经过 Mac': '固定 IPv4 已登记，等待流量经过 OpenSurge 网关',
+  '静态配置身份：等待该 IPv4 经过 Mac': '静态配置身份：等待该 IPv4 经过 OpenSurge 网关',
+  '固定 IPv4 策略：等待该地址经过 Mac': '固定 IPv4 策略：等待该地址经过 OpenSurge 网关',
+  '从当前经过 Mac 的 LAN 流量发现设备，再确认静态身份与路由方式': '从当前经过 OpenSurge 网关的 LAN 流量发现设备，再确认静态身份与路由方式',
+  '当前经过 Mac 的设备': '当前经过 OpenSurge 网关的设备',
+  '经过 Mac': '经过网关',
+  '当前尚未观察到经过 Mac 的 LAN 设备；可以直接按固定 IPv4 手工登记。': '当前尚未观察到经过 OpenSurge 网关的 LAN 设备；可以直接按固定 IPv4 手工登记。',
+  '默认推荐；继续使用订阅或托管的网关规则，不跟随 Mac 本机模式。': '默认推荐；继续使用订阅或托管的网关规则，与网关本机出口选择相互独立。',
+  '通过当前 applied 配置与 Mac 本机运行模式访问真实服务，展示三轮中位延迟、命中规则和实际出口链。': '通过当前 applied 配置从 OpenSurge 网关容器访问真实服务，展示三轮中位延迟、命中规则和实际出口链。',
+  'Mac 本机运行路径': 'OpenSurge 网关路径',
+  '本机浏览器线路': '当前浏览器线路',
+  '这会验证当前 applied 配置并恢复 Mihomo。DHCP/DNS、PF、IPv4 forwarding 和 Mac 网络设置不会改变；现有代理连接会重新建立。继续吗？': '这会验证当前 applied 配置并恢复 Mihomo。DNS、TUN 与容器网络配置不会改变；现有代理连接会重新建立。继续吗？',
+  '连续异常确认后会自动执行一次 Mihomo-only 恢复，不改动 DHCP/DNS、PF 或 IPv4 forwarding。': '连续异常确认后会自动执行一次 Mihomo-only 恢复，不改动 DNS、TUN 策略路由或 QNAP 宿主网络。',
+  '可以手动重试这条 Mihomo-only 恢复路径；不会停止 DHCP/DNS、卸载 PF 或修改 Mac 网络设置，旧 Mihomo 日志会先归档。': '可以手动重试这条 Mihomo-only 恢复路径；不会修改 QNAP 宿主网络或持久化网络配置，旧 Mihomo 日志会先归档。',
+  '证据范围：': '证据范围：',
+  '这里的请求由 Mac 上的 Control Service 经 mihomo mixed-port 发起，会经过当前 Mac 本机规则 / 全局 / 直连模式。它不证明下游设备的网关规则、设备级 SRC-IP、DHCP、DNS 或 TUN；选择全局或直连时，分流判断基线出现差异可能正是当前模式的结果。HTTP 响应表示网络可达，不等同于已登录后的完整产品功能可用。': '这里的请求由 OpenSurge 容器内 Control Service 经 mihomo mixed-port 发起，只证明网关本机的 applied 路径。它不证明下游客户端的实际网关、DNS、设备级 SRC-IP 或应用行为；HTTP 响应表示网络可达，不等同于已登录后的完整产品功能可用。',
+}
 
 const english: Record<string, string> = {
   '语言': 'Language',
@@ -111,7 +142,6 @@ const english: Record<string, string> = {
   // QNAP product surface. Keep these in the eager catalog so the QNAP-only
   // bundle has a complete English fallback before the lazy catalog arrives.
   'QNAP 网关，一眼可见': 'QNAP gateway at a glance',
-  'OpenSurge 在当前 QNAP 容器内管理 mihomo、dnsmasq、TUN 与 nftables。': 'OpenSurge manages mihomo, dnsmasq, TUN, and nftables inside this QNAP container.',
   '上一次网关运行被容器或 NAS 重启中断。': 'The previous gateway run was interrupted by a container or NAS restart.',
   '查看 QNAP 容器的数据面、Provider、连接和日志；不会执行任何 QTS 宿主网络修改。': 'Inspect the QNAP container data plane, providers, connections, and logs. No QTS host-network changes are performed.',
   '点击“运行 Doctor”后才会执行完整检查；普通 Web 刷新不会触发。': 'A full check runs only after you click “Run Doctor”; ordinary Web refreshes do not trigger it.',
@@ -164,7 +194,6 @@ const english: Record<string, string> = {
   '该选择已写入 /data/config，容器或网关重启后仍会保留。': 'This selection was written to /data/config and will survive container or gateway restarts.',
   '订阅应用失败': 'Subscription apply failed',
   '{{name}} 的容器内快照路径已复制。': 'The in-container snapshot path for {{name}} was copied.',
-  '订阅、草稿和 desired/运行版本全部保存在 /data；QNAP 版不提供 Finder 等 macOS 文件操作。': 'Subscriptions, drafts, and desired/running state are stored under /data. The QNAP build does not expose Finder-style macOS file actions.',
   '状态已重新确认': 'State reconfirmed',
   '导入只创建持久化草稿；点击应用后会再次做完整候选配置校验。': 'Import creates a persistent draft only. Applying it runs full candidate validation again.',
   '订阅已保存为草稿。': 'The subscription was saved as a draft.',
@@ -176,10 +205,32 @@ const english: Record<string, string> = {
   '候选配置存在问题': 'Candidate configuration has issues',
   '{{name}} 已刷新为新草稿。': '{{name}} was refreshed into a new draft.',
   '应用订阅并重载 QNAP 网关？': 'Apply the subscription and reload the QNAP gateway?',
-  'OpenSurge 会验证完整 mihomo 候选配置，持久化到 /data，然后重载容器内 dnsmasq、mihomo、TUN 与 nftables 数据面。失败时保留原配置。': 'OpenSurge validates the full mihomo candidate, persists it to /data, then reloads dnsmasq, mihomo, TUN, and nftables inside the container. The previous configuration is kept on failure.',
   '当前网关未运行。确认后会把所选版本写入 /data/config，随后重新读取配置确认 desired 状态；容器重启不会丢失该选择。': 'The gateway is stopped. Confirming writes the selected version to /data/config and rereads it to verify desired state; recreating or restarting the container will not lose the selection.',
   '正在验证并持久化…': 'Validating and persisting…',
   '浏览器未允许复制路径，请手动复制上方容器路径。': 'The browser did not allow copying. Copy the container path above manually.',
+
+  'OpenSurge 网关': 'OpenSurge gateway',
+  '设置 OpenSurge 网关与下游设备的出口和分流规则；两者互不影响。': 'Configure egress and routing rules for the OpenSurge gateway and downstream devices independently.',
+  'OpenSurge 网关本机设置': 'OpenSurge gateway-local settings',
+  '尚未登记设备。使用上方“登记新设备”可从当前经过 OpenSurge 网关的设备开始。': 'No devices are registered yet. Use “Register device” above to start from clients currently passing through the OpenSurge gateway.',
+  'OpenSurge 会先验证完整候选配置。验证通过后，DNS、mihomo 与 TUN 数据面会短暂重载。': 'OpenSurge validates the complete candidate first. After validation, DNS, mihomo, and the TUN data plane briefly reload.',
+  '继续使用订阅或托管的网关规则；与 OpenSurge 网关本机出口选择相互独立。': 'Continue using imported or managed gateway rules independently of the gateway-local egress selection.',
+  '已观察到邻居 MAC {{mac}}，等待该 IPv4 经过 OpenSurge 网关': 'Neighbor MAC {{mac}} observed; waiting for this IPv4 to pass through the OpenSurge gateway',
+  '固定 IPv4 已登记，等待流量经过 OpenSurge 网关': 'Fixed IPv4 registered; waiting for traffic to pass through the OpenSurge gateway',
+  '静态配置身份：等待该 IPv4 经过 OpenSurge 网关': 'Static identity: waiting for this IPv4 to pass through the OpenSurge gateway',
+  '固定 IPv4 策略：等待该地址经过 OpenSurge 网关': 'Fixed-IPv4 policy: waiting for this address to pass through the OpenSurge gateway',
+  '从当前经过 OpenSurge 网关的 LAN 流量发现设备，再确认静态身份与路由方式': 'Discover devices from LAN traffic currently passing through the OpenSurge gateway, then confirm static identity and routing.',
+  '当前经过 OpenSurge 网关的设备': 'Devices currently passing through OpenSurge',
+  '经过网关': 'Through gateway',
+  '当前尚未观察到经过 OpenSurge 网关的 LAN 设备；可以直接按固定 IPv4 手工登记。': 'No LAN device has been observed through OpenSurge yet; you can register one manually by fixed IPv4.',
+  '默认推荐；继续使用订阅或托管的网关规则，与网关本机出口选择相互独立。': 'Recommended. Continue using imported or managed gateway rules independently of the gateway-local egress selection.',
+  '通过当前 applied 配置从 OpenSurge 网关容器访问真实服务，展示三轮中位延迟、命中规则和实际出口链。': 'Probe real services from the OpenSurge gateway container through the currently applied configuration and show three-sample median latency, matched rules, and the actual egress chain.',
+  'OpenSurge 网关路径': 'OpenSurge gateway path',
+  '当前浏览器线路': 'Current browser path',
+  '这会验证当前 applied 配置并恢复 Mihomo。DNS、TUN 与容器网络配置不会改变；现有代理连接会重新建立。继续吗？': 'This validates the currently applied configuration and recovers Mihomo. DNS, TUN, and container network configuration are not changed; existing proxy connections will be re-established. Continue?',
+  '连续异常确认后会自动执行一次 Mihomo-only 恢复，不改动 DNS、TUN 策略路由或 QNAP 宿主网络。': 'After consecutive failures are confirmed, OpenSurge performs one Mihomo-only recovery without changing DNS, TUN policy routing, or QNAP host networking.',
+  '可以手动重试这条 Mihomo-only 恢复路径；不会修改 QNAP 宿主网络或持久化网络配置，旧 Mihomo 日志会先归档。': 'You can manually retry this Mihomo-only recovery path. It does not modify QNAP host networking or persisted network configuration; old Mihomo logs are archived first.',
+  '这里的请求由 OpenSurge 容器内 Control Service 经 mihomo mixed-port 发起，只证明网关本机的 applied 路径。它不证明下游客户端的实际网关、DNS、设备级 SRC-IP 或应用行为；HTTP 响应表示网络可达，不等同于已登录后的完整产品功能可用。': 'These requests originate from the Control Service inside the OpenSurge container through the mihomo mixed port and prove only the gateway-local applied path. They do not prove a downstream client’s actual gateway, DNS, device-level SRC-IP routing, or application behavior. An HTTP response proves reachability, not complete signed-in product functionality.',
 }
 
 let englishCatalogPromise: Promise<void> | undefined
@@ -231,8 +282,13 @@ export function localeIdentifier(): string {
   return activeLanguage === 'zh-Hans' ? 'zh-CN' : 'en-US'
 }
 
+export function copyForTarget(source: string, target: string = productTarget): string {
+  return target === 'qnap' ? qnapSourceOverrides[source] ?? source : source
+}
+
 export function t(source: string, values: Record<string, string | number> = {}): string {
-  const template = activeLanguage === 'en' ? english[source] ?? source : source
+  const productSource = copyForTarget(source)
+  const template = activeLanguage === 'en' ? english[productSource] ?? english[source] ?? productSource : productSource
   return template.replace(/\{\{([A-Za-z0-9_]+)\}\}/g, (_, key: string) => String(values[key] ?? `{{${key}}}`))
 }
 

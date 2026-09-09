@@ -1,83 +1,121 @@
-# Agent Wiki 索引
+# Agent Wiki 索引 — OpenSurge for QNAP
 
-这个 wiki 是 OpenSurge for Mac 面向 agent 的上下文层。它从
-`../sources/` 中整理稳定知识，并指向仓库内仍然作为事实来源的文件。
+这个索引面向在本仓库工作的 coding agent。当前产品事实以 **QNAP/Linux 单容器 Gateway** 为主，不再以 macOS App 作为默认实现模型。
 
-当任务涉及产品方向、网关行为、透明代理或验证门槛时，从这里开始。
+开始任何网关、网络、部署或产品文案任务前，先读：
 
-## 核心上下文
+1. 根目录 `AGENTS.md`；
+2. 根目录 `README.md`；
+3. `deploy/qnap/README.zh-CN.md`；
+4. 当前相关实现和 CI workflow。
 
-- [网关生命周期](concepts/gateway-lifecycle.md)：Mac 如何成为下游 LAN
-  gateway，以及如何停止并恢复。
-- [macOS TUN 透明代理](concepts/macos-tun-transparent-proxy.md)：为什么
-  TUN 是透明代理主线，以及哪些旧旋钮必须保持 inactive。
-- [下游 IPv6 接管](concepts/downstream-ipv6-takeover.md)：独立 LAN、同 LAN DHCP 与
-  选择性旁路由的自动/手工接入、无系统 TUN packet ingress、MAC 设备身份和 TCP/UDP
-  验收边界。
-- [mihomo profile overlay](concepts/mihomo-profile-overlay.md)：如何导入
-  mihomo 代理/规则 section，同时保持 OpenSurge 接管网关字段。
-- [每设备策略覆盖](concepts/device-policy-overlays.md)：如何以 DHCP reservation 和
-  `SRC-IP-CIDR` 在一个 mihomo 进程中实现独立的设备策略。
-- [Mac 本机流量模式](concepts/local-mac-routing-modes.md)：如何用 source-scoped
-  overlay 实现规则 / 全局 / 直连，同时保持下游设备规则不变。
-- [Mac 本机系统代理协同](concepts/local-system-proxy-coordination.md)：默认关闭的
-  TUN HTTP/HTTPS 兼容层、fail-closed 冲突检查和恢复契约。
-- [Tailscale 出站](concepts/tailscale-outbound.md)：托管节点身份、目标范围、
-  subnet route、Exit Node 与 outbound-only 边界。
-- [GUI 控制面](concepts/gui-control-plane.md)：React Web GUI、SwiftUI 菜单栏
-  launcher、本地 API 与恢复状态的职责边界。
-- [合盖运行临时接管](../sources/decisions/lid-closed-sleep-prevention.md)：为什么
-  `caffeinate` 不满足合盖需求，以及 Helper lease、ownership marker 和恢复边界。
-- 许可证边界：OpenSurge 自有代码采用 `GPL-3.0-only`；随 pkg 分发的独立组件保留
-  各自许可证与对应源码链接，见根目录 `LICENSE` 和 `THIRD_PARTY_NOTICES.md`。
-- [验证门槛](concepts/validation-gates.md)：哪些检查能证明哪些结论。
+## 当前核心模型
 
-## 项目形态
+```text
+LAN client
+ Gateway / DNS = OpenSurge IP
+        │
+        ▼
+QNAP QNET
+┌───────────────────────────┐
+│ opensurge                 │
+│ Web + Control API         │
+│ mihomo + dnsmasq          │
+│ TUN + Linux policy route  │
+│ /data persistence         │
+└───────────────────────────┘
+```
 
-OpenSurge for Mac 是一个开源的 Surge for Mac 风格 macOS 网关与控制面。它的
-核心能力是全屋代理：Mac 对下游设备承担网关职责，dnsmasq 按拓扑提供 DHCP/DNS，
-mihomo 提供代理行为，macOS pf/sysctl 提供 IPv4 NAT 和 forwarding。实验性的
-下游 IPv6 通过 dnsmasq RA/SLAAC/RDNSS 或手工 ULA 接入，再由 macOS BPF broker
-与本项目补丁构建的 mihomo 用户态数据面接管。
+默认部署只有一个 `opensurge` 容器。
 
-当前面向操作者的主要控制面是 React Web GUI。SwiftUI 菜单栏 App 显示网关状态、
-恢复提醒并打开 Web GUI；loopback Control API 连接界面与 Go 业务规则，root Helper
-执行固定的特权动作。`omg` CLI 不再代表产品形态，但仍是受支持的运维、诊断、
-自动化和恢复接口。
+### Same-LAN transparent proxy
 
-CLI 契约继续优先保持机器可读：`status`、`doctor`、`leases`、`logs`、
-`policies`、`local-routing`、`devices`、`connections`、`providers`、`provider-update` 和 `snapshot` 支持 JSON
-输出。`logs --tail N --format json` 会返回最近的 dnsmasq/mihomo 日志行，并对每个
-日志文件标出存在状态和读取错误。`snapshot --format json` 聚合 status、doctor、
-leases、日志尾部、策略组、连接和 provider 状态，并把 mihomo API 不可用记录在局部
-字段里，供 GUI 后端与自动化诊断复用。
-`start --format json` 和 `stop --format json` 在动作成功后返回结构化成功 payload；
-失败仍保留非零退出码，并在 `--format json` 时把
-`{"command":"...","ok":false,"error":"..."}` 写到 stderr。
+第一稳定目标是 IPv4 same-LAN manual gateway。
 
-## 事实来源
+支持 QNAP 的优先路径：
 
-- 公开范围与 App/CLI 工作流：`README.md`
-- 示例配置：`examples/config.example.yaml`
-- GUI 控制面：`internal/controlapi/`、`web/`、`apps/menubar/` 和
-  `concepts/gui-control-plane.md`
-- 生命周期代码：`internal/gateway/manager.go`
-- 配置验证：`internal/config/validator.go`
-- mihomo profile 导入：`internal/mihomo/profile.go` 和
-  `docs/agent-wiki/sources/decisions/mihomo-profile-overlay.md`
-- Mac 本机模式：`internal/mihomo/local_routing.go` 和
-  `docs/agent-wiki/sources/decisions/local-mac-routing-modes.md`
-- Mac 本机系统代理：`internal/macosnetwork/system_proxy.go` 和
-  `docs/agent-wiki/sources/decisions/local-system-proxy-coordination.md`
-- 下游 IPv6 接管：`internal/ipv6packet/`、`internal/macosipv6/` 和
-  `docs/agent-wiki/sources/decisions/downstream-ipv6-takeover.md`
-- Virtual LAN lab：`tests/lab/README.md` 和 `tests/lab/lab.sh`
-- 真实设备 smoke：`tests/real-device/README.md` 和
-  `tests/real-device/smoke.sh`
-- 真实设备 smoke 当前进度：
-  `docs/agent-wiki/sources/validation/real-device-smoke.md`
-- same-LAN TUN smoke：`tests/same-lan/README.md`、
-  `tests/same-lan/smoke.sh` 和
-  `docs/agent-wiki/sources/validation/same-lan-tun-smoke.md`
+```text
+client traffic enters eth0
+→ ip rule iif eth0
+→ OpenSurge dedicated table
+→ tun0
+→ mihomo
+```
 
-当这些事实来源的变化会影响未来 agent 判断时，更新这个 wiki。
+该路径不要求 `nf_tables`。部分 QNAP 5.10 内核缺少 nftables netlink，但仍有 TUN 与 Linux policy routing，不能因此直接判定透明代理不可用。
+
+需要 NAT 的 isolated-LAN 仍保留 nftables + fwmark 后端。
+
+## 关键事实来源
+
+### 产品与部署
+
+- 当前产品范围：`README.md`
+- QNAP 部署：`deploy/qnap/README.zh-CN.md`
+- 用户流程：`docs/app-user-guide.zh-CN.md`
+- FAQ：`docs/faq.zh-CN.md`
+- 持久化：`deploy/qnap/PERSISTENCE.md`
+
+### 代码
+
+- Gateway 生命周期：`internal/gateway/`
+- Linux/QNAP 网络后端：`internal/platform/linux/`
+- 配置：`internal/config/`
+- Control API：`internal/controlapi/`
+- Web：`web/`
+- 容器入口：`cmd/opensurge-container/`、`docker/`
+- QNAP Compose：`deploy/qnap/docker-compose.yml`
+
+### 验证
+
+- 通用 CI：`.github/workflows/ci.yml`
+- Linux/QNAP Docker gate：`.github/workflows/phase2-docker.yml`
+- QNAP single-container gate：当前 QNAP single-container workflow
+- nft-free TUN iif gate：`.github/workflows/phase11-qnap-iif.yml`
+- 测试镜像发布：`.github/workflows/publish-qnap-test-image.yml`
+
+网络结论必须区分：
+
+- 单元测试通过；
+- namespace/integration test 通过；
+- NAS-side 真机通过；
+- physical client 通过；
+- reboot / soak 通过。
+
+不能把其中一层替代另一层。
+
+## 当前重要决策
+
+- QNAP 默认单容器，不回到 Manager/Orchestrator 双容器。
+- QNET 父接口和静态 IP 是容器创建参数，不由运行中的 Web 修改。
+- `/data` 是完整持久化边界。
+- Mihomo `auto-route` 在受管 Linux/QNAP 路径保持关闭，OpenSurge 自己管理 policy routing。
+- same-LAN QNAP 可以使用 nft-free `ip rule iif` 数据面。
+- isolated-LAN 的 nftables backend 继续 fail closed。
+- Stop/rollback/recovery 必须按 ownership 精确清理。
+- LAN-facing Web 不获得 Docker Socket。
+- 正常 QNAP 部署不要求 NAS 安装 Go/Node/gcc，也不在 NAS 本地构建镜像。
+
+## Web 产品边界
+
+QNAP build 不应向用户显示：
+
+- Finder；
+- macOS 菜单栏；
+- 合盖保持运行；
+- PF Anchor；
+- LaunchAgent / launchd；
+- PKG / Gatekeeper；
+- Mac 本机 Wi-Fi/DHCP 恢复流程；
+- `OpenSurge for Mac` 产品身份；
+- 上游 codename 作为 QNAP 版本名。
+
+共享代码可以继续保留 Mac target，但必须通过 build target 隔离。
+
+## 上游 / 历史资料
+
+`docs/UPSTREAM.md`、`NOTICE.md`、`THIRD_PARTY_NOTICES.md` 是来源与许可证事实。
+
+仓库中明确带有 `macos`、`local-mac`、`lid-closed` 等名称的历史决策或兼容代码，可以作为上游背景资料，但 **不能优先于当前 QNAP README、AGENTS 和实际代码作为产品事实来源**。
+
+如果未来需要重新整理这些历史资料，优先移动到清晰的 upstream/archive 区域，不要删除必须保留的许可证和 attribution。

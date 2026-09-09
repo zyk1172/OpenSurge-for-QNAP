@@ -121,7 +121,7 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
   }
 
   return <>
-    <PageHeader eyebrow="QNAP SOURCES" title="代理与规则源" description="订阅、草稿和 desired/运行版本全部保存在 /data；QNAP 版不提供 Finder 等 macOS 文件操作。" />
+    <PageHeader eyebrow="QNAP SOURCES" title="代理与规则源" description="状态来自重新读取后的持久化配置，不把一次 HTTP 200 当成已经保存。" />
     {error && <div className="notice warn" role="alert"><strong>{t('操作未完成')}</strong><p>{error}</p></div>}
     {message && <div className="ok-notice" role="status"><strong>{t('状态已重新确认')}</strong><p>{message}</p></div>}
 
@@ -194,7 +194,7 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
     {pending && <dialog className="reload-dialog" open aria-modal="true" aria-labelledby="qnap-source-apply-title">
       <h2 id="qnap-source-apply-title">{t(running ? '应用订阅并重载 QNAP 网关？' : '设为下次启动版本？')}</h2>
       <p>{t(running
-        ? 'OpenSurge 会验证完整 mihomo 候选配置，持久化到 /data，然后重载容器内 dnsmasq、mihomo、TUN 与 nftables 数据面。失败时保留原配置。'
+        ? '导入只创建持久化草稿；点击应用后会再次做完整候选配置校验。'
         : '当前网关未运行。确认后会把所选版本写入 /data/config，随后重新读取配置确认 desired 状态；容器重启不会丢失该选择。')}</p>
       <div className="dialog-actions"><button type="button" disabled={busy} onClick={() => setPending(null)}>{t('取消')}</button><button className="primary" type="button" autoFocus disabled={busy} onClick={() => void apply()}>{action === 'apply' ? t('正在验证并持久化…') : t(running ? '确认应用并重载' : '确认设为下次启动版本')}</button></div>
     </dialog>}

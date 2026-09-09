@@ -1,8 +1,8 @@
 # OpenSurge for QNAP — 单容器 Docker 部署
 
-> QNAP 版默认只运行 **一个 `opensurge` 容器**。物理网卡 / Virtual Switch、QNET、静态 IPv4、LAN CIDR、主路由和持久化目录在创建容器时确定；运行后 Web 不再尝试修改 QNAP 宿主网络。
+QNAP 默认部署只运行一个 `opensurge` 容器。物理网卡 / Virtual Switch、QNET、静态 IPv4、LAN CIDR、上游路由和持久化目录在创建容器时确定；运行后的 Web 负责 OpenSurge 自身配置，不修改 QTS 宿主网络。
 
-当前稳定化范围是 **IPv4 Same-LAN Manual Gateway（旁路由）**。主路由 DHCP 保持原状，只让需要经过 OpenSurge 的客户端把 IPv4 网关和 DNS 指向 OpenSurge。
+当前稳定化范围是 **IPv4 Same-LAN Manual Gateway（旁路由）**：主路由 DHCP 保持原状，只让需要经过 OpenSurge 的客户端把 IPv4 网关和 DNS 指向 OpenSurge。
 
 ## 1. 架构
 
@@ -17,7 +17,7 @@ QNAP 物理网卡 / Virtual Switch
 │ Web :8080                     │
 │ Control API :61767 loopback   │
 │ mihomo + dnsmasq              │
-│ TUN + nftables                │
+│ TUN + policy routing          │
 │ /data 持久化                  │
 └───────────────────────────────┘
           │
@@ -25,29 +25,46 @@ QNAP 物理网卡 / Virtual Switch
 局域网客户端把 Gateway/DNS 指向 OpenSurge IP
 ```
 
-没有：
+默认部署没有：
 
-- `opensurge-manager`
-- `opensurge-orchestrator`
-- Docker Socket
-- `privileged: true`
-- 运行后修改 QTS / Virtual Switch 的逻辑
+- Manager / Orchestrator 辅助容器；
+- Docker Socket；
+- `privileged: true`；
+- 运行期自动修改 QTS / Virtual Switch 的逻辑。
 
-Gateway 容器只需要：
+Gateway 容器需要：
 
-- `NET_ADMIN`
-- `NET_RAW`
-- `/dev/net/tun`
+- `NET_ADMIN`；
+- `NET_RAW`；
+- `/dev/net/tun`。
+
+### Same-LAN QNAP 的透明代理后端
+
+对当前支持范围，OpenSurge 优先使用：
+
+```text
+eth0 ingress
+   ↓
+ip rule iif eth0
+   ↓
+OpenSurge 专用 routing table
+   ↓
+tun0
+   ↓
+mihomo
+```
+
+这条路径不依赖 nftables，因此适用于部分缺少 `nf_tables` netlink 支持、但 TUN 与 policy routing 正常的 QNAP 内核。
+
+需要 NAT 的隔离下游拓扑仍使用 nftables/fwmark 后端，并保留严格能力检查。
 
 ## 2. 使用预构建测试镜像
 
-NAS 不负责编译 Go、React、dnsmasq 或 mihomo。
+NAS 不负责构建 Go、Web 前端、dnsmasq 或 mihomo。
 
-测试版镜像由 GitHub Actions 构建并发布：
+最新 rolling test release：
 
-```text
-https://github.com/zyk1172/OpenSurge-for-QNAP/releases/tag/qnap-test-latest
-```
+<https://github.com/zyk1172/OpenSurge-for-QNAP/releases/tag/qnap-test-latest>
 
 TS-264C / x86_64 使用：
 
@@ -55,39 +72,37 @@ TS-264C / x86_64 使用：
 OpenSurge-for-QNAP-test-amd64.tar.gz
 ```
 
-加载：
+导入：
 
 ```sh
 gzip -dc OpenSurge-for-QNAP-test-amd64.tar.gz | docker load
 ```
 
-加载后的镜像：
+导入后的镜像标签：
 
 ```text
 opensurge-for-qnap:test
 ```
 
-默认 Compose 使用 `pull_policy: never`，不会让 NAS 在镜像缺失时偷偷改为远程拉取另一个同名镜像。
+默认 Compose 使用 `pull_policy: never`。如果本地测试镜像不存在，应明确报错，而不是静默拉取另一个同名镜像。
 
-## 3. 创建容器前必须确定的参数
-
-这些不是运行期 Web 设置，而是 Docker/QNET 创建参数：
+## 3. 创建容器前确定网络参数
 
 | 参数 | 含义 | 示例 |
 |---|---|---|
-| `OPENSURGE_PARENT_INTERFACE` | QNAP 物理网卡 / Virtual Switch | `eth1` / `br0` |
+| `OPENSURGE_PARENT_INTERFACE` | QNAP QNET 父网卡 / Virtual Switch | `eth1` / `br0` |
 | `OPENSURGE_IP` | OpenSurge 独立 IPv4 | `192.168.2.241` |
 | `OPENSURGE_SUBNET` | 当前 LAN CIDR | `192.168.2.0/24` |
-| `OPENSURGE_GATEWAY` | 主路由 IPv4 | `192.168.2.1` |
-| `OPENSURGE_DATA_PATH` | QNAP 持久化目录 | `/share/Container/opensurge` |
+| `OPENSURGE_GATEWAY` | 上游主路由 IPv4 | `192.168.2.1` |
+| `OPENSURGE_DATA_PATH` | 持久化目录 | `/share/Container/opensurge` |
 
 双网卡 NAS 不要根据 `eth0/eth1` 数字猜物理口。应结合 QTS「网络与虚拟交换机」和宿主 `ip addr` / `ip route` 识别实际父接口。
 
-容器内部数据接口通常仍是 `eth0`。这是 Docker/QNET 创建出的容器接口，与 QNAP 宿主父接口名称不同是正常现象。
+容器内部数据接口通常仍是 `eth0`。宿主 QNET 父接口和容器接口名称不同是正常现象。
 
 ## 4. 默认 Compose
 
-正式默认文件：
+使用：
 
 ```text
 deploy/qnap/docker-compose.yml
@@ -99,10 +114,10 @@ deploy/qnap/docker-compose.yml
 opensurge
 ```
 
-运行前由安装程序、Hermes、Container Station 或 shell 环境把上面的创建参数提供给 Compose。例如：
+启动前由安装程序、Codex/Hermes、Container Station 或 shell 环境向 Compose 提供创建参数。例如：
 
 ```sh
-export OPENSURGE_PARENT_INTERFACE=eth1
+export OPENSURGE_PARENT_INTERFACE=br0
 export OPENSURGE_IP=192.168.2.241
 export OPENSURGE_SUBNET=192.168.2.0/24
 export OPENSURGE_GATEWAY=192.168.2.1
@@ -112,85 +127,74 @@ docker compose -f docker-compose.yml config
 docker compose -f docker-compose.yml up -d
 ```
 
-不需要 `.env` 文件；也不要执行 `docker compose build`。
+不需要在 NAS 上执行 `docker compose build`。
 
-## 5. 第一次启动
+## 5. 第一次启动与持久化配置
 
-第一次启动且：
+第一次启动且下面文件不存在时：
 
 ```text
 /data/config/opensurge.yaml
 ```
 
-不存在时，entrypoint 使用创建时参数生成 QNAP seed config：
+entrypoint 使用创建时参数生成首次配置：
 
-- `gateway.interface = eth0`
-- `gateway.lan_ip = OPENSURGE_IP`
-- `gateway.lan_cidr = OPENSURGE_SUBNET`
-- `gateway.upstream_gateway = OPENSURGE_GATEWAY`
-- `dns.listen = OPENSURGE_IP`
+- 容器接口：`eth0`；
+- LAN IP：`OPENSURGE_IP`；
+- LAN CIDR：`OPENSURGE_SUBNET`；
+- 上游网关：`OPENSURGE_GATEWAY`；
+- DNS listen：OpenSurge IP。
 
-如果 `/data/config/opensurge.yaml` 已存在，新的环境值 **不会覆盖持久化配置**。
+如果持久化配置已经存在，新的 seed 值不会覆盖它。
 
 因此：
 
-- 同一台 NAS 重建容器：保留 `/data`；
-- 改网卡/IP/CIDR/主路由：修改容器创建参数并重建；
-- OpenSurge 内部订阅、规则、DNS、TUN、设备策略：在 Web 中管理。
+- 同一台 NAS 更新/重建容器：保留 `/data`；
+- 修改父网卡/IP/CIDR/上游网关：修改容器创建参数并重建；
+- 订阅、规则、DNS、TUN 和设备策略：在 Web 中管理。
 
 ## 6. Web
 
-容器启动后打开：
+打开：
 
 ```text
 http://<OpenSurge-IP>:8080
 ```
 
-例如：
+首次访问创建管理员。
 
-```text
-http://192.168.2.241:8080
-```
+QNAP Web 当前重点：
 
-首次创建管理员。
+- 显示容器实际接口、IPv4、CIDR 与路由状态；
+- QNET 父网卡、静态 IP、CIDR、上游网关作为创建时参数只读显示；
+- 管理 DNS / TUN 可变参数；
+- 导入 HTTPS 订阅或 YAML；
+- 管理草稿、当前运行版本和下次启动版本；
+- 管理策略、Provider、设备规则；
+- 查看连接、流量、Doctor、日志与生命周期操作；
+- 保存配置后重新读取持久化状态进行确认。
 
-QNAP build 的 Web 与 Mac build 分流：
-
-- 「网络设置」显示容器实际接口/IP/默认路由；
-- QNET 父接口、容器静态 IP、CIDR、主路由只读，并提示需要重建容器；
-- 不提供 macOS Wi‑Fi DHCP takeover；
-- 不提供合盖保持运行；
-- 不提供恢复 Mac DHCP；
-- 不提供 Finder 操作；
-- 订阅快照只显示容器持久化路径；
-- 运行参数保存时会校验持久化后的 config revision；
-- 网关运行中保存可变运行参数时，Web 执行停止 → 保存 → 重新启动，并明确报告失败。
+QNAP build 不把桌面系统专属操作暴露为 NAS 功能。
 
 ## 7. 订阅持久化
 
-导入 HTTPS 或 YAML 后只产生草稿。
+导入 HTTPS 或 YAML 后先产生持久化草稿。
 
-点击：
-
-```text
-设为下次启动版本
-```
-
-时，后端会：
+应用时后端会：
 
 1. 读取当前 config revision；
-2. 组合订阅和全局 overlay；
-3. 做完整候选配置验证；
-4. 把 imported profile 和 source digest 写入 `/data`；
+2. 合并订阅和全局 overlay；
+3. 验证完整候选配置；
+4. 写入 `/data`；
 5. 更新 `/data/config/opensurge.yaml`；
-6. QNAP Web 再重新读取 `/api/v1/sources`；
-7. 只有重新读取后确认 `desired=true` 或 `applied=true` 才提示成功。
+6. Web 重新读取 sources 状态；
+7. 只有确认 `desired=true` 或 `applied=true` 才显示成功。
 
-因此不再存在“HTTP 返回成功，但页面假定已经保存”的静默成功。
+这样可以避免“HTTP 请求成功，但配置实际未持久化”的假成功。
 
-## 8. 持久化
+## 8. `/data` 目录
 
-宿主：
+推荐宿主路径：
 
 ```text
 /share/Container/opensurge
@@ -202,7 +206,7 @@ QNAP build 的 Web 与 Mac build 分流：
 /data
 ```
 
-整个 `/data` 保留，包括：
+主要目录：
 
 - `config/`
 - `control/`
@@ -213,38 +217,35 @@ QNAP build 的 Web 与 Mac build 分流：
 - `runtime/`
 - `logs/`
 
-同 NAS 容器重建保留整个目录。迁移到另一台 NAS 时，不要把旧 `runtime/` 当成普通配置直接恢复。
+同 NAS 重建保留完整 `/data`。迁移到另一台 NAS 时，不要把旧 `runtime/` 当普通用户配置直接恢复。
 
-## 9. 首次验证
+## 9. 基础验证
 
 ```sh
 docker ps --filter name=opensurge
 docker inspect --format '{{json .State.Health}}' opensurge
 docker exec opensurge ip -br addr
 docker exec opensurge ip route
-docker exec opensurge cat /data/config/opensurge.yaml
+docker exec opensurge ip rule
+docker exec opensurge ls -l /dev/net/tun
 ```
 
-应该只有一个 OpenSurge 产品容器：
+默认应只有一个 OpenSurge 产品容器。
 
-```text
-opensurge
+Gateway 启动后，same-LAN / nft-free 路径还应检查：
+
+```sh
+docker exec opensurge ip rule show
+docker exec opensurge ip route show table 20241
 ```
 
-不应出现：
+应能观察到基于 ingress interface 的 OpenSurge policy rule，以及指向 TUN 的专用默认路由。
 
-```text
-opensurge-manager
-opensurge-orchestrator
-```
-
-确认 `/data/config/opensurge.yaml` 中 LAN IP/CIDR/主路由与创建容器时一致。
+在缺少 `nf_tables` 的 QNAP 上，`nft list ruleset` 失败本身不再代表 same-LAN Gateway 失败。
 
 ## 10. 客户端测试
 
-先只选择一台测试设备，不要修改主路由 DHCP。
-
-客户端：
+先只选择一台客户端，不修改主路由 DHCP：
 
 ```text
 IPv4 Gateway = OpenSurge IP
@@ -259,14 +260,14 @@ DNS          = OpenSurge IP
 4. UDP / QUIC；
 5. 视频长连接；
 6. 大文件下载；
-7. `docker restart opensurge` 后持久化；
+7. `docker restart opensurge` 后恢复；
 8. NAS reboot 后恢复。
 
 ## 11. 当前限制
 
-- 首版仍是 IPv4 Same-LAN Manual Gateway；
+- 第一稳定版聚焦 IPv4 Same-LAN Manual Gateway；
 - 不自动修改主路由 DHCP；
 - 不做下游 IPv6 takeover；
-- QNET 的真实父接口选择仍需要 QNAP 实机确认；
 - 修改 QNET 父网卡、静态 IP、CIDR、主路由需要重建容器；
-- 正式 stable 前仍需 TS-264C 24h / 72h soak。
+- QNAP 不同型号/固件的 QNET 和内核能力仍需要真机覆盖；
+- stable 前仍需真实客户端、reboot、24h / 72h soak 和升级/回滚验证。

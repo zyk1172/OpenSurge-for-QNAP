@@ -3,6 +3,8 @@ import type { Overview } from '../types'
 import { StatusDot } from './Common'
 import { t } from '../i18n'
 
+const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
+
 export function GatewayHealthCard({ overview }: { overview: Overview | null }) {
   const status = overview?.status
   const running = status?.gateway === 'running'
@@ -19,7 +21,7 @@ export function GatewayHealthCard({ overview }: { overview: Overview | null }) {
       <ServiceState label={status?.dhcp_enabled === false ? 'DNS' : 'DHCP / DNS'} state={status?.dhcp} />
       <ServiceState label="mihomo" state={status?.mihomo} />
       <ServiceState label={status?.tun_interface ? `TUN · ${status.tun_interface}` : 'TUN'} state={status?.tun} />
-      <ServiceState label="PF Anchor" state={status?.pf_anchor} />
+      {!qnapBuild && <ServiceState label="PF Anchor" state={status?.pf_anchor} />}
       <ServiceState label={t('IPv4 转发')} state={status?.forwarding} />
     </div>
   </article>
