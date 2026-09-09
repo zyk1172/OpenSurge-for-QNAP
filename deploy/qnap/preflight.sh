@@ -184,8 +184,8 @@ ok "Docker daemon is reachable"
 
 network_plugins=$(docker info --format '{{json .Plugins.Network}}' 2>/dev/null || true)
 case "$network_plugins" in
-  *qnet*) ok "QNAP qnet Docker network driver is registered" ;;
-  *) fail "qnet network driver was not reported by Docker; verify QNAP Container Station / Network & Virtual Switch" ;;
+  *qnet*) ok "QNAP qnet Docker network driver is reported by Docker" ;;
+  *) warn "Docker did not advertise qnet in its network-plugin list. Some QNAP builds do not expose third-party drivers consistently here; Compose creation remains the authoritative qnet check." ;;
 esac
 
 [ -c /dev/net/tun ] || fail "/dev/net/tun is missing or is not a character device"
@@ -195,8 +195,12 @@ if command_exists ip; then
   ip link show dev "$OPENSURGE_PARENT_INTERFACE" >/dev/null 2>&1 \
     || fail "parent interface does not exist: $OPENSURGE_PARENT_INTERFACE"
   ok "Parent interface exists: $OPENSURGE_PARENT_INTERFACE"
+elif command_exists ifconfig; then
+  ifconfig "$OPENSURGE_PARENT_INTERFACE" >/dev/null 2>&1 \
+    || fail "parent interface does not exist: $OPENSURGE_PARENT_INTERFACE"
+  ok "Parent interface exists: $OPENSURGE_PARENT_INTERFACE"
 else
-  warn "ip command is unavailable; parent-interface existence was not verified"
+  warn "Neither ip nor ifconfig is available; parent-interface existence was not verified"
 fi
 
 case "$OPENSURGE_DATA_PATH" in
