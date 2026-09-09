@@ -63,13 +63,27 @@ sudo ip -n "$GATEWAY_NS" link set os-gw-wan up
 sudo ip -n "$UPSTREAM_NS" link set os-upstream up
 
 sudo ip -n "$CLIENT_NS" route add default via 10.77.1.1
+# The synthetic Internet address lives on upstream's loopback. The gateway
+# therefore needs an explicit next hop for it; merely connecting the
+# 10.77.2.0/24 WAN segment does not create a route to 203.0.113.1/32.
+sudo ip -n "$GATEWAY_NS" route add 203.0.113.1/32 via 10.77.2.2 dev os-gw-wan
 sudo ip -n "$UPSTREAM_NS" route add 10.77.1.0/24 via 10.77.2.1
 sudo ip netns exec "$GATEWAY_NS" sysctl -q -w net.ipv4.ip_forward=1
 sudo ip netns exec "$GATEWAY_NS" sysctl -q -w net.ipv4.conf.all.rp_filter=0
 sudo ip netns exec "$GATEWAY_NS" sysctl -q -w net.ipv4.conf.default.rp_filter=0
 
+log "proving each isolated hop before the routed baseline"
+sudo ip netns exec "$CLIENT_NS" ping -c 1 -W 2 10.77.1.1 >/dev/null
+sudo ip netns exec "$GATEWAY_NS" ping -c 1 -W 2 10.77.2.2 >/dev/null
+
 log "proving the isolated baseline route"
-sudo ip netns exec "$CLIENT_NS" ping -c 2 -W 2 203.0.113.1 >/dev/null
+if ! sudo ip netns exec "$CLIENT_NS" ping -c 2 -W 2 203.0.113.1; then
+  echo "baseline routed ping failed; dumping namespace routes" >&2
+  sudo ip -n "$CLIENT_NS" route show >&2 || true
+  sudo ip -n "$GATEWAY_NS" route show >&2 || true
+  sudo ip -n "$UPSTREAM_NS" route show >&2 || true
+  exit 1
+fi
 
 log "running OpenSurge nftables/policy-routing integration tests inside gateway namespace"
 sudo ip netns exec "$GATEWAY_NS" env OPEN_SURGE_NETWORK_TESTS=1 \
