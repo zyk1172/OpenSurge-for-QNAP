@@ -9,6 +9,7 @@ on:
       - 'cmd/opensurge-container/**'
       - 'internal/webgateway/**'
       - 'internal/webui/**'
+      - 'internal/linuxnetwork/**'
       - 'internal/platform/linux/**'
       - 'tests/labnetns/**'
       - 'web/**'
@@ -116,6 +117,16 @@ jobs:
         run: |
           test "$(curl -sS -o /tmp/body -w '%{http_code}' http://127.0.0.1:18080/api/v1/overview)" = "401"
           curl -fsS http://127.0.0.1:18080/api/auth/state | grep -q '"setup_required":true'
+      - name: Create admin and exercise Linux network discovery
+        run: |
+          curl -fsS -c /tmp/opensurge-cookies \
+            -H 'Content-Type: application/json' \
+            -H 'Origin: http://127.0.0.1:18080' \
+            --data '{"username":"admin","password":"phase-two-ci-password"}' \
+            http://127.0.0.1:18080/api/auth/setup | grep -q '"authenticated":true'
+          curl -fsS -b /tmp/opensurge-cookies \
+            http://127.0.0.1:18080/api/v1/network/interfaces \
+            | grep -q '"interfaces"'
       - name: Dump logs on failure
         if: failure()
         run: docker logs opensurge-ci || true
