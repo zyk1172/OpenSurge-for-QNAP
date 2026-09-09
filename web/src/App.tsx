@@ -11,19 +11,22 @@ import { DevicesPage } from './pages/DevicesPage'
 import { DiagnosticsPage } from './pages/DiagnosticsPage'
 import { NetworkPage } from './pages/NetworkPage'
 import { PoliciesPage, type PoliciesViewState } from './pages/PoliciesPage'
+import { QNAPSetupPage } from './pages/QNAPSetupPage'
 import { SourcesPage } from './pages/SourcesPage'
 import { needsNetworkRecoveryWarning, statusLabel } from './status'
 import { operationStatusUnknownMessage } from './operations'
 import type { Overview } from './types'
 import { activateLanguage, cacheRequestedLanguage, initialRequestedLanguage, isRequestedLanguage, prepareLanguage, t, type RequestedLanguage } from './i18n'
 
-type Page = 'dashboard' | 'network' | 'sources' | 'devices' | 'policies' | 'connectivity' | 'diagnostics'
+type Page = 'qnap-setup' | 'dashboard' | 'network' | 'sources' | 'devices' | 'policies' | 'connectivity' | 'diagnostics'
 type Theme = 'dark' | 'light'
 type NetworkNavigationTarget = 'none' | 'control' | 'bottom'
 
+type NavItem = { id: Page; label: string; icon: string }
+
 const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
 
-const nav = [
+const standardNav: NavItem[] = [
   { id: 'dashboard', label: '总览', icon: '◈' },
   { id: 'network', label: '网络设置', icon: '⌁' },
   { id: 'sources', label: '代理与规则源', icon: '◎' },
@@ -31,11 +34,12 @@ const nav = [
   { id: 'policies', label: '策略', icon: '⇄' },
   { id: 'connectivity', label: '连通性', icon: '◌' },
   { id: 'diagnostics', label: '诊断', icon: '⌘' },
-] as const satisfies ReadonlyArray<{ id: Page; label: string; icon: string }>
+]
+const nav: NavItem[] = qnapBuild ? [{ id: 'qnap-setup', label: 'QNAP 设置', icon: '⚙' }, ...standardNav] : standardNav
 
 function currentPage(): Page {
   const candidate = window.location.pathname.split('/').filter(Boolean)[0] as Page | undefined
-  return nav.some(item => item.id === candidate) ? candidate! : 'dashboard'
+  return nav.some(item => item.id === candidate) ? candidate! : qnapBuild ? 'qnap-setup' : 'dashboard'
 }
 
 function initialTheme(): Theme {
@@ -248,6 +252,7 @@ export function App() {
         {overview?.recovery.required && needsNetworkRecoveryWarning(overview.recovery.stage) && <RecoveryBanner recovery={overview.recovery.stage} onOpen={() => go('network', 'control')} />}
         {error && <div className="error-banner" role="alert"><span>!</span><p>{error}</p><button onClick={() => void refresh()}>{t('重试')}</button></div>}
         <PageErrorBoundary key={page}>
+          {page === 'qnap-setup' && qnapBuild && <QNAPSetupPage onContinue={() => go('network')} />}
           {page === 'dashboard' && <DashboardPage overview={overview} onOpenNetwork={action => go('network', action === 'cleanup' ? 'control' : action === 'stop' ? 'bottom' : 'none')} />}
           {page === 'network' && <NetworkPage overview={overview} onChanged={refresh} onNavigate={() => go('devices')} onNotify={notify} />}
           {page === 'sources' && <SourcesPage overview={overview} onChanged={refresh} onNotify={notify} />}
