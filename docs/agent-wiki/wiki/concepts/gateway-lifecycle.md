@@ -167,10 +167,14 @@ Tailscale 只发起原有的一次 best-effort 预热。生命周期最多等待
 2. 对当前已经生成的 applied Mihomo config 运行真实 `mihomo -t`；
 3. 先把 runtime state 中的 Mihomo PID 清零，再停止旧进程；
 4. 把旧 `mihomo.log` 归档为带 UTC 时间戳的 `mihomo-before-restart-*.log`；
-5. 使用同一份 applied config 启动 Mihomo，并原子写回新 PID。
+5. 使用同一份 applied config 启动 Mihomo，等待替代 TUN ready；
+6. 从 runtime snapshot 重新应用并核验 policy routing，再原子写回新 PID 和路由状态。
 
 这个动作不停止 dnsmasq、不卸载 PF、不恢复 IPv4 forwarding，也不修改 Mac 静态地址、
-router 或 DNS。若已启用系统代理协同，替代进程失败时先恢复启动前系统代理，避免端点
+router 或 DNS。TUN 被 Mihomo 重建时，旧的默认 TUN 路由可能随接口消失，因此不能把
+“Mihomo 进程和 TUN 存在”当作数据面仍然可用；启动和 status 都必须核验精确的
+`ip rule`、专用表 LAN 路由和默认 TUN/直连路由。核验失败时 start fail closed，运行中
+status 报告 `routing=missing` 或 `routing=unknown`，不能继续报告 healthy。若已启用系统代理协同，替代进程失败时先恢复启动前系统代理，避免端点
 继续指向已停止的 mihomo；state 保持 Mihomo PID 为 0，便于再次执行恢复或完整
 `stop`。旧事故日志不会被新进程清空。Control API 在 same-WiFi DHCP 拓扑中只允许 active、
 client validated 或明确跳过客户端验收的接管阶段执行，且成功或失败都不改变 DHCP 恢复

@@ -14,23 +14,25 @@ import (
 )
 
 type Status struct {
-	Gateway             string `json:"gateway"`
-	RuntimeState        string `json:"runtime_state,omitempty"`
-	Interface           string `json:"interface"`
-	LANIP               string `json:"lan_ip"`
-	DataPlane           string `json:"data_plane"`
-	DHCP                string `json:"dhcp"`
-	DHCPEnabled         bool   `json:"dhcp_enabled"`
-	Mihomo              string `json:"mihomo"`
-	MihomoError         string `json:"mihomo_error,omitempty"`
-	TUN                 string `json:"tun"`
-	TUNInterface        string `json:"tun_interface,omitempty"`
-	TUNError            string `json:"tun_error,omitempty"`
-	NFTables            string `json:"nftables"`
-	Forwarding          string `json:"forwarding"`
-	ClientCount         int    `json:"client_count"`
-	DNSIPv6             bool   `json:"dns_ipv6"`
-	TUNIPv6Requested    string `json:"tun_ipv6_requested"`
+	Gateway          string `json:"gateway"`
+	RuntimeState     string `json:"runtime_state,omitempty"`
+	Interface        string `json:"interface"`
+	LANIP            string `json:"lan_ip"`
+	DataPlane        string `json:"data_plane"`
+	Routing          string `json:"routing"`
+	RoutingError     string `json:"routing_error,omitempty"`
+	DHCP             string `json:"dhcp"`
+	DHCPEnabled      bool   `json:"dhcp_enabled"`
+	Mihomo           string `json:"mihomo"`
+	MihomoError      string `json:"mihomo_error,omitempty"`
+	TUN              string `json:"tun"`
+	TUNInterface     string `json:"tun_interface,omitempty"`
+	TUNError         string `json:"tun_error,omitempty"`
+	NFTables         string `json:"nftables"`
+	Forwarding       string `json:"forwarding"`
+	ClientCount      int    `json:"client_count"`
+	DNSIPv6          bool   `json:"dns_ipv6"`
+	TUNIPv6Requested string `json:"tun_ipv6_requested"`
 	// IPv6Takeover tells the UI that downstream IPv6 is intentionally not
 	// supported in v1. Clients that still receive IPv6 from the main router can
 	// bypass OpenSurge, so this must be surfaced rather than silently dropped.
@@ -59,6 +61,8 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 	}
 	dataPlane := "tun-nft-fwmark"
 	nftStatus := "not_applied"
+	routingStatus := "not_applied"
+	routingError := ""
 	if m.cfg.Gateway.SameLAN() {
 		dataPlane = "tun-iif-route"
 		nftStatus = "not_required"
@@ -70,6 +74,7 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 	if exists {
 		dnsIPv6 = state.DNSIPv6
 		if state.NetworkSnapshot != nil && state.NetworkSnapshot.Routing != nil {
+			routingStatus = "unknown"
 			mode := state.NetworkSnapshot.Routing.RuleMode
 			if mode == "" {
 				mode = platform.RoutingRuleFWMark
@@ -132,6 +137,25 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 			} else {
 				gatewayStatus = "degraded"
 			}
+			if state.NetworkSnapshot != nil && state.NetworkSnapshot.Routing != nil {
+				if !state.RoutingApplied || !state.NetworkSnapshot.Applied.PolicyRouting {
+					routingStatus = "missing"
+					gatewayStatus = "degraded"
+				} else if backend, backendErr := m.backend(); backendErr != nil {
+					routingStatus = "unknown"
+					routingError = backendErr.Error()
+					gatewayStatus = "degraded"
+				} else if present, presentErr := backend.PolicyRoutingPresent(ctx, *state.NetworkSnapshot.Routing); presentErr != nil {
+					routingStatus = "unknown"
+					routingError = presentErr.Error()
+					gatewayStatus = "degraded"
+				} else if !present {
+					routingStatus = "missing"
+					gatewayStatus = "degraded"
+				} else {
+					routingStatus = "applied"
+				}
+			}
 			if dataPlane != "tun-iif-route" && state.NATApplied {
 				nftStatus = "applied"
 				if backend, err := m.backend(); err == nil {
@@ -162,24 +186,26 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 	}
 
 	return Status{
-		Gateway:             gatewayStatus,
-		RuntimeState:        runtimeState,
-		Interface:           m.cfg.Gateway.Interface,
-		LANIP:               m.cfg.Gateway.LANIP,
-		DataPlane:           dataPlane,
-		DHCP:                dhcpStatus,
-		DHCPEnabled:         m.cfg.DHCP.Enabled,
-		Mihomo:              mihomoStatus,
-		MihomoError:         mihomoError,
-		TUN:                 tunStatus,
-		TUNInterface:        tunInterface,
-		TUNError:            tunError,
-		NFTables:            nftStatus,
-		Forwarding:          forwarding,
-		ClientCount:         len(clients),
-		DNSIPv6:             dnsIPv6,
-		TUNIPv6Requested:    tunIPv6Requested,
-		IPv6Takeover:        ipv6Takeover,
+		Gateway:          gatewayStatus,
+		RuntimeState:     runtimeState,
+		Interface:        m.cfg.Gateway.Interface,
+		LANIP:            m.cfg.Gateway.LANIP,
+		DataPlane:        dataPlane,
+		Routing:          routingStatus,
+		RoutingError:     routingError,
+		DHCP:             dhcpStatus,
+		DHCPEnabled:      m.cfg.DHCP.Enabled,
+		Mihomo:           mihomoStatus,
+		MihomoError:      mihomoError,
+		TUN:              tunStatus,
+		TUNInterface:     tunInterface,
+		TUNError:         tunError,
+		NFTables:         nftStatus,
+		Forwarding:       forwarding,
+		ClientCount:      len(clients),
+		DNSIPv6:          dnsIPv6,
+		TUNIPv6Requested: tunIPv6Requested,
+		IPv6Takeover:     ipv6Takeover,
 	}, nil
 }
 
@@ -231,6 +257,7 @@ func (s Status) Format() string {
 		fmt.Sprintf("Interface: %s", s.Interface),
 		fmt.Sprintf("LAN IP: %s", s.LANIP),
 		fmt.Sprintf("Data plane: %s", s.DataPlane),
+		fmt.Sprintf("Policy routing: %s", s.Routing),
 		fmt.Sprintf("%s: %s", dnsmasqLabel, s.DHCP),
 		fmt.Sprintf("mihomo: %s", s.Mihomo),
 		fmt.Sprintf("TUN: %s", tunLabel),
@@ -239,6 +266,9 @@ func (s Status) Format() string {
 		fmt.Sprintf("nftables: %s", s.NFTables),
 		fmt.Sprintf("IP forwarding: %s", s.Forwarding),
 		fmt.Sprintf("Clients: %d", s.ClientCount),
+	}
+	if s.RoutingError != "" {
+		lines = append(lines, fmt.Sprintf("Policy routing error: %s", s.RoutingError))
 	}
 	return strings.Join(lines, "\n") + "\n"
 }

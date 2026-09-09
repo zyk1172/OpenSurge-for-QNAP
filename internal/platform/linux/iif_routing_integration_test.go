@@ -74,6 +74,13 @@ func TestNetworkIngressInterfaceRoutesTCPAndUDPToTUN(t *testing.T) {
 	if !present {
 		t.Fatal("iif policy rule was not created")
 	}
+	ready, err := backend.PolicyRoutingPresent(ctx, cfg)
+	if err != nil {
+		t.Fatalf("PolicyRoutingPresent: %v", err)
+	}
+	if !ready {
+		t.Fatal("iif policy routing was not fully applied")
+	}
 
 	for _, proto := range []struct {
 		name  string
@@ -100,6 +107,13 @@ func TestNetworkIngressInterfaceRoutesTCPAndUDPToTUN(t *testing.T) {
 	fallback.DirectFallback = true
 	if err := backend.SetupPolicyRouting(ctx, fallback); err != nil {
 		t.Fatalf("SetupPolicyRouting(direct fallback): %v", err)
+	}
+	ready, err = backend.PolicyRoutingPresent(ctx, fallback)
+	if err != nil {
+		t.Fatalf("PolicyRoutingPresent(direct fallback): %v", err)
+	}
+	if !ready {
+		t.Fatal("direct-fallback policy routing was not fully applied")
 	}
 	out, err := backend.runner.output(ctx, backend.runner.ipPath,
 		"-4", "route", "get", "198.51.100.8", "from", "192.0.2.50", "iif", lan)
