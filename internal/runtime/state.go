@@ -54,8 +54,14 @@ func prepareWriteAheadJournal(state *State) {
 	if snapshot.NAT != nil && snapshot.NFTablesTable != "" {
 		snapshot.Applied.NAT = true
 	}
-	if snapshot.Routing != nil && snapshot.Routing.TableID != 0 && snapshot.Routing.FwMark != 0 {
-		snapshot.Applied.PolicyRouting = true
+	if routing := snapshot.Routing; routing != nil && routing.TableID != 0 && routing.RulePriority != 0 {
+		mode := routing.RuleMode
+		if mode == "" {
+			mode = platform.RoutingRuleFWMark
+		}
+		if mode == platform.RoutingRuleIngressInterface || routing.FwMark != 0 {
+			snapshot.Applied.PolicyRouting = true
+		}
 	}
 	if snapshot.IPv4Forwarding != "" {
 		snapshot.Applied.IPv4Forwarding = true
