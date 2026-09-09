@@ -1,0 +1,86 @@
+.qnap-setup-section {
+  display: grid;
+  gap: 18px;
+}
+
+.qnap-interface-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.qnap-interface-card {
+  display: grid;
+  gap: 7px;
+  min-height: 118px;
+  padding: 16px;
+  text-align: left;
+  border: 1px solid var(--border, rgba(127, 127, 127, .25));
+  border-radius: 14px;
+  background: var(--panel, rgba(127, 127, 127, .06));
+}
+
+.qnap-interface-card.active {
+  border-color: currentColor;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+.qnap-interface-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.qnap-interface-addresses {
+  overflow-wrap: anywhere;
+}
+
+.qnap-interface-meta {
+  opacity: .66;
+  font-size: .82rem;
+}
+
+.qnap-setup-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px;
+}
+
+.qnap-setup-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.qnap-setup-form label > span {
+  font-weight: 650;
+}
+
+.qnap-setup-form input {
+  width: 100%;
+  min-height: 42px;
+  box-sizing: border-box;
+}
+
+.qnap-setup-form small {
+  opacity: .68;
+  line-height: 1.45;
+}
+
+.qnap-setup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.qnap-storage-card {
+  padding: 16px;
+  border: 1px solid var(--border, rgba(127, 127, 127, .25));
+  border-radius: 14px;
+  background: var(--panel, rgba(127, 127, 127, .06));
+}
+
+.qnap-storage-card p {
+  margin: 8px 0 0;
+  opacity: .78;
+  line-height: 1.55;
+}
