@@ -115,7 +115,17 @@ func (b *Backend) restoreRPFilter(previous map[string]string) error {
 	return nil
 }
 
+func effectiveRuleMode(cfg platform.RoutingConfig) platform.RoutingRuleMode {
+	if cfg.RuleMode == "" {
+		return platform.RoutingRuleFWMark
+	}
+	return cfg.RuleMode
+}
+
 func ruleSpec(cfg platform.RoutingConfig) string {
+	if effectiveRuleMode(cfg) == platform.RoutingRuleIngressInterface {
+		return fmt.Sprintf("pref %d iif %s lookup %d", cfg.RulePriority, cfg.LANInterface, cfg.TableID)
+	}
 	return fmt.Sprintf("pref %d fwmark %s lookup %d", cfg.RulePriority, markHex(cfg.FwMark), cfg.TableID)
 }
 
@@ -170,12 +180,32 @@ func ruleField(rule ipRule, key string) (uint32, bool) {
 	return parseRawUint32(raw)
 }
 
+func ruleStringField(rule ipRule, keys ...string) (string, bool) {
+	for _, key := range keys {
+		raw, ok := rule[key]
+		if !ok || len(raw) == 0 || string(raw) == "null" {
+			continue
+		}
+		var value string
+		if err := json.Unmarshal(raw, &value); err == nil && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value), true
+		}
+	}
+	return "", false
+}
+
 func ruleMatchesConfig(rule ipRule, cfg platform.RoutingConfig) bool {
 	priority, priorityOK := ruleField(rule, "priority")
 	table, tableOK := ruleField(rule, "table")
+	if !priorityOK || !tableOK || priority != cfg.RulePriority || table != cfg.TableID {
+		return false
+	}
+	if effectiveRuleMode(cfg) == platform.RoutingRuleIngressInterface {
+		iif, ok := ruleStringField(rule, "iif", "iifname")
+		return ok && iif == cfg.LANInterface
+	}
 	mark, markOK := ruleField(rule, "fwmark")
-	return priorityOK && tableOK && markOK &&
-		priority == cfg.RulePriority && table == cfg.TableID && mark == cfg.FwMark
+	return markOK && mark == cfg.FwMark
 }
 
 // rulePresent reports whether the exact OpenSurge policy rule exists.
@@ -212,27 +242,30 @@ func (b *Backend) routingTableHasEntries(ctx context.Context, tableID uint32) (b
 }
 
 // validateOwnership proves every kernel identifier OpenSurge wants is free.
-// "Uncommon" ids are not ownership. If anything already occupies the table,
-// mark or priority, start fails before any mutation instead of guessing.
+// Same-LAN iif routing has no nftables resource and therefore never probes or
+// reserves an nft table. Isolated-LAN mode keeps the historical nft/fwmark
+// ownership checks.
 func (b *Backend) validateOwnership(ctx context.Context, cfg platform.NetworkConfig) error {
-	tableName := strings.TrimSpace(cfg.NFTTableName)
-	if tableName == "" {
-		tableName = DefaultTableName
-	}
-	if err := validateTableName(tableName); err != nil {
-		return err
-	}
-	if exists, err := b.tableExists(ctx, tableName); err != nil {
-		return err
-	} else if exists {
-		return platform.NewError(platform.CodeNFTablesForeignTable,
-			"the requested nftables table already exists; OpenSurge will not overwrite an unproven owner").
-			WithDetail("table", tableName)
+	if !cfg.SameLAN {
+		tableName := strings.TrimSpace(cfg.NFTTableName)
+		if tableName == "" {
+			tableName = DefaultTableName
+		}
+		if err := validateTableName(tableName); err != nil {
+			return err
+		}
+		if exists, err := b.tableExists(ctx, tableName); err != nil {
+			return err
+		} else if exists {
+			return platform.NewError(platform.CodeNFTablesForeignTable,
+				"the requested nftables table already exists; OpenSurge will not overwrite an unproven owner").
+				WithDetail("table", tableName)
+		}
 	}
 
-	if cfg.RouteTableID == 0 || cfg.FwMark == 0 || cfg.RouteRulePriority == 0 {
+	if cfg.RouteTableID == 0 || cfg.RouteRulePriority == 0 || (!cfg.SameLAN && cfg.FwMark == 0) {
 		return platform.NewError(platform.CodeInvalidArgument,
-			"route table id, fwmark and rule priority must all be non-zero before ownership validation")
+			"route table id and rule priority must be non-zero, and nft mode also requires a non-zero fwmark")
 	}
 	if entries, err := b.routingTableHasEntries(ctx, cfg.RouteTableID); err != nil {
 		return err
@@ -250,22 +283,35 @@ func (b *Backend) validateOwnership(ctx context.Context, cfg platform.NetworkCon
 		priority, priorityOK := ruleField(rule, "priority")
 		table, tableOK := ruleField(rule, "table")
 		mark, markOK := ruleField(rule, "fwmark")
-		if (priorityOK && priority == cfg.RouteRulePriority) ||
-			(tableOK && table == cfg.RouteTableID) ||
-			(markOK && mark == cfg.FwMark) {
+		iif, iifOK := ruleStringField(rule, "iif", "iifname")
+		collision := (priorityOK && priority == cfg.RouteRulePriority) ||
+			(tableOK && table == cfg.RouteTableID)
+		if cfg.SameLAN {
+			collision = collision || (iifOK && iif == cfg.LANInterface)
+		} else {
+			collision = collision || (markOK && mark == cfg.FwMark)
+		}
+		if collision {
+			details := map[string]string{
+				"rule_priority": strconv.FormatUint(uint64(cfg.RouteRulePriority), 10),
+				"table_id":      strconv.FormatUint(uint64(cfg.RouteTableID), 10),
+			}
+			if cfg.SameLAN {
+				details["iif"] = cfg.LANInterface
+			} else {
+				details["fw_mark"] = markHex(cfg.FwMark)
+			}
 			return platform.NewError(platform.CodePolicyRoutingConflict,
-				"an existing policy rule collides with OpenSurge's requested priority, table or fwmark").
-				WithDetails(map[string]string{
-					"rule_priority": strconv.FormatUint(uint64(cfg.RouteRulePriority), 10),
-					"table_id":      strconv.FormatUint(uint64(cfg.RouteTableID), 10),
-					"fw_mark":       markHex(cfg.FwMark),
-				})
+				"an existing policy rule collides with OpenSurge's requested selector, priority or table").
+				WithDetails(details)
 		}
 	}
 	return nil
 }
 
-// applyPolicyRouting installs the dedicated routing table and exact fwmark rule.
+// applyPolicyRouting installs the dedicated routing table and either an exact
+// fwmark selector (historical nft backend) or an ingress-interface selector
+// (same-LAN QNAP backend).
 func (b *Backend) applyPolicyRouting(ctx context.Context, cfg platform.RoutingConfig) error {
 	if err := validateInterfaceName(cfg.LANInterface); err != nil {
 		return err
@@ -276,8 +322,18 @@ func (b *Backend) applyPolicyRouting(ctx context.Context, cfg platform.RoutingCo
 	if cfg.TableID == 0 || cfg.RulePriority == 0 {
 		return platform.NewError(platform.CodeInvalidArgument, "routing table id and rule priority must be set")
 	}
-	if cfg.FwMark == 0 {
-		return platform.NewError(platform.CodeInvalidArgument, "fwmark must be non-zero")
+	mode := effectiveRuleMode(cfg)
+	switch mode {
+	case platform.RoutingRuleFWMark:
+		if cfg.FwMark == 0 {
+			return platform.NewError(platform.CodeInvalidArgument, "fwmark must be non-zero in fwmark routing mode")
+		}
+	case platform.RoutingRuleIngressInterface:
+		if err := validateInterfaceName(cfg.LANInterface); err != nil {
+			return err
+		}
+	default:
+		return platform.NewError(platform.CodeInvalidArgument, "unsupported policy routing rule mode").WithDetail("rule_mode", string(mode))
 	}
 	table := strconv.FormatUint(uint64(cfg.TableID), 10)
 
@@ -316,8 +372,13 @@ func (b *Backend) applyPolicyRouting(ctx context.Context, cfg platform.RoutingCo
 		return err
 	}
 	if !present {
-		args := []string{"rule", "add", "pref", strconv.FormatUint(uint64(cfg.RulePriority), 10),
-			"fwmark", markHex(cfg.FwMark), "table", table}
+		args := []string{"rule", "add", "pref", strconv.FormatUint(uint64(cfg.RulePriority), 10)}
+		if mode == platform.RoutingRuleIngressInterface {
+			args = append(args, "iif", cfg.LANInterface)
+		} else {
+			args = append(args, "fwmark", markHex(cfg.FwMark))
+		}
+		args = append(args, "table", table)
 		if err := b.runner.run(ctx, b.runner.ipPath, args...); err != nil {
 			return err
 		}
@@ -328,7 +389,8 @@ func (b *Backend) applyPolicyRouting(ctx context.Context, cfg platform.RoutingCo
 // removePolicyRouting removes only the exact rule and the two exact routes
 // OpenSurge creates. It intentionally does not flush the whole routing table.
 func (b *Backend) removePolicyRouting(ctx context.Context, cfg platform.RoutingConfig) error {
-	if cfg.TableID == 0 || cfg.FwMark == 0 || cfg.RulePriority == 0 {
+	mode := effectiveRuleMode(cfg)
+	if cfg.TableID == 0 || cfg.RulePriority == 0 || (mode == platform.RoutingRuleFWMark && cfg.FwMark == 0) {
 		return nil
 	}
 	table := strconv.FormatUint(uint64(cfg.TableID), 10)
@@ -338,9 +400,14 @@ func (b *Backend) removePolicyRouting(ctx context.Context, cfg platform.RoutingC
 	if err != nil {
 		failures = append(failures, fmt.Sprintf("check rule: %v", err))
 	} else if present {
-		if err := b.runner.run(ctx, b.runner.ipPath, "rule", "del",
-			"pref", strconv.FormatUint(uint64(cfg.RulePriority), 10),
-			"fwmark", markHex(cfg.FwMark), "table", table); err != nil && !isNotExist(err) {
+		args := []string{"rule", "del", "pref", strconv.FormatUint(uint64(cfg.RulePriority), 10)}
+		if mode == platform.RoutingRuleIngressInterface {
+			args = append(args, "iif", cfg.LANInterface)
+		} else {
+			args = append(args, "fwmark", markHex(cfg.FwMark))
+		}
+		args = append(args, "table", table)
+		if err := b.runner.run(ctx, b.runner.ipPath, args...); err != nil && !isNotExist(err) {
 			failures = append(failures, fmt.Sprintf("delete rule: %v", err))
 		}
 	}
