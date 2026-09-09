@@ -115,11 +115,7 @@ func (s *AuthStore) Verify(username, password string) error {
 		}
 		return err
 	}
-	if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(username)), []byte(credential.Username)) != 1 {
-		// Still perform the expensive KDF below using the stored parameters so a
-		// username probe does not get a cheap timing oracle.
-		username = credential.Username
-	}
+	inputUsername := strings.TrimSpace(username)
 	salt, err := base64.RawStdEncoding.DecodeString(credential.Salt)
 	if err != nil {
 		return fmt.Errorf("decode administrator salt: %w", err)
@@ -128,8 +124,10 @@ func (s *AuthStore) Verify(username, password string) error {
 	if err != nil {
 		return fmt.Errorf("decode administrator hash: %w", err)
 	}
+	// Always execute Argon2 using the stored parameters even when the username
+	// is wrong so account-name probes do not get a cheap timing oracle.
 	got := argon2.IDKey([]byte(password), salt, credential.ArgonTime, credential.ArgonMemory, credential.ArgonThreads, credential.ArgonKeyLen)
-	userOK := subtle.ConstantTimeCompare([]byte(strings.TrimSpace(username)), []byte(credential.Username)) == 1
+	userOK := subtle.ConstantTimeCompare([]byte(inputUsername), []byte(credential.Username)) == 1
 	hashOK := subtle.ConstantTimeCompare(got, want) == 1
 	if !userOK || !hashOK {
 		return ErrInvalidLogin
