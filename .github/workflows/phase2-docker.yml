@@ -77,7 +77,8 @@ jobs:
           docker compose -f docker-compose.yml config > /tmp/opensurge-default-compose.yaml
           test "$(docker compose -f docker-compose.yml config --services)" = "opensurge"
           grep -q 'iface: eth1' /tmp/opensurge-default-compose.yaml
-          grep -q '/share/Container/opensurge:/data' /tmp/opensurge-default-compose.yaml
+          grep -q 'source: /share/Container/opensurge' /tmp/opensurge-default-compose.yaml
+          grep -q 'target: /data' /tmp/opensurge-default-compose.yaml
           grep -q 'OPENSURGE_SEED_LAN_IP: 192.168.50.2' /tmp/opensurge-default-compose.yaml
           ! grep -q '/var/run/docker.sock' /tmp/opensurge-default-compose.yaml
           ! grep -q 'opensurge-manager' /tmp/opensurge-default-compose.yaml
