@@ -1,11 +1,10 @@
 # OpenSurge for QNAP
 
-> **当前状态：Phase 1 / Linux 数据面移植中。尚未发布可用于 QNAP 的正式 Docker 镜像。**
+> **当前状态：QNAP Docker 部署适配 / 稳定化阶段。**
+> 已具备 Linux/QNAP 数据面、LAN Web 管理、QNET Compose、双架构镜像构建和故障恢复测试；尚未发布正式 stable registry image，真实 QNAP 长时间 soak / reboot 验证仍需完成。
 
 OpenSurge for QNAP 是基于
-[OpenSurge for Mac](https://github.com/YTwsy/OpenSurge-for-Mac) 的派生项目，目标是把上游的
-Web 控制面、mihomo 配置/策略能力和网关生命周期移植为适合 QNAP NAS 与通用 Linux Docker
-长期运行的透明代理网关。
+[OpenSurge for Mac](https://github.com/YTwsy/OpenSurge-for-Mac) 的派生项目，目标是把上游的 Web 控制面、mihomo 配置/策略能力和网关生命周期移植为适合 QNAP NAS 与通用 Linux Docker 长期运行的透明代理网关。
 
 本项目不是上游作者官方提供的 QNAP 版本，也未获得上游背书，除非上游作者另有明确声明。
 
@@ -18,110 +17,254 @@ Web 控制面、mihomo 配置/策略能力和网关生命周期移植为适合 Q
 - 详细来源关系：[docs/UPSTREAM.md](docs/UPSTREAM.md)
 - 许可证/来源说明：[NOTICE.md](NOTICE.md)、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
+## QNAP 部署入口
+
+- 中文完整部署指南：[deploy/qnap/README.zh-CN.md](deploy/qnap/README.zh-CN.md)
+- English deployment guide: [deploy/qnap/README.md](deploy/qnap/README.md)
+- 持久化数据模型：[deploy/qnap/PERSISTENCE.md](deploy/qnap/PERSISTENCE.md)
+- QNAP Compose：[deploy/qnap/docker-compose.yml](deploy/qnap/docker-compose.yml)
+- 环境变量模板：[deploy/qnap/.env.example](deploy/qnap/.env.example)
+
 ## 产品目标
 
-稳定版的目标拓扑是：
+首个稳定拓扑：
 
 ```text
 LAN Client
    │
    │ Gateway / DNS = OpenSurge container
    ▼
-QNAP / Linux
-└─ OpenSurge container
-   ├─ Web UI / Control API
+QNAP NAS
+└─ OpenSurge Docker container (QNET 独立 LAN IP)
+   ├─ Authenticated Web UI
+   ├─ loopback privileged Control API
    ├─ mihomo TUN
    ├─ DNS / dnsmasq
-   ├─ nftables（仅 OpenSurge 自有表）
+   ├─ nftables（仅 OpenSurge 自有 table）
    └─ iproute2 policy routing
           │
           ├─ DIRECT
           └─ PROXY
 ```
 
-首个稳定模式优先支持 **Same-LAN Manual Gateway**：主路由 DHCP 保持开启，只让指定客户端
-手工把 IPv4 网关和 DNS 指向 OpenSurge。DHCP 全局接管与下游 IPv6 接管不进入第一稳定版。
+首个稳定模式优先支持 **Same-LAN Manual Gateway**：主路由 DHCP 保持开启，只让指定客户端手工把 IPv4 网关和 DNS 指向 OpenSurge。DHCP 全局接管与下游 IPv6 接管不进入第一稳定版。
 
-## Phase 1 已实现
+## 当前已经实现
 
-当前 PR/分支已经完成或正在验证的基础层：
+### Linux/QNAP 数据面
 
-- 保留并注明上游来源、完整 Git 历史与 `GPL-3.0-only`；
-- 删除 macOS 菜单栏 App、PKG、公证、launchd helper、pf、macOS BPF IPv6 等运行时；
-- 增加 `platform.NetworkBackend`，把业务生命周期与 Linux 网络命令解耦；
+- `platform.NetworkBackend` 平台边界；
 - Linux IPv4 backend：`nftables + iproute2 + /dev/net/tun`；
-- mihomo `auto-route` 在 QNAP/Linux 路径被明确禁止，策略路由由 OpenSurge 单一管理；
-- `nftables` 只允许操作指定 OpenSurge 表，禁止 `nft flush ruleset`；
-- 启动前检查 nft 表、fwmark、route table、rule priority 冲突，不能证明 ownership 就拒绝启动；
-- policy route 使用结构化 `ip -j` 解析和精确删除，不再 `flush` 整个 routing table；
-- runtime state 持久化完整 NAT/routing cleanup recipe；
-- Stop / rollback / interrupted recovery 不依赖进程内 backend 内存，可由 fresh backend 清理；
-- 网络修改使用 write-ahead cleanup journal，降低“内核已修改但 state 尚未落盘”的崩溃窗口；
-- snapshot 绑定 Linux network namespace：隔离容器重启后不会把旧 namespace 的状态错误恢复到新 namespace；
-- state 原子写入后 `fsync` 文件与父目录；
-- 配置增加 `Normalize → Validate`，旧配置缺失的 `lan_cidr` / rule priority 会被实际写入运行配置；
-- 第一组 Linux/QNAP 生命周期回归测试与最小 GitHub Actions Go CI。
+- mihomo `auto-route` 在 QNAP/Linux 路径明确禁用，策略路由由 OpenSurge 单一管理；
+- nftables 只管理自己的 table，禁止 `nft flush ruleset`；
+- nft table / fwmark / route table / rule priority ownership 冲突检测；
+- policy route 结构化读取与精确删除，不 flush 整张 routing table；
+- write-ahead cleanup journal；
+- network snapshot + rollback；
+- runtime state 绑定 host boot session + Linux network namespace；
+- fresh-process Stop / interrupted recovery 不依赖进程内 backend 状态。
 
-## 当前明确不支持 / 尚未完成
+### Docker / Container Station
 
-Phase 1 **不能当作最终产品使用**。以下内容仍未完成：
+- 正式多阶段 `docker/Dockerfile`；
+- `linux/amd64` 与 `linux/arm64` CI 构建；
+- mihomo / dnsmasq 固定版本与校验值；
+- `/dev/net/tun` + `NET_ADMIN` + `NET_RAW`；
+- 不默认使用 `privileged: true`；
+- 不使用 host network；
+- QNAP QNET 静态 LAN IP Compose；
+- `no-new-privileges`；
+- Docker 日志轮转；
+- liveness/readiness smoke；
+- 容器 recreate / stale runtime reconciliation 测试。
 
-- 正式 `Dockerfile` / Compose / QNAP Container Station 部署方案；
-- Web 远程登录认证、Session、CSRF、登录限流；
-- Web UI 全面去除 macOS 文案并完成 QNAP 网络设置流程；
-- watchdog、bounded restart、完整 reconciliation 状态机；
-- Linux network namespace 三段式实验室（client → gateway → upstream）；
-- QNAP 真机验证、NAS reboot 验证、24h/72h soak test；
-- Docker healthcheck、诊断包、日志轮转与 secret redaction 完整产品化；
-- Docker release SBOM / provenance / 第三方许可证自动核验；
-- DHCP takeover；
-- 下游 IPv6 takeover。
+### Web 管理
 
-在这些门槛完成前，不应发布“stable”标签。
+- LAN-facing authenticated Web Gateway；
+- privileged Control API 继续仅监听 loopback；
+- 首次管理员创建；
+- Argon2id；
+- Session / HttpOnly / SameSite；
+- Origin/Host 防护；
+- 登录限流；
+- QNAP production Web build；
+- 容器 Linux network discovery；
+- QNAP 路径禁止执行 macOS 主机网络改写。
+
+### 故障恢复
+
+- mihomo bounded recovery；
+- dnsmasq bounded recovery；
+- PID + fingerprint 防 PID reuse；
+- dnsmasq 实际 SIGKILL fault injection；
+- 容器重建后 stale PID 不会被错误 signal；
+- Linux namespace lab：`client -> gateway -> upstream`；
+- 验证测试结束后宿主 namespace 无 OpenSurge 网络污染。
+
+### QNAP 部署适配
+
+- QNAP preflight；
+- 双网卡 NAS 的 QNET 父接口显式选择：`OPENSURGE_PARENT_INTERFACE`；
+- `--list-interfaces` / `make qnap-interfaces`；
+- QNAP 持久化路径要求使用专用绝对路径；
+- 整块 `/data` bind mount，保留 crash-reconciliation journal；
+- Compose 的 IP / CIDR / upstream gateway 会用于**首次**配置 seed；
+- 已存在的 `/data/config/opensurge.yaml` 永不被部署变量覆盖；
+- 中文 QNAP Docker 部署文档和持久化说明。
+
+## 持久化原则
+
+推荐：
+
+```text
+/share/Container/opensurge -> /data
+```
+
+关键内容：
+
+```text
+/data/config      主配置
+/data/control     管理员凭据、内部控制状态
+/data/profiles    导入/托管 profile
+/data/providers   provider / rule-provider
+/data/state       持久功能状态
+/data/backups     配置备份
+/data/runtime     crash/reconciliation ownership journal
+/data/logs        运行日志
+```
+
+同一台 NAS 升级/重建容器时保留完整 `/data`。迁移到另一台 NAS 时，`runtime/` 不应作为普通可迁移配置原样恢复。详见 [deploy/qnap/PERSISTENCE.md](deploy/qnap/PERSISTENCE.md)。
+
+## 双网卡 QNAP
+
+需要区分两种接口：
+
+```text
+QNAP host interface     OPENSURGE_PARENT_INTERFACE = eth1 / br0 / ...
+       │
+       │ QNET
+       ▼
+container interface     OPENSURGE_CONTAINER_INTERFACE = eth0（通常）
+```
+
+双网卡 NAS 真正的“选择哪块物理/桥接网卡”发生在 QNET 父接口，而不是容器内部 `eth0`。
+
+查看候选接口：
+
+```bash
+make qnap-interfaces
+```
+
+或：
+
+```bash
+cd deploy/qnap
+sh ./preflight.sh --list-interfaces
+```
+
+以 QNAP Network & Virtual Switch 的实际拓扑为准，不要仅根据 `eth0/eth1` 数字猜物理端口。
 
 ## 网络安全边界
 
 1. **不清空宿主机全局防火墙。** 禁止 `nft flush ruleset`。
-2. **不因为 ID 很少见就视为 ownership。** nft table、fwmark、route table 和 rule priority 必须先验证无冲突。
-3. **Stop 必须跨进程可恢复。** 清理依据来自持久化 snapshot，不来自 Go 对象内存。
-4. **删除必须精确。** 不清空整个 routing table，只删除本次 recipe 对应的 rule/routes。
-5. **配置错误不得破坏上一份可用网络状态。** 高风险改动必须可验证、可回滚。
-6. **容器 namespace 是恢复边界。** 新 namespace 不重放旧 namespace 的网络快照。
+2. **不能证明 ownership 就拒绝接管。** nft table、fwmark、route table、rule priority 都要做冲突检查。
+3. **Stop 必须跨进程/跨容器恢复。** 清理依据来自持久化 runtime snapshot/journal。
+4. **删除必须精确。** 不清空整个 routing table。
+5. **Web UI 不获得 QNAP Docker socket。** QNET 父网卡属于部署参数，不通过 Web 修改 QTS/Container Station 网络。
+6. **不默认 host network / privileged。** 当前目标权限为 `NET_ADMIN + NET_RAW + /dev/net/tun`。
+7. **容器 namespace 是恢复边界。** 新 namespace 不重放旧 namespace 网络快照。
 
 ## 开发与验证
 
-普通测试不会主动修改宿主机网络：
+普通测试不会主动修改宿主网络：
 
 ```bash
 go test ./...
 go vet ./...
 ```
 
-真实 Linux 网络测试必须显式启用，并且只应在 disposable container / network namespace 中运行：
+Web：
 
 ```bash
-OPEN_SURGE_NETWORK_TESTS=1 go test ./internal/platform/linux/
+cd web
+pnpm install --frozen-lockfile
+pnpm test
+OPENSURGE_TARGET=qnap pnpm build
 ```
 
-不要在正在承担家庭网络或 NAS 管理网络的宿主 namespace 上运行高风险集成测试。
+Linux 网络实验室：
+
+```bash
+make lab-test-linux
+```
+
+QNAP Compose 静态检查：
+
+```bash
+make compose-qnap-check
+make qnap-preflight-static
+```
+
+QNAP 实机部署前：
+
+```bash
+make qnap-interfaces
+make qnap-preflight
+```
+
+不要在正在承担家庭网络或 NAS 管理网络的宿主 namespace 直接运行高风险网络集成测试。
+
+## 当前尚未完成
+
+在发布 `stable` 前仍需完成：
+
+- 真实 QNAP NAS 端到端部署验证；
+- NAS reboot 后完整恢复验证；
+- 真实双网卡/QNET 拓扑验证；
+- 24h / 72h soak；
+- 性能、FD、内存、日志容量长期观察；
+- 正式 registry image 发布流程；
+- SBOM / provenance / release checksums；
+- 生产升级/回滚演练。
+
+第一稳定版仍明确不做：
+
+- 全 LAN DHCP takeover；
+- downstream IPv6 takeover；
+- QNAP Network & Virtual Switch 自动改写；
+- Docker socket 管理；
+- QPKG。
 
 ## 路线
 
-### Phase 1 — Linux 数据面基础
+### 已完成基础阶段
 
-平台抽象、ownership、事务恢复、配置迁移保护、基础回归测试。
+- Linux 数据面抽象与事务恢复；
+- Docker + Web 产品化；
+- QNAP Web/UI 边界；
+- dnsmasq/mihomo bounded recovery；
+- container-recreate runtime reconciliation；
+- QNAP deployment hardening。
 
-### Phase 2 — Docker + Web 产品化
+### 当前阶段 — Docker/QNAP deployment adaptation
 
-正式 Docker/Compose、持久化目录、LAN Web 认证、健康检查、诊断和 namespace lab。
+- 持久化数据模型；
+- 双网卡选择；
+- first-run Compose network seed；
+- 完整部署文档；
+- 部署 CI 门禁。
 
-### Phase 3 — QNAP 真机稳定性
+### 下一阶段 — QNAP 真机稳定性
 
-Container Station / Virtual Switch 拓扑验证、故障注入、NAS reboot、24h/72h soak、性能与日志容量测试。
+- Container Station/QNET 真机；
+- reboot；
+- fault injection；
+- 24h/72h soak；
+- 性能与存储写入评估。
 
-### Phase 4 — 可选扩展
+### 稳定版之后
 
-稳定版之后再评估 DHCP takeover、IPv6、更广泛 Linux NAS 兼容。
+再评估 DHCP takeover、IPv6 和更广泛 Linux NAS 兼容。
 
 ## 上游同步
 
@@ -136,6 +279,5 @@ Container Station / Virtual Switch 拓扑验证、故障注入、NAS reboot、24
 
 ## License
 
-本项目继续使用 **GPL-3.0-only**。上游 `LICENSE`、版权历史与第三方许可证说明均应保留。
-分发未来的 Docker 二进制/镜像时，还必须确保实际随镜像发布的 GPL 组件具有对应源码获取方式，
-并让第三方 notice、SBOM 和实际构建版本保持一致。
+本项目继续使用 **GPL-3.0-only**。上游 `LICENSE`、版权历史与第三方许可证说明均保留。
+分发 Docker 二进制/镜像时，还必须确保实际随镜像发布的 GPL 组件具有对应源码获取方式，并让第三方 notice、SBOM 和实际构建版本保持一致。

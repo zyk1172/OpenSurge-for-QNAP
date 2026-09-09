@@ -4,15 +4,18 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ENV_FILE="$SCRIPT_DIR/.env"
 STATIC_ONLY=0
+LIST_INTERFACES=0
 
 usage() {
   cat <<'EOF'
-Usage: sh ./preflight.sh [--env-file PATH] [--static]
+Usage: sh ./preflight.sh [--env-file PATH] [--static] [--list-interfaces]
 
 Checks the QNAP Docker deployment before `docker compose up`.
 
-  --env-file PATH  Read deployment values from PATH instead of deploy/qnap/.env
-  --static         Run only non-host-specific checks. Intended for CI.
+  --env-file PATH      Read deployment values from PATH instead of deploy/qnap/.env
+  --static             Run only non-host-specific checks. Intended for CI.
+  --list-interfaces    Show QNAP host NIC/bridge candidates and exit. Use this
+                       before setting OPENSURGE_PARENT_INTERFACE on a dual-NIC NAS.
 EOF
 }
 
@@ -25,6 +28,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --static)
       STATIC_ONLY=1
+      shift
+      ;;
+    --list-interfaces)
+      LIST_INTERFACES=1
       shift
       ;;
     -h|--help)
@@ -55,6 +62,40 @@ warn() {
 command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
+
+list_interfaces() {
+  echo "QNAP host network interfaces / QNET parent candidates"
+  echo "----------------------------------------------------"
+  if command_exists ip; then
+    echo
+    echo "Links:"
+    ip -o link show 2>/dev/null || ip link show || true
+    echo
+    echo "IPv4 addresses:"
+    ip -o -4 addr show 2>/dev/null || ip -4 addr show || true
+    echo
+    echo "Default routes:"
+    ip -4 route show default 2>/dev/null || true
+    echo
+    echo "Choose the host NIC/bridge connected to the LAN that should carry OpenSurge traffic."
+    echo "Examples on QNAP may include eth0, eth1, bond0 or br0."
+    return 0
+  fi
+
+  if command_exists ifconfig; then
+    ifconfig -a
+    echo
+    echo "Choose the adapter/bridge connected to the target LAN and use its exact name."
+    return 0
+  fi
+
+  fail "neither ip nor ifconfig is available; inspect QNAP Network & Virtual Switch instead"
+}
+
+if [ "$LIST_INTERFACES" -eq 1 ]; then
+  list_interfaces
+  exit 0
+fi
 
 read_env() {
   key=$1
@@ -150,6 +191,26 @@ validate_network() {
   ok "IPv4 topology is internally consistent: $ip in $cidr via $gateway"
 }
 
+validate_interface_name() {
+  value=$1
+  case "$value" in
+    ''|*[!A-Za-z0-9_.:@-]*) fail "invalid interface name: $value" ;;
+  esac
+}
+
+validate_data_path() {
+  value=$1
+  case "$value" in
+    /*) ;;
+    *) fail "OPENSURGE_DATA_PATH must be an absolute QNAP path, e.g. /share/Container/opensurge" ;;
+  esac
+  case "$value" in
+    /|/share|/share/Container)
+      fail "OPENSURGE_DATA_PATH must be a dedicated subdirectory, not $value"
+      ;;
+  esac
+}
+
 [ -f "$ENV_FILE" ] || fail "environment file not found: $ENV_FILE (copy .env.example to .env first)"
 command_exists printenv || fail "printenv command not found"
 command_exists awk || fail "awk command not found"
@@ -158,14 +219,22 @@ OPENSURGE_IP=$(read_env OPENSURGE_IP)
 OPENSURGE_SUBNET=$(read_env OPENSURGE_SUBNET)
 OPENSURGE_GATEWAY=$(read_env OPENSURGE_GATEWAY)
 OPENSURGE_PARENT_INTERFACE=$(read_env OPENSURGE_PARENT_INTERFACE)
-OPENSURGE_DATA_PATH=$(read_env OPENSURGE_DATA_PATH ./data)
+OPENSURGE_CONTAINER_INTERFACE=$(read_env OPENSURGE_CONTAINER_INTERFACE eth0)
+OPENSURGE_DATA_PATH=$(read_env OPENSURGE_DATA_PATH)
 
 [ -n "$OPENSURGE_IP" ] || fail "OPENSURGE_IP is required"
 [ -n "$OPENSURGE_SUBNET" ] || fail "OPENSURGE_SUBNET is required"
 [ -n "$OPENSURGE_GATEWAY" ] || fail "OPENSURGE_GATEWAY is required"
 [ -n "$OPENSURGE_PARENT_INTERFACE" ] || fail "OPENSURGE_PARENT_INTERFACE is required"
+[ -n "$OPENSURGE_DATA_PATH" ] || fail "OPENSURGE_DATA_PATH is required"
 
 validate_network "$OPENSURGE_IP" "$OPENSURGE_SUBNET" "$OPENSURGE_GATEWAY"
+validate_interface_name "$OPENSURGE_PARENT_INTERFACE"
+validate_interface_name "$OPENSURGE_CONTAINER_INTERFACE"
+validate_data_path "$OPENSURGE_DATA_PATH"
+ok "QNET parent interface selected: $OPENSURGE_PARENT_INTERFACE"
+ok "Container-side LAN interface: $OPENSURGE_CONTAINER_INTERFACE"
+ok "Persistent /data bind mount: $OPENSURGE_DATA_PATH"
 
 command_exists docker || fail "docker command not found"
 docker compose version >/dev/null 2>&1 || fail "Docker Compose plugin is unavailable"
@@ -193,21 +262,32 @@ ok "/dev/net/tun is available"
 
 if command_exists ip; then
   ip link show dev "$OPENSURGE_PARENT_INTERFACE" >/dev/null 2>&1 \
-    || fail "parent interface does not exist: $OPENSURGE_PARENT_INTERFACE"
-  ok "Parent interface exists: $OPENSURGE_PARENT_INTERFACE"
+    || fail "QNET parent interface does not exist: $OPENSURGE_PARENT_INTERFACE"
+  ok "QNET parent interface exists: $OPENSURGE_PARENT_INTERFACE"
+  selected_addr=$(ip -o -4 addr show dev "$OPENSURGE_PARENT_INTERFACE" 2>/dev/null || true)
+  if [ -n "$selected_addr" ]; then
+    echo "[INFO] Selected-interface IPv4: $selected_addr"
+  else
+    warn "No host IPv4 was reported directly on $OPENSURGE_PARENT_INTERFACE. This can be normal when QNAP uses a bridge/Virtual Switch, but verify the QNET parent in Network & Virtual Switch."
+  fi
+  gateway_route=$(ip -4 route get "$OPENSURGE_GATEWAY" 2>/dev/null | head -n 1 || true)
+  if [ -n "$gateway_route" ]; then
+    echo "[INFO] Host route to gateway: $gateway_route"
+    case " $gateway_route " in
+      *" dev $OPENSURGE_PARENT_INTERFACE "*) ok "Host route to the gateway uses the selected parent interface" ;;
+      *) warn "The host route to $OPENSURGE_GATEWAY does not name $OPENSURGE_PARENT_INTERFACE. QNAP bridge/Virtual Switch naming may explain this; verify the selected adapter before deployment." ;;
+    esac
+  fi
 elif command_exists ifconfig; then
   ifconfig "$OPENSURGE_PARENT_INTERFACE" >/dev/null 2>&1 \
-    || fail "parent interface does not exist: $OPENSURGE_PARENT_INTERFACE"
-  ok "Parent interface exists: $OPENSURGE_PARENT_INTERFACE"
+    || fail "QNET parent interface does not exist: $OPENSURGE_PARENT_INTERFACE"
+  ok "QNET parent interface exists: $OPENSURGE_PARENT_INTERFACE"
+  ifconfig "$OPENSURGE_PARENT_INTERFACE" || true
 else
   warn "Neither ip nor ifconfig is available; parent-interface existence was not verified"
 fi
 
-case "$OPENSURGE_DATA_PATH" in
-  /*) data_path=$OPENSURGE_DATA_PATH ;;
-  *) data_path="$SCRIPT_DIR/$OPENSURGE_DATA_PATH" ;;
-esac
-
+data_path=$OPENSURGE_DATA_PATH
 if [ -e "$data_path" ]; then
   [ -d "$data_path" ] || fail "OPENSURGE_DATA_PATH exists but is not a directory: $data_path"
   [ -w "$data_path" ] || fail "OPENSURGE_DATA_PATH is not writable: $data_path"
@@ -216,7 +296,7 @@ else
   parent=$(dirname -- "$data_path")
   [ -d "$parent" ] || fail "parent of OPENSURGE_DATA_PATH does not exist: $parent"
   [ -w "$parent" ] || fail "cannot create OPENSURGE_DATA_PATH under: $parent"
-  warn "Persistent data directory does not exist yet; Compose will create it: $data_path"
+  warn "Persistent data directory does not exist yet. Create it explicitly before deployment: mkdir -p '$data_path'"
 fi
 
 if command_exists ping; then

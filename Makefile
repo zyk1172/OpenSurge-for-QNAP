@@ -1,6 +1,6 @@
 # OpenSurge for QNAP — Linux/QNAP Docker gateway derived from OpenSurge for Mac.
 
-.PHONY: test test-network-linux lab-test-linux build web-install web-build web-test lint doctor status image image-smoke compose-qnap-check qnap-preflight qnap-preflight-static
+.PHONY: test test-network-linux lab-test-linux build web-install web-build web-test lint doctor status image image-smoke compose-qnap-check qnap-preflight qnap-preflight-static qnap-interfaces
 
 test:
 	go test ./...
@@ -56,14 +56,20 @@ compose-qnap-check:
 	OPENSURGE_IP=192.168.50.2 \
 	OPENSURGE_SUBNET=192.168.50.0/24 \
 	OPENSURGE_GATEWAY=192.168.50.1 \
-	OPENSURGE_PARENT_INTERFACE=eth0 \
+	OPENSURGE_PARENT_INTERFACE=eth1 \
+	OPENSURGE_CONTAINER_INTERFACE=eth0 \
+	OPENSURGE_DATA_PATH=/share/Container/opensurge \
 	docker compose -f docker-compose.yml config --quiet
 
 # Full QNAP host preflight. Expects deploy/qnap/.env to exist.
 qnap-preflight:
 	cd deploy/qnap && sh ./preflight.sh
 
+# Show host-side NIC/bridge candidates for OPENSURGE_PARENT_INTERFACE.
+qnap-interfaces:
+	cd deploy/qnap && sh ./preflight.sh --list-interfaces
+
 # CI-safe validation: syntax/topology/Compose only; skips qnet, TUN, interface,
-# data-path and address-conflict probes that require a real QNAP host.
+# data-directory existence and address-conflict probes that require a real QNAP host.
 qnap-preflight-static:
 	cd deploy/qnap && sh ./preflight.sh --env-file .env.example --static
