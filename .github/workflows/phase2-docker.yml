@@ -65,9 +65,23 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Validate default Web-first QNAP Compose without env file
+      - name: Validate default single-container QNAP Compose with creation-time network
         working-directory: deploy/qnap
-        run: docker compose -f docker-compose.yml config --quiet
+        env:
+          OPENSURGE_IP: 192.168.50.2
+          OPENSURGE_SUBNET: 192.168.50.0/24
+          OPENSURGE_GATEWAY: 192.168.50.1
+          OPENSURGE_PARENT_INTERFACE: eth1
+          OPENSURGE_DATA_PATH: /share/Container/opensurge
+        run: |
+          docker compose -f docker-compose.yml config > /tmp/opensurge-default-compose.yaml
+          test "$(docker compose -f docker-compose.yml config --services)" = "opensurge"
+          grep -q 'iface: eth1' /tmp/opensurge-default-compose.yaml
+          grep -q '/share/Container/opensurge:/data' /tmp/opensurge-default-compose.yaml
+          grep -q 'OPENSURGE_SEED_LAN_IP: 192.168.50.2' /tmp/opensurge-default-compose.yaml
+          ! grep -q '/var/run/docker.sock' /tmp/opensurge-default-compose.yaml
+          ! grep -q 'opensurge-manager' /tmp/opensurge-default-compose.yaml
+          ! grep -q 'opensurge-orchestrator' /tmp/opensurge-default-compose.yaml
       - name: Validate advanced manual QNET Compose with explicit second NIC and bind path
         working-directory: deploy/qnap
         env:
