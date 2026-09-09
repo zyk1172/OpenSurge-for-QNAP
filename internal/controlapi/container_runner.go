@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"open-mihomo-gateway/internal/config"
+	"open-mihomo-gateway/internal/gateway"
 	"open-mihomo-gateway/internal/macosnetwork"
 )
 
@@ -20,6 +21,9 @@ type ContainerRunner struct {
 }
 
 func (ContainerRunner) Run(ctx context.Context, action, configPath string) error {
+	if action == "restart-dnsmasq" {
+		return gateway.RestartDNSMasqConfig(ctx, configPath)
+	}
 	if action == "start" || action == "reload" {
 		cfg, err := config.Load(configPath)
 		if err != nil {
