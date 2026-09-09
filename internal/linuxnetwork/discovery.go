@@ -20,9 +20,9 @@ import (
 // upstream; only the DTOs are reused here. No macOS command is executed.
 
 type ipAddress struct {
-	IfName   string `json:"ifname"`
-	Address  string `json:"address"`
-	Flags    []string `json:"flags"`
+	IfName  string   `json:"ifname"`
+	Address string   `json:"address"`
+	Flags   []string `json:"flags"`
 	AddrInfo []struct {
 		Family    string `json:"family"`
 		Local     string `json:"local"`
@@ -32,19 +32,19 @@ type ipAddress struct {
 }
 
 type ipRoute struct {
-	Dst       string `json:"dst"`
-	Gateway   string `json:"gateway"`
-	Dev       string `json:"dev"`
-	PrefSrc   string `json:"prefsrc"`
-	Protocol  string `json:"protocol"`
-	Scope     string `json:"scope"`
+	Dst      string `json:"dst"`
+	Gateway  string `json:"gateway"`
+	Dev      string `json:"dev"`
+	PrefSrc  string `json:"prefsrc"`
+	Protocol string `json:"protocol"`
+	Scope    string `json:"scope"`
 }
 
 type ipNeighbor struct {
-	Dst     string   `json:"dst"`
-	Dev     string   `json:"dev"`
-	LLAddr  string   `json:"lladdr"`
-	State   []string `json:"state"`
+	Dst    string   `json:"dst"`
+	Dev    string   `json:"dev"`
+	LLAddr string   `json:"lladdr"`
+	State  []string `json:"state"`
 }
 
 func Discover(ctx context.Context, _ string, interfaceName string) (macosnetwork.Snapshot, error) {
@@ -94,6 +94,7 @@ func Discover(ctx context.Context, _ string, interfaceName string) (macosnetwork
 				if ip := net.ParseIP(info.Local); ip != nil && ip.To4() == nil {
 					local[ip.String()] = struct{}{}
 				}
+			}
 		}
 		selfOnly := true
 		for _, route := range v6Routes {
