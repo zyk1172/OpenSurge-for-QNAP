@@ -30,8 +30,8 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: ${OPENSURGE_LOG_MAX_SIZE:-10m}
-        max-file: ${OPENSURGE_LOG_MAX_FILES:-3}
+        max-size: "${OPENSURGE_LOG_MAX_SIZE:-10m}"
+        max-file: "${OPENSURGE_LOG_MAX_FILES:-3}"
     stop_grace_period: 30s
 
 # QNET is QNAP Container Station's native L2 driver. QNAP recommends it when a
