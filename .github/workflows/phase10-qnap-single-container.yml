@@ -8,6 +8,7 @@ on:
       - 'internal/controlapi/**'
       - 'internal/gateway/**'
       - 'internal/linuxnetwork/**'
+      - 'internal/process/**'
       - 'internal/runtime/**'
       - 'docker/**'
       - 'deploy/qnap/**'
@@ -95,6 +96,9 @@ jobs:
           grep -q 'OpenSurge 负责网关生命周期；mihomo 是当前代理引擎。' web/src/pages/DashboardPage.tsx
           grep -q '修改以下任一项需要重建 OpenSurge 容器' web/src/pages/QNAPNetworkPage.tsx
           grep -q 'desired/运行版本' web/src/pages/QNAPSourcesPage.tsx
+          grep -q "'本机 Mac': 'OpenSurge 网关'" web/src/i18n.ts
+          grep -q "'Mac 本机运行路径': 'OpenSurge 网关路径'" web/src/i18n.ts
+          grep -q "DNS、mihomo 与 TUN 数据面会短暂重载" web/src/i18n.ts
       - name: Guard current QNAP docs against Mac product identity
         run: |
           ! grep -Eq '^# .*OpenSurge for Mac|^# 为 OpenSurge for Mac|OpenSurge for Mac App 使用指南|OpenSurge for Mac App User Guide' README.md README.en.md CONTRIBUTING.md AGENTS.md docs/app-user-guide.md docs/app-user-guide.zh-CN.md docs/faq.md docs/faq.zh-CN.md
@@ -109,6 +113,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Linux process identity does not require ps
+        run: |
+          go test ./internal/process -run 'TestLinuxProcessIdentityUsesProcfsWithoutPS|TestFingerprintMatchesCurrentProcessAndRejectsDifferentIdentity|TestFingerprintTreatsMissingProcessAsAbsent' -count=1
+          ! grep -n 'exec.Command("/bin/ps"' internal/process/process.go | grep -v 'psProcessIdentity'
+          grep -q 'linuxProcessIdentity(pid)' internal/process/process.go
       - name: Profile persistence tests
         run: go test ./internal/controlapi -run 'TestApplyProfileLeavesStoppedGatewayPendingForNextStart|TestApplyProfileFlowStyleUsesAuthoritativeRenderer' -count=1
       - name: QNAP container runner tests
