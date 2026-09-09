@@ -1,13 +1,58 @@
 services:
+  opensurge-host-agent:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+      args:
+        OPENSURGE_VERSION: dev
+    image: opensurge-for-qnap:dev
+    container_name: opensurge-host-agent
+    restart: unless-stopped
+
+    # The agent is deliberately tiny and has no LAN-facing port. It is the only
+    # component allowed to see Docker's privileged control socket. Running in
+    # the host network namespace lets it enumerate the real QNAP NICs that the
+    # Web setup wizard presents to the administrator.
+    network_mode: host
+    entrypoint:
+      - /usr/bin/tini
+      - --
+      - /usr/local/bin/opensurge-host-agent
+    command:
+      - --socket
+      - /run/opensurge-host/agent.sock
+      - --container
+      - opensurge
+      - --network
+      - opensurge-qnet
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - opensurge_host_agent:/run/opensurge-host
+
   opensurge:
     build:
       context: ../..
       dockerfile: docker/Dockerfile
       args:
-        OPENSURGE_VERSION: ${OPENSURGE_VERSION:-dev}
-    image: opensurge-for-qnap:${OPENSURGE_VERSION:-dev}
+        OPENSURGE_VERSION: dev
+    image: opensurge-for-qnap:dev
     container_name: opensurge
     restart: unless-stopped
+    labels:
+      io.opensurge.qnap.managed: "true"
+
+    # Bootstrap management access is intentionally independent of QNET. The
+    # administrator opens http://<QNAP-IP>:18080, then chooses the QNAP NIC,
+    # OpenSurge LAN IP, subnet and router entirely in the Web UI. The host agent
+    # attaches opensurge-qnet afterwards without dropping this management path.
+    ports:
+      - "18080:8080"
+
     cap_add:
       - NET_ADMIN
       - NET_RAW
@@ -19,42 +64,31 @@ services:
       net.ipv4.conf.default.rp_filter: "0"
     security_opt:
       - no-new-privileges:true
-    environment:
-      TZ: ${TZ:-Asia/Shanghai}
-      OPENSURGE_ALLOWED_HOSTS: ${OPENSURGE_ALLOWED_HOSTS:-}
-      # These values are used only when /data/config/opensurge.yaml does not yet
-      # exist. Existing persistent configuration is never overwritten.
-      OPENSURGE_SEED_LAN_IP: ${OPENSURGE_IP:?set OPENSURGE_IP to a free static LAN address}
-      OPENSURGE_SEED_LAN_CIDR: ${OPENSURGE_SUBNET:?set the LAN CIDR, e.g. 192.168.2.0/24}
-      OPENSURGE_SEED_UPSTREAM_GATEWAY: ${OPENSURGE_GATEWAY:?set the main router IPv4 address}
-      OPENSURGE_CONTAINER_INTERFACE: ${OPENSURGE_CONTAINER_INTERFACE:-eth0}
+
+    # Docker-managed named storage removes the need to choose a QNAP path before
+    # first login. Everything under /data remains persistent across recreate.
     volumes:
-      # Persist the whole /data tree. runtime/ contains the cleanup journal used
-      # to reconcile interrupted containers, so it must survive recreation too.
-      - ${OPENSURGE_DATA_PATH:?set an absolute QNAP path such as /share/Container/opensurge}:/data
+      - opensurge_data:/data
+      - opensurge_host_agent:/run/opensurge-host
+
+    depends_on:
+      - opensurge-host-agent
     networks:
-      opensurge_lan:
-        ipv4_address: ${OPENSURGE_IP:?set OPENSURGE_IP to a free static LAN address}
+      - opensurge_bootstrap
+
     logging:
       driver: json-file
       options:
-        max-size: "${OPENSURGE_LOG_MAX_SIZE:-10m}"
-        max-file: "${OPENSURGE_LOG_MAX_FILES:-3}"
+        max-size: "10m"
+        max-file: "3"
     stop_grace_period: 30s
 
-# QNET gives the container its own L2 LAN address. OPENSURGE_PARENT_INTERFACE is
-# the QNAP HOST-side NIC/bridge selector: on a dual-NIC NAS set it to the exact
-# interface attached to the LAN that should carry OpenSurge traffic. The
-# container itself normally sees that single QNET network as eth0.
 networks:
-  opensurge_lan:
-    driver: qnet
-    driver_opts:
-      iface: ${OPENSURGE_PARENT_INTERFACE:?set the QNAP NIC/bridge, e.g. eth1 or br0}
-    ipam:
-      driver: qnet
-      options:
-        iface: ${OPENSURGE_PARENT_INTERFACE:?set the QNAP NIC/bridge, e.g. eth1 or br0}
-      config:
-        - subnet: ${OPENSURGE_SUBNET:?set the LAN CIDR, e.g. 192.168.2.0/24}
-          gateway: ${OPENSURGE_GATEWAY:?set the main router IPv4 address}
+  opensurge_bootstrap:
+    driver: bridge
+
+volumes:
+  opensurge_data:
+    name: opensurge-data
+  opensurge_host_agent:
+    name: opensurge-host-agent
