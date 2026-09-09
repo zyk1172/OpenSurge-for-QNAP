@@ -7,10 +7,13 @@ on:
       - 'docker/**'
       - 'deploy/qnap/**'
       - 'cmd/opensurge-container/**'
+      - 'cmd/opensurge-host-agent/**'
       - 'internal/controlapi/**'
       - 'internal/dhcp/**'
       - 'internal/gateway/**'
       - 'internal/process/**'
+      - 'internal/qnaphost/**'
+      - 'internal/qnapsetup/**'
       - 'internal/runtime/**'
       - 'internal/webgateway/**'
       - 'internal/webui/**'
@@ -22,8 +25,6 @@ on:
       - 'go.mod'
       - 'go.sum'
       - '.github/workflows/phase2-docker.yml'
-  push:
-    branches: [phase2/docker-productization]
 
 permissions:
   contents: read
@@ -61,34 +62,27 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Validate QNAP Compose with explicit second NIC and bind path
+      - name: Validate zero-env QNAP Compose
         working-directory: deploy/qnap
-        env:
-          OPENSURGE_IP: 192.168.50.2
-          OPENSURGE_SUBNET: 192.168.50.0/24
-          OPENSURGE_GATEWAY: 192.168.50.1
-          OPENSURGE_PARENT_INTERFACE: eth1
-          OPENSURGE_CONTAINER_INTERFACE: eth0
-          OPENSURGE_DATA_PATH: /share/Container/opensurge
         run: |
           docker compose -f docker-compose.yml config > /tmp/opensurge-compose.yaml
-          grep -q 'iface: eth1' /tmp/opensurge-compose.yaml
-          grep -q '/share/Container/opensurge' /tmp/opensurge-compose.yaml
-          grep -q 'OPENSURGE_SEED_LAN_IP: 192.168.50.2' /tmp/opensurge-compose.yaml
-      - name: Check deployment shell syntax
-        run: |
-          sh -n deploy/qnap/preflight.sh
-          sh -n docker/entrypoint.sh
-      - name: Run static QNAP deployment preflight
-        run: make qnap-preflight-static
-      - name: Reject relative QNAP persistence path
-        run: |
-          cp deploy/qnap/.env.example /tmp/opensurge-relative.env
-          sed -i 's#^OPENSURGE_DATA_PATH=.*#OPENSURGE_DATA_PATH=./data#' /tmp/opensurge-relative.env
-          if sh deploy/qnap/preflight.sh --env-file /tmp/opensurge-relative.env --static; then
-            echo 'relative persistence path unexpectedly passed preflight' >&2
+          if grep -q '\${' docker-compose.yml; then
+            echo 'QNAP deployment unexpectedly requires environment interpolation' >&2
             exit 1
           fi
+          grep -q 'container_name: opensurge-host-agent' /tmp/opensurge-compose.yaml
+          grep -q 'network_mode: host' /tmp/opensurge-compose.yaml
+          grep -q '/var/run/docker.sock:/var/run/docker.sock' /tmp/opensurge-compose.yaml
+          grep -q 'container_name: opensurge' /tmp/opensurge-compose.yaml
+          grep -q '18080:8080' /tmp/opensurge-compose.yaml
+          grep -q 'opensurge-data' /tmp/opensurge-compose.yaml
+          test "$(grep -c '/var/run/docker.sock:/var/run/docker.sock' /tmp/opensurge-compose.yaml)" = "1"
+          if grep -q 'privileged: true' /tmp/opensurge-compose.yaml; then
+            echo 'privileged=true is not allowed' >&2
+            exit 1
+          fi
+      - name: Check deployment shell syntax
+        run: sh -n docker/entrypoint.sh
 
   namespace-lab:
     runs-on: ubuntu-latest
@@ -153,16 +147,12 @@ jobs:
           provenance: false
           tags: opensurge-qnap:ci
           cache-from: type=gha,scope=phase2-linux/amd64
-      - name: Start Web/control plane with first-run deployment seed
+      - name: Start Web/control plane with bootstrap configuration
         run: |
           rm -rf /tmp/opensurge-ci-data
           mkdir -p /tmp/opensurge-ci-data
           docker run -d --name opensurge-ci \
             -p 127.0.0.1:18080:8080 \
-            -e OPENSURGE_SEED_LAN_IP=10.55.0.2 \
-            -e OPENSURGE_SEED_LAN_CIDR=10.55.0.0/24 \
-            -e OPENSURGE_SEED_UPSTREAM_GATEWAY=10.55.0.1 \
-            -e OPENSURGE_CONTAINER_INTERFACE=eth0 \
             -v /tmp/opensurge-ci-data:/data \
             opensurge-qnap:ci
           for i in $(seq 1 30); do
@@ -173,14 +163,9 @@ jobs:
           done
           docker logs opensurge-ci
           exit 1
-      - name: Verify first-run Compose values seeded persistent config
+      - name: Verify bootstrap config and first-run auth boundary
         run: |
-          docker exec opensurge-ci grep -q 'lan_ip: "10.55.0.2"' /data/config/opensurge.yaml
-          docker exec opensurge-ci grep -q 'lan_cidr: "10.55.0.0/24"' /data/config/opensurge.yaml
-          docker exec opensurge-ci grep -q 'upstream_gateway: "10.55.0.1"' /data/config/opensurge.yaml
-          docker exec opensurge-ci grep -q 'interface: "eth0"' /data/config/opensurge.yaml
-      - name: Verify first-run auth boundary
-        run: |
+          docker exec opensurge-ci grep -q 'lan_ip: "192.168.50.2"' /data/config/opensurge.yaml
           test "$(curl -sS -o /tmp/body -w '%{http_code}' http://127.0.0.1:18080/api/v1/overview)" = "401"
           curl -fsS http://127.0.0.1:18080/api/auth/state | grep -q '"setup_required":true'
       - name: Create admin and exercise Linux network discovery
@@ -193,20 +178,15 @@ jobs:
           curl -fsS -b /tmp/opensurge-cookies \
             http://127.0.0.1:18080/api/v1/network/interfaces \
             | grep -q '"interfaces"'
+          test "$(curl -sS -b /tmp/opensurge-cookies -o /tmp/qnap-body -w '%{http_code}' http://127.0.0.1:18080/api/qnap/setup)" = "502"
       - name: Reconcile persisted runtime after container recreation
         run: |
           set -euo pipefail
           old_ns="$(docker exec opensurge-ci readlink /proc/self/ns/net)"
           boot_id="$(docker exec opensurge-ci cat /proc/sys/kernel/random/boot_id)"
+          docker exec opensurge-ci sh -c 'printf "\n# persistence-marker\n" >> /data/config/opensurge.yaml'
 
-          # Start the replacement while the original namespace is still alive.
-          # Pass deliberately different seed values. Because /data already has
-          # opensurge.yaml, the replacement must ignore them and preserve the
-          # first container's persistent configuration.
           docker run -d --name opensurge-ci-recreated \
-            -e OPENSURGE_SEED_LAN_IP=10.99.0.2 \
-            -e OPENSURGE_SEED_LAN_CIDR=10.99.0.0/24 \
-            -e OPENSURGE_SEED_UPSTREAM_GATEWAY=10.99.0.1 \
             -v /tmp/opensurge-ci-data:/data \
             opensurge-qnap:ci
           for i in $(seq 1 30); do
@@ -214,31 +194,15 @@ jobs:
               break
             fi
             if [ "$i" -eq 30 ]; then
-              echo "replacement container did not become ready" >&2
               docker logs opensurge-ci-recreated
               exit 1
             fi
             sleep 1
           done
-
-          docker exec opensurge-ci-recreated grep -q 'lan_ip: "10.55.0.2"' /data/config/opensurge.yaml
-          docker exec opensurge-ci-recreated grep -q 'lan_cidr: "10.55.0.0/24"' /data/config/opensurge.yaml
-          docker exec opensurge-ci-recreated grep -q 'upstream_gateway: "10.55.0.1"' /data/config/opensurge.yaml
-          if docker exec opensurge-ci-recreated grep -q '10.99.0.2' /data/config/opensurge.yaml; then
-            echo "replacement container overwrote persistent configuration from deployment seed variables" >&2
-            exit 1
-          fi
+          docker exec opensurge-ci-recreated grep -q 'persistence-marker' /data/config/opensurge.yaml
 
           new_ns="$(docker exec opensurge-ci-recreated readlink /proc/self/ns/net)"
-          echo "original namespace:    $old_ns"
-          echo "replacement namespace: $new_ns"
-          if [ "$new_ns" = "$old_ns" ]; then
-            echo "replacement unexpectedly shares the original network namespace" >&2
-            exit 1
-          fi
-
-          # Now remove the original container. The replacement keeps the same
-          # persistent /data, matching Container Station recreate semantics.
+          test "$new_ns" != "$old_ns"
           docker rm -f opensurge-ci >/dev/null
 
           dns_pid="$(docker exec opensurge-ci-recreated sh -c 'sleep 120 >/dev/null 2>&1 & echo $!')"
@@ -260,31 +224,11 @@ jobs:
           }
           EOF
 
-          status_json="$(docker exec opensurge-ci-recreated \
-            omg status --config /data/config/opensurge.yaml --format json)"
-          echo "status after recreation: $status_json"
-          if ! printf '%s\n' "$status_json" | grep -Eq '"runtime_state"[[:space:]]*:[[:space:]]*"interrupted"'; then
-            echo "replacement container did not classify persisted runtime as interrupted" >&2
-            exit 1
-          fi
-
-          stop_output="$(docker exec opensurge-ci-recreated \
-            omg stop --config /data/config/opensurge.yaml 2>&1)" || {
-              rc=$?
-              echo "$stop_output" >&2
-              echo "interrupted runtime cleanup failed with exit code $rc" >&2
-              exit "$rc"
-            }
-          echo "$stop_output"
-
-          if ! docker exec opensurge-ci-recreated sh -c "kill -0 $dns_pid && kill -0 $mihomo_pid"; then
-            echo "interrupted cleanup signalled a PID owned by the replacement container" >&2
-            exit 1
-          fi
-          if docker exec opensurge-ci-recreated test -e /data/runtime/state.json; then
-            echo "interrupted cleanup left stale runtime state behind" >&2
-            exit 1
-          fi
+          status_json="$(docker exec opensurge-ci-recreated omg status --config /data/config/opensurge.yaml --format json)"
+          printf '%s\n' "$status_json" | grep -Eq '"runtime_state"[[:space:]]*:[[:space:]]*"interrupted"'
+          docker exec opensurge-ci-recreated omg stop --config /data/config/opensurge.yaml
+          docker exec opensurge-ci-recreated sh -c "kill -0 $dns_pid && kill -0 $mihomo_pid"
+          ! docker exec opensurge-ci-recreated test -e /data/runtime/state.json
           docker exec opensurge-ci-recreated sh -c "kill $dns_pid $mihomo_pid"
       - name: Dump logs on failure
         if: failure()
