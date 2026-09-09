@@ -30,7 +30,7 @@ func main() {
 		ConfigPath:        *configPath,
 		Addr:              *controlAddr,
 		StoreDir:          *storeDir,
-		Runner:            controlapi.DirectRunner{},
+		Runner:            controlapi.ContainerRunner{},
 		DiscoverNetwork:   linuxnetwork.Discover,
 		DiscoverDefault:   linuxnetwork.DiscoverDefault,
 		ListInterfaces:    linuxnetwork.ListInterfaces,
