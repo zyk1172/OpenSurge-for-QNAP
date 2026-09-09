@@ -22,8 +22,16 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       OPENSURGE_ALLOWED_HOSTS: ${OPENSURGE_ALLOWED_HOSTS:-}
+      # These values are used only when /data/config/opensurge.yaml does not yet
+      # exist. Existing persistent configuration is never overwritten.
+      OPENSURGE_SEED_LAN_IP: ${OPENSURGE_IP:?set OPENSURGE_IP to a free static LAN address}
+      OPENSURGE_SEED_LAN_CIDR: ${OPENSURGE_SUBNET:?set the LAN CIDR, e.g. 192.168.2.0/24}
+      OPENSURGE_SEED_UPSTREAM_GATEWAY: ${OPENSURGE_GATEWAY:?set the main router IPv4 address}
+      OPENSURGE_CONTAINER_INTERFACE: ${OPENSURGE_CONTAINER_INTERFACE:-eth0}
     volumes:
-      - ${OPENSURGE_DATA_PATH:-./data}:/data
+      # Persist the whole /data tree. runtime/ contains the cleanup journal used
+      # to reconcile interrupted containers, so it must survive recreation too.
+      - ${OPENSURGE_DATA_PATH:?set an absolute QNAP path such as /share/Container/opensurge}:/data
     networks:
       opensurge_lan:
         ipv4_address: ${OPENSURGE_IP:?set OPENSURGE_IP to a free static LAN address}
@@ -34,18 +42,19 @@ services:
         max-file: "${OPENSURGE_LOG_MAX_FILES:-3}"
     stop_grace_period: 30s
 
-# QNET is QNAP Container Station's native L2 driver. QNAP recommends it when a
-# container needs its own static LAN address and the NAS host/other containers
-# may also need to reach that address. Do not replace this with host networking.
+# QNET gives the container its own L2 LAN address. OPENSURGE_PARENT_INTERFACE is
+# the QNAP HOST-side NIC/bridge selector: on a dual-NIC NAS set it to the exact
+# interface attached to the LAN that should carry OpenSurge traffic. The
+# container itself normally sees that single QNET network as eth0.
 networks:
   opensurge_lan:
     driver: qnet
     driver_opts:
-      iface: ${OPENSURGE_PARENT_INTERFACE:?set the QNAP LAN interface}
+      iface: ${OPENSURGE_PARENT_INTERFACE:?set the QNAP NIC/bridge, e.g. eth1 or br0}
     ipam:
       driver: qnet
       options:
-        iface: ${OPENSURGE_PARENT_INTERFACE:?set the QNAP LAN interface}
+        iface: ${OPENSURGE_PARENT_INTERFACE:?set the QNAP NIC/bridge, e.g. eth1 or br0}
       config:
         - subnet: ${OPENSURGE_SUBNET:?set the LAN CIDR, e.g. 192.168.2.0/24}
           gateway: ${OPENSURGE_GATEWAY:?set the main router IPv4 address}
