@@ -1,10 +1,6 @@
 x-opensurge-image: &opensurge-image
-  image: opensurge-for-qnap:dev
-  build:
-    context: ../..
-    dockerfile: docker/Dockerfile
-    args:
-      OPENSURGE_VERSION: dev
+  image: opensurge-for-qnap:test
+  pull_policy: never
 
 services:
   opensurge-manager:
@@ -40,7 +36,7 @@ services:
       OPENSURGE_ROLE: orchestrator
       OPENSURGE_ORCHESTRATOR_SOCKET: /run/opensurge/orchestrator.sock
       OPENSURGE_DOCKER_SOCKET: /var/run/docker.sock
-      OPENSURGE_GATEWAY_IMAGE: opensurge-for-qnap:dev
+      OPENSURGE_GATEWAY_IMAGE: opensurge-for-qnap:test
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - opensurge_orchestrator_run:/run/opensurge

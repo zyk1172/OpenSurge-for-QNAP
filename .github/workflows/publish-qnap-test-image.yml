@@ -1,0 +1,112 @@
+name: Publish QNAP test image
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'docker/**'
+      - 'cmd/opensurge-container/**'
+      - 'cmd/opensurge-manager/**'
+      - 'cmd/opensurge-orchestrator/**'
+      - 'internal/**'
+      - 'web/**'
+      - 'deploy/qnap/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/publish-qnap-test-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qnap-test-image
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }} Docker archive
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+          - arch: arm64
+            platform: linux/arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker archive
+        run: |
+          mkdir -p artifacts
+          docker buildx build \
+            --platform '${{ matrix.platform }}' \
+            --file docker/Dockerfile \
+            --build-arg OPENSURGE_VERSION="test-${GITHUB_SHA::12}" \
+            --build-arg VCS_REF="$GITHUB_SHA" \
+            --tag opensurge-for-qnap:test \
+            --output "type=docker,dest=artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.tar" \
+            .
+          gzip -9 artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.tar
+          sha256sum artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.tar.gz \
+            > artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qnap-test-${{ matrix.arch }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish rolling test prerelease
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: qnap-test-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create combined checksums
+        run: |
+          cd artifacts
+          sha256sum OpenSurge-for-QNAP-test-*.tar.gz > SHA256SUMS
+
+      - name: Replace rolling test prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view qnap-test-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete qnap-test-latest --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          fi
+          cat > /tmp/qnap-test-notes.md <<EOF
+          # OpenSurge for QNAP — rolling test image
+
+          Commit: $GITHUB_SHA
+
+          This is a **test-only** Docker image archive, not a stable release.
+
+          QNAP TS-264C / x86_64 users should download:
+          `OpenSurge-for-QNAP-test-amd64.tar.gz`
+
+          Load it with:
+          `gzip -dc OpenSurge-for-QNAP-test-amd64.tar.gz | docker load`
+
+          The loaded image tag is:
+          `opensurge-for-qnap:test`
+          EOF
+          gh release create qnap-test-latest \
+            artifacts/OpenSurge-for-QNAP-test-amd64.tar.gz \
+            artifacts/OpenSurge-for-QNAP-test-arm64.tar.gz \
+            artifacts/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title 'OpenSurge for QNAP — Test Image' \
+            --notes-file /tmp/qnap-test-notes.md
