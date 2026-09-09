@@ -135,6 +135,7 @@ jobs:
           cache-from: type=gha,scope=phase2-linux/amd64
       - name: Start Web/control plane
         run: |
+          rm -rf /tmp/opensurge-ci-data
           mkdir -p /tmp/opensurge-ci-data
           docker run -d --name opensurge-ci \
             -p 127.0.0.1:18080:8080 \
@@ -162,9 +163,63 @@ jobs:
           curl -fsS -b /tmp/opensurge-cookies \
             http://127.0.0.1:18080/api/v1/network/interfaces \
             | grep -q '"interfaces"'
+      - name: Reconcile persisted runtime after container recreation
+        run: |
+          set -eu
+          old_ns="$(docker exec opensurge-ci readlink /proc/self/ns/net)"
+          boot_id="$(docker exec opensurge-ci cat /proc/sys/kernel/random/boot_id)"
+          docker rm -f opensurge-ci >/dev/null
+
+          docker run -d --name opensurge-ci-recreated \
+            -v /tmp/opensurge-ci-data:/data \
+            opensurge-qnap:ci
+          for i in $(seq 1 30); do
+            if docker exec opensurge-ci-recreated curl -fsS http://127.0.0.1:8080/health/ready >/dev/null; then
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              docker logs opensurge-ci-recreated
+              exit 1
+            fi
+            sleep 1
+          done
+
+          new_ns="$(docker exec opensurge-ci-recreated readlink /proc/self/ns/net)"
+          test "$new_ns" != "$old_ns"
+          dns_pid="$(docker exec opensurge-ci-recreated sh -c 'sleep 120 >/dev/null 2>&1 & echo $!')"
+          mihomo_pid="$(docker exec opensurge-ci-recreated sh -c 'sleep 120 >/dev/null 2>&1 & echo $!')"
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          cat > /tmp/opensurge-ci-data/runtime/state.json <<EOF
+          {
+            "pid_dnsmasq": $dns_pid,
+            "pid_mihomo": $mihomo_pid,
+            "boot_session_id": "$boot_id",
+            "started_at": "$now",
+            "network_snapshot": {
+              "schema_version": 2,
+              "backend": "linux-nftables",
+              "captured_at": "$now",
+              "network_namespace": "$old_ns",
+              "applied": {}
+            }
+          }
+          EOF
+
+          docker exec opensurge-ci-recreated \
+            omg status --config /data/config/opensurge.yaml --format json \
+            | grep -q '"runtime_state":"interrupted"'
+          docker exec opensurge-ci-recreated \
+            omg stop --config /data/config/opensurge.yaml
+          docker exec opensurge-ci-recreated sh -c "kill -0 $dns_pid && kill -0 $mihomo_pid"
+          test ! -e /tmp/opensurge-ci-data/runtime/state.json
+          docker exec opensurge-ci-recreated sh -c "kill $dns_pid $mihomo_pid"
       - name: Dump logs on failure
         if: failure()
-        run: docker logs opensurge-ci || true
+        run: |
+          docker logs opensurge-ci 2>/dev/null || true
+          docker logs opensurge-ci-recreated 2>/dev/null || true
       - name: Cleanup
         if: always()
-        run: docker rm -f opensurge-ci >/dev/null 2>&1 || true
+        run: |
+          docker rm -f opensurge-ci >/dev/null 2>&1 || true
+          docker rm -f opensurge-ci-recreated >/dev/null 2>&1 || true
