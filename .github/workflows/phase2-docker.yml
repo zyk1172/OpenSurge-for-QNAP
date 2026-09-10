@@ -209,17 +209,47 @@ jobs:
           docker exec opensurge-ci grep -q 'lan_cidr: "10.55.0.0/24"' /data/config/opensurge.yaml
           docker exec opensurge-ci grep -q 'upstream_gateway: "10.55.0.1"' /data/config/opensurge.yaml
           docker exec opensurge-ci grep -q 'interface: "eth0"' /data/config/opensurge.yaml
-      - name: Verify first-run auth boundary
+      - name: Verify QNAP image and privilege split
         run: |
+          set -euo pipefail
+          docker exec opensurge-ci test ! -e /usr/local/bin/opensurge-manager
+          docker exec opensurge-ci test ! -e /usr/local/bin/opensurge-orchestrator
+          docker exec opensurge-ci command -v setpriv >/dev/null
+          web_pid="$(docker exec opensurge-ci sh -c 'for p in /proc/[0-9]*; do cmd="$(tr "\000" " " < "$p/cmdline" 2>/dev/null || true)"; case "$cmd" in *"--component web"*) basename "$p"; break;; esac; done')"
+          control_pid="$(docker exec opensurge-ci sh -c 'for p in /proc/[0-9]*; do cmd="$(tr "\000" " " < "$p/cmdline" 2>/dev/null || true)"; case "$cmd" in *"--component control"*) basename "$p"; break;; esac; done')"
+          test -n "$web_pid"
+          test -n "$control_pid"
+          web_uid="$(docker exec opensurge-ci sh -c "set -- \$(grep '^Uid:' /proc/$web_pid/status); echo \$2")"
+          control_uid="$(docker exec opensurge-ci sh -c "set -- \$(grep '^Uid:' /proc/$control_pid/status); echo \$2")"
+          web_caps="$(docker exec opensurge-ci sh -c "set -- \$(grep '^CapEff:' /proc/$web_pid/status); echo \$2")"
+          echo "web pid=$web_pid uid=$web_uid CapEff=$web_caps"
+          echo "control pid=$control_pid uid=$control_uid"
+          test "$web_uid" = "65532"
+          test "$control_uid" = "0"
+          test "$web_caps" = "0000000000000000"
+      - name: Verify first-run auth boundary and bootstrap token
+        run: |
+          set -euo pipefail
           test "$(curl -sS -o /tmp/body -w '%{http_code}' http://127.0.0.1:18080/api/v1/overview)" = "401"
-          curl -fsS http://127.0.0.1:18080/api/auth/state | grep -q '"setup_required":true'
-      - name: Create admin and exercise Linux network discovery
-        run: |
-          curl -fsS -c /tmp/opensurge-cookies \
+          state="$(curl -fsS http://127.0.0.1:18080/api/auth/state)"
+          printf '%s\n' "$state" | grep -q '"setup_required":true'
+          printf '%s\n' "$state" | grep -q '"bootstrap_required":true'
+          test "$(curl -sS -o /tmp/setup-without-token -w '%{http_code}' \
             -H 'Content-Type: application/json' \
             -H 'Origin: http://127.0.0.1:18080' \
             --data '{"username":"admin","password":"phase-two-ci-password"}' \
+            http://127.0.0.1:18080/api/auth/setup)" = "403"
+          bootstrap_token="$(docker exec opensurge-ci cat /data/web-auth/bootstrap-token | tr -d '\r\n')"
+          test -n "$bootstrap_token"
+          curl -fsS -c /tmp/opensurge-cookies \
+            -H 'Content-Type: application/json' \
+            -H 'Origin: http://127.0.0.1:18080' \
+            --data "{\"username\":\"admin\",\"password\":\"phase-two-ci-password\",\"bootstrap_token\":\"$bootstrap_token\"}" \
             http://127.0.0.1:18080/api/auth/setup | grep -q '"authenticated":true'
+          docker exec opensurge-ci test ! -e /data/web-auth/bootstrap-token
+          docker exec opensurge-ci test -f /data/web-auth/admin.json
+      - name: Exercise Linux network discovery
+        run: |
           curl -fsS -b /tmp/opensurge-cookies \
             http://127.0.0.1:18080/api/v1/network/interfaces \
             | grep -q '"interfaces"'
@@ -250,6 +280,9 @@ jobs:
           docker exec opensurge-ci-recreated grep -q 'lan_ip: "10.55.0.2"' /data/config/opensurge.yaml
           docker exec opensurge-ci-recreated grep -q 'lan_cidr: "10.55.0.0/24"' /data/config/opensurge.yaml
           docker exec opensurge-ci-recreated grep -q 'upstream_gateway: "10.55.0.1"' /data/config/opensurge.yaml
+          docker exec opensurge-ci-recreated test -f /data/web-auth/admin.json
+          docker exec opensurge-ci-recreated test ! -e /data/web-auth/bootstrap-token
+          docker exec opensurge-ci-recreated curl -fsS http://127.0.0.1:8080/api/auth/state | grep -q '"setup_required":false'
           if docker exec opensurge-ci-recreated grep -q '10.99.0.2' /data/config/opensurge.yaml; then
             echo "replacement container overwrote persistent configuration from deployment seed variables" >&2
             exit 1
