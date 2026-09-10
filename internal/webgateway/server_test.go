@@ -117,3 +117,50 @@ func TestGatewayRejectsPublicUnlistedHost(t *testing.T) {
 		t.Fatalf("public unlisted host status = %d, want 403", recorder.Code)
 	}
 }
+
+func TestGatewayReadinessRequiresDesiredAndObservedDataPlaneToMatch(t *testing.T) {
+	tests := []struct {
+		name           string
+		desiredRunning bool
+		gateway        string
+		runtimeState   string
+		wantStatus     int
+	}{
+		{name: "running and active", desiredRunning: true, gateway: "running", runtimeState: "active", wantStatus: http.StatusOK},
+		{name: "running intent but interrupted", desiredRunning: true, gateway: "degraded", runtimeState: "interrupted", wantStatus: http.StatusServiceUnavailable},
+		{name: "running intent but runtime absent", desiredRunning: true, gateway: "stopped", runtimeState: "none", wantStatus: http.StatusServiceUnavailable},
+		{name: "explicitly stopped and clean", desiredRunning: false, gateway: "stopped", runtimeState: "none", wantStatus: http.StatusOK},
+		{name: "stop intent but stale runtime remains", desiredRunning: false, gateway: "degraded", runtimeState: "active", wantStatus: http.StatusServiceUnavailable},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			const token = "internal-control-token"
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v1/overview" {
+					t.Fatalf("readiness upstream path = %q", r.URL.Path)
+				}
+				if r.Header.Get("Authorization") != "Bearer "+token {
+					t.Fatalf("Authorization = %q", r.Header.Get("Authorization"))
+				}
+				writeJSON(w, http.StatusOK, map[string]any{"status": map[string]any{
+					"gateway":         test.gateway,
+					"runtime_state":   test.runtimeState,
+					"desired_running": test.desiredRunning,
+				}})
+			}))
+			defer upstream.Close()
+
+			gateway, err := New(Options{Upstream: upstream.URL, ControlToken: token, AuthDir: filepath.Join(t.TempDir(), "auth")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/health/ready", nil)
+			recorder := httptest.NewRecorder()
+			gateway.Handler().ServeHTTP(recorder, request)
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("readiness status = %d body=%s, want %d", recorder.Code, recorder.Body.String(), test.wantStatus)
+			}
+		})
+	}
+}

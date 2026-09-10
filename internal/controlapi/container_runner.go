@@ -33,6 +33,21 @@ func (ContainerRunner) Run(ctx context.Context, action, configPath string) error
 			return err
 		}
 	}
+	if action == "start" {
+		// Persist service intent before touching the runtime. If the container is
+		// interrupted during startup, the next container instance knows that the
+		// gateway should be recovered rather than treated as intentionally stopped.
+		if err := gateway.SetDesiredRunningConfig(configPath, true); err != nil {
+			return fmt.Errorf("persist gateway start intent: %w", err)
+		}
+	}
+	if action == "stop" {
+		// Persist stop intent first so a container crash during teardown cannot
+		// cause an unexpected automatic restart on the next boot.
+		if err := gateway.SetDesiredRunningConfig(configPath, false); err != nil {
+			return fmt.Errorf("persist gateway stop intent: %w", err)
+		}
+	}
 	return (DirectRunner{}).Run(ctx, action, configPath)
 }
 
@@ -43,6 +58,9 @@ func (ContainerRunner) StartPolicyWorkspace(ctx context.Context, configPath stri
 	}
 	if err := validateContainerTopology(cfg.Gateway.Mode); err != nil {
 		return err
+	}
+	if err := gateway.SetDesiredRunningConfig(configPath, true); err != nil {
+		return fmt.Errorf("persist gateway start intent: %w", err)
 	}
 	return (DirectRunner{}).StartPolicyWorkspace(ctx, configPath, input)
 }

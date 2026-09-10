@@ -10,13 +10,14 @@ import (
 	"syscall"
 
 	"open-mihomo-gateway/internal/controlapi"
+	"open-mihomo-gateway/internal/gateway"
 	"open-mihomo-gateway/internal/linuxnetwork"
 	"open-mihomo-gateway/internal/webgateway"
 	"open-mihomo-gateway/internal/webui"
 )
 
 func main() {
-	component := flag.String("component", "all", "component to run: all, control, web, or token")
+	component := flag.String("component", "all", "component to run: all, control, web, token, recover, or health")
 	configPath := flag.String("config", "/data/config/opensurge.yaml", "path to persistent gateway config")
 	storeDir := flag.String("store", "/data/control", "persistent privileged control directory")
 	authDir := flag.String("auth-dir", "", "persistent Web authentication directory")
@@ -45,6 +46,26 @@ func main() {
 	defer cancel()
 
 	switch *component {
+	case "recover":
+		recovered, err := gateway.RecoverConfigAfterContainerRestart(ctx, *configPath)
+		if err != nil {
+			fatal(fmt.Errorf("automatic gateway recovery failed: %w", err))
+		}
+		if recovered {
+			fmt.Println("OpenSurge gateway automatically recovered after container restart.")
+		} else {
+			fmt.Println("OpenSurge gateway recovery: no data-plane restart required.")
+		}
+	case "health":
+		readiness, err := gateway.ReadinessConfig(ctx, *configPath)
+		if err != nil {
+			fatal(fmt.Errorf("gateway readiness check failed: %w", err))
+		}
+		if !readiness.Ready {
+			fmt.Fprintf(os.Stderr, "gateway not ready: desired_running=%t gateway=%s runtime_state=%s reason=%s\n", readiness.DesiredRunning, readiness.Gateway, readiness.RuntimeState, readiness.Reason)
+			os.Exit(1)
+		}
+		fmt.Printf("gateway ready: desired_running=%t gateway=%s runtime_state=%s\n", readiness.DesiredRunning, readiness.Gateway, readiness.RuntimeState)
 	case "control":
 		control, err := newControl(*configPath, *storeDir, *controlAddr)
 		if err != nil {

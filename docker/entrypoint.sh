@@ -112,6 +112,19 @@ if [ ! -f "${CONFIG_PATH}" ]; then
   seed_config
 fi
 
+# Reconcile persistent runtime before exposing the control plane. A cleanly
+# stopped gateway is a no-op. If the previous container disappeared while the
+# gateway was running, this discards stale PID/runtime ownership safely and
+# performs a complete fresh Gateway/Mihomo/DNS/TUN/routing start in the new
+# network namespace. Recovery failure is deliberately non-fatal here: Web and
+# Control must remain reachable for diagnostics, while Docker's data-plane
+# HEALTHCHECK will report unhealthy until desired and observed state agree.
+if ! /usr/local/bin/opensurge-container \
+  --component recover \
+  --config "${CONFIG_PATH}"; then
+  echo "OpenSurge entrypoint: automatic gateway recovery failed; starting Control/Web for diagnostics. Data-plane readiness remains unhealthy." >&2
+fi
+
 # The LAN-facing HTTP process must not retain the gateway's NET_ADMIN/NET_RAW
 # capabilities. Its only persistent write surface is the dedicated auth dir.
 # Never recursively chown /data: on QNAP that bind mount may carry QTS/QuTS

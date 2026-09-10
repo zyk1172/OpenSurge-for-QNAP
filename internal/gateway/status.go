@@ -16,6 +16,7 @@ import (
 type Status struct {
 	Gateway          string `json:"gateway"`
 	RuntimeState     string `json:"runtime_state,omitempty"`
+	DesiredRunning   bool   `json:"desired_running"`
 	Interface        string `json:"interface"`
 	LANIP            string `json:"lan_ip"`
 	DataPlane        string `json:"data_plane"`
@@ -43,6 +44,17 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 	state, exists, err := runtime.LoadState(m.paths.StateFile)
 	if err != nil {
 		return Status{}, err
+	}
+	desired, desiredExists, err := runtime.LoadGatewayDesiredState(runtime.GatewayDesiredStatePath(m.paths.Dir))
+	if err != nil {
+		return Status{}, fmt.Errorf("load gateway desired state: %w", err)
+	}
+	desiredRunning := desired.Running
+	if !desiredExists {
+		// Backward compatibility for installs from before gateway-desired.json:
+		// successful Stop removes runtime state, while an active/interrupted
+		// gateway retains it.
+		desiredRunning = exists
 	}
 	clients, err := device.LoadLeases(m.paths.LeaseFile)
 	if err != nil {
@@ -188,6 +200,7 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 	return Status{
 		Gateway:          gatewayStatus,
 		RuntimeState:     runtimeState,
+		DesiredRunning:   desiredRunning,
 		Interface:        m.cfg.Gateway.Interface,
 		LANIP:            m.cfg.Gateway.LANIP,
 		DataPlane:        dataPlane,

@@ -228,7 +228,7 @@ func (s *Server) handleLive(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
-	request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, s.upstream.String()+"/api/v1/config", nil)
+	request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, s.upstream.String()+"/api/v1/overview", nil)
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready"})
 		return
@@ -240,12 +240,40 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "reason": "control_unavailable"})
 		return
 	}
-	_ = response.Body.Close()
+	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "reason": "control_unhealthy"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ready"})
+	var overview struct {
+		Status struct {
+			Gateway        string `json:"gateway"`
+			RuntimeState   string `json:"runtime_state"`
+			DesiredRunning bool   `json:"desired_running"`
+		} `json:"status"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&overview); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "reason": "control_readiness_invalid"})
+		return
+	}
+	observedReady := overview.Status.Gateway == "running" && overview.Status.RuntimeState == "active"
+	observedStopped := overview.Status.Gateway == "stopped" && overview.Status.RuntimeState == "none"
+	if (overview.Status.DesiredRunning && !observedReady) || (!overview.Status.DesiredRunning && !observedStopped) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"status":          "not_ready",
+			"reason":          "gateway_data_plane_not_ready",
+			"desired_running": overview.Status.DesiredRunning,
+			"gateway":         overview.Status.Gateway,
+			"runtime_state":   overview.Status.RuntimeState,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":          "ready",
+		"desired_running": overview.Status.DesiredRunning,
+		"gateway":         overview.Status.Gateway,
+		"runtime_state":   overview.Status.RuntimeState,
+	})
 }
 
 func (s *Server) handleAuthState(w http.ResponseWriter, _ *http.Request) {

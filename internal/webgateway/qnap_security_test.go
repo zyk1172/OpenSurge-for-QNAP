@@ -102,16 +102,16 @@ func TestQNAPDesktopOnlyPathsAreBlocked(t *testing.T) {
 	}
 }
 
-func TestReadyRequiresAuthenticatedControlConfig(t *testing.T) {
+func TestReadyRequiresAuthenticatedControlDataPlaneStatus(t *testing.T) {
 	control := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/config" {
-			t.Fatalf("readiness requested %q, want /api/v1/config", r.URL.Path)
+		if r.URL.Path != "/api/v1/overview" {
+			t.Fatalf("readiness requested %q, want /api/v1/overview", r.URL.Path)
 		}
 		if r.Header.Get("Authorization") != "Bearer control-secret" {
 			t.Fatalf("readiness omitted internal control authorization")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"schema_version":1}`))
+		_, _ = w.Write([]byte(`{"status":{"gateway":"running","runtime_state":"active","desired_running":true}}`))
 	}))
 	defer control.Close()
 
