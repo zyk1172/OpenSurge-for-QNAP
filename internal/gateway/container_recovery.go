@@ -136,7 +136,7 @@ func ReadinessConfig(ctx context.Context, configPath string) (Readiness, error) 
 // matches the persisted desired state. An intentionally stopped gateway is
 // healthy; a desired-running gateway with missing Mihomo/DNS/routes is not.
 func (m Manager) Readiness(ctx context.Context) (Readiness, error) {
-	state, stateExists, err := runtime.LoadState(m.paths.StateFile)
+	_, stateExists, err := runtime.LoadState(m.paths.StateFile)
 	if err != nil {
 		return Readiness{}, err
 	}
