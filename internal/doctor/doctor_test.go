@@ -61,6 +61,46 @@ func TestCheckInterfaceIPv4RejectsInvalidIP(t *testing.T) {
 	}
 }
 
+func TestCheckWritableDirectoryExercisesDurableOperations(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "runtime")
+	check := checkWritableDirectory("persistent runtime storage", dir)
+	if !check.OK {
+		t.Fatalf("checkWritableDirectory() OK = false: %s", check.Message)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("storage probe left %d entries behind", len(entries))
+	}
+}
+
+func TestCheckWritableDirectoryRejectsRegularFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check := checkWritableDirectory("persistent runtime storage", path)
+	if check.OK {
+		t.Fatalf("checkWritableDirectory() OK = true for regular file")
+	}
+}
+
+func TestCheckTUNDeviceRejectsRegularFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tun")
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check := checkTUNDevice(path)
+	if check.OK {
+		t.Fatalf("checkTUNDevice() OK = true for regular file")
+	}
+	if !strings.Contains(check.Message, "not a character device") {
+		t.Fatalf("checkTUNDevice() message = %q", check.Message)
+	}
+}
+
 func TestValidateMihomoConfigWithEngineRunsMihomoTestMode(t *testing.T) {
 	dir := t.TempDir()
 	argsPath := filepath.Join(dir, "args")
