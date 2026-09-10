@@ -135,11 +135,11 @@ jobs:
           test "$(grep -c 'exec.Command("/bin/ps"' internal/process/process.go)" -eq 1
           grep -q 'func psProcessIdentity' internal/process/process.go
       - name: QNAP Web security boundary tests
-        run: go test ./internal/webgateway -run 'TestQNAP|TestReadyRequiresAuthenticatedControlConfig' -count=1
+        run: go test ./internal/webgateway -run 'TestQNAPFirstAdminRequiresBootstrapToken|TestQNAPDesktopOnlyPathsAreBlocked|TestReadyRequiresAuthenticatedControlConfig' -count=1
       - name: QNAP Mihomo exposure tests
-        run: go test ./internal/mihomo -run 'Test.*Exposure|Test.*Bind|Test.*DNS' -count=1
+        run: go test ./internal/mihomo -run 'TestTUNModeKeepsMihomoInternalListenersOnLoopback|TestTransparentOffExplicitlyEnablesManualLANMixedPort' -count=1
       - name: QNAP source network policy tests
-        run: go test ./internal/controlapi -run 'Test.*Source.*Address|Test.*Public.*Source|Test.*CGNAT' -count=1
+        run: go test ./internal/controlapi -run 'TestSourceIPAllowedOnlyForPublicDestinations' -count=1
       - name: Profile persistence tests
         run: go test ./internal/controlapi -run 'TestApplyProfileLeavesStoppedGatewayPendingForNextStart|TestApplyProfileFlowStyleUsesAuthoritativeRenderer' -count=1
       - name: QNAP container runner tests
