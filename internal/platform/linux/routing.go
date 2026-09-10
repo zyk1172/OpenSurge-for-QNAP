@@ -15,15 +15,10 @@ import (
 )
 
 const (
-	// procIPv4Forward is the Linux forwarding switch. Writing /proc directly
-	// avoids depending on the sysctl binary, which is not always present in a
-	// minimal container image.
 	procIPv4Forward = "/proc/sys/net/ipv4/ip_forward"
-	// procConfDir is where per-interface knobs such as rp_filter live.
-	procConfDir = "/proc/sys/net/ipv4/conf"
+	procConfDir      = "/proc/sys/net/ipv4/conf"
 )
 
-// readProcSys reads a sysctl value from /proc.
 func readProcSys(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -32,8 +27,6 @@ func readProcSys(path string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-// writeProcSys writes a sysctl value to /proc and reports whether the value
-// actually changed. It is a no-op when the current value already matches.
 func writeProcSys(path, value string) (changed bool, err error) {
 	if previous, readErr := readProcSys(path); readErr == nil && previous == value {
 		return false, nil
@@ -129,13 +122,20 @@ func ruleSpec(cfg platform.RoutingConfig) string {
 	return fmt.Sprintf("pref %d fwmark %s lookup %d", cfg.RulePriority, markHex(cfg.FwMark), cfg.TableID)
 }
 
+func guardRulePriority(cfg platform.RoutingConfig) (uint32, error) {
+	if effectiveRuleMode(cfg) != platform.RoutingRuleIngressInterface {
+		return 0, nil
+	}
+	if cfg.RulePriority == ^uint32(0) {
+		return 0, platform.NewError(platform.CodeInvalidArgument, "routing rule priority leaves no room for the fail-closed guard rule")
+	}
+	return cfg.RulePriority + 1, nil
+}
+
 func markHex(mark uint32) string {
 	return fmt.Sprintf("0x%x", mark)
 }
 
-// ipRule is the subset of `ip -j rule show` relevant to ownership. Different
-// iproute2 versions encode table/mark fields as either JSON strings or numbers,
-// so RawMessage is parsed deliberately instead of relying on a fragile struct.
 type ipRule map[string]json.RawMessage
 
 func parseRawUint32(raw json.RawMessage) (uint32, bool) {
@@ -208,7 +208,26 @@ func ruleMatchesConfig(rule ipRule, cfg platform.RoutingConfig) bool {
 	return markOK && mark == cfg.FwMark
 }
 
-// rulePresent reports whether the exact OpenSurge policy rule exists.
+func guardRuleMatchesConfig(rule ipRule, cfg platform.RoutingConfig) bool {
+	if effectiveRuleMode(cfg) != platform.RoutingRuleIngressInterface {
+		return false
+	}
+	priority, err := guardRulePriority(cfg)
+	if err != nil {
+		return false
+	}
+	actualPriority, ok := ruleField(rule, "priority")
+	if !ok || actualPriority != priority {
+		return false
+	}
+	iif, ok := ruleStringField(rule, "iif", "iifname")
+	if !ok || iif != cfg.LANInterface {
+		return false
+	}
+	action, ok := ruleStringField(rule, "action", "type")
+	return ok && strings.EqualFold(action, "prohibit")
+}
+
 func (b *Backend) rulePresent(ctx context.Context, cfg platform.RoutingConfig) (bool, error) {
 	rules, err := b.policyRules(ctx)
 	if err != nil {
@@ -216,6 +235,22 @@ func (b *Backend) rulePresent(ctx context.Context, cfg platform.RoutingConfig) (
 	}
 	for _, rule := range rules {
 		if ruleMatchesConfig(rule, cfg) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (b *Backend) guardRulePresent(ctx context.Context, cfg platform.RoutingConfig) (bool, error) {
+	if effectiveRuleMode(cfg) != platform.RoutingRuleIngressInterface {
+		return true, nil
+	}
+	rules, err := b.policyRules(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, rule := range rules {
+		if guardRuleMatchesConfig(rule, cfg) {
 			return true, nil
 		}
 	}
@@ -247,10 +282,6 @@ type ipRouteEntry struct {
 	Gateway string `json:"gateway"`
 }
 
-// routingTableMatches verifies the complete OpenSurge-owned routing table, not
-// merely the presence of the expected LAN and default routes. A more-specific
-// foreign route could otherwise bypass the TUN while status still reported the
-// data plane as healthy.
 func (b *Backend) routingTableMatches(ctx context.Context, cfg platform.RoutingConfig) (bool, error) {
 	if cfg.TableID == 0 {
 		return false, nil
@@ -307,13 +338,15 @@ func (b *Backend) policyRoutingPresent(ctx context.Context, cfg platform.Routing
 	if err != nil || !present {
 		return present, err
 	}
+	if effectiveRuleMode(cfg) == platform.RoutingRuleIngressInterface {
+		guard, err := b.guardRulePresent(ctx, cfg)
+		if err != nil || !guard {
+			return guard, err
+		}
+	}
 	return b.routingTableMatches(ctx, cfg)
 }
 
-// validateOwnership proves every kernel identifier OpenSurge wants is free.
-// Same-LAN iif routing has no nftables resource and therefore never probes or
-// reserves an nft table. Isolated-LAN mode keeps the historical nft/fwmark
-// ownership checks.
 func (b *Backend) validateOwnership(ctx context.Context, cfg platform.NetworkConfig) error {
 	if !cfg.SameLAN {
 		tableName := strings.TrimSpace(cfg.NFTTableName)
@@ -336,6 +369,13 @@ func (b *Backend) validateOwnership(ctx context.Context, cfg platform.NetworkCon
 		return platform.NewError(platform.CodeInvalidArgument,
 			"route table id and rule priority must be non-zero, and nft mode also requires a non-zero fwmark")
 	}
+	guardPriority := uint32(0)
+	if cfg.SameLAN {
+		if cfg.RouteRulePriority == ^uint32(0) {
+			return platform.NewError(platform.CodeInvalidArgument, "route rule priority leaves no room for the fail-closed guard rule")
+		}
+		guardPriority = cfg.RouteRulePriority + 1
+	}
 	if entries, err := b.routingTableHasEntries(ctx, cfg.RouteTableID); err != nil {
 		return err
 	} else if entries {
@@ -356,7 +396,7 @@ func (b *Backend) validateOwnership(ctx context.Context, cfg platform.NetworkCon
 		collision := (priorityOK && priority == cfg.RouteRulePriority) ||
 			(tableOK && table == cfg.RouteTableID)
 		if cfg.SameLAN {
-			collision = collision || (iifOK && iif == cfg.LANInterface)
+			collision = collision || (priorityOK && priority == guardPriority) || (iifOK && iif == cfg.LANInterface)
 		} else {
 			collision = collision || (markOK && mark == cfg.FwMark)
 		}
@@ -367,20 +407,18 @@ func (b *Backend) validateOwnership(ctx context.Context, cfg platform.NetworkCon
 			}
 			if cfg.SameLAN {
 				details["iif"] = cfg.LANInterface
+				details["guard_priority"] = strconv.FormatUint(uint64(guardPriority), 10)
 			} else {
 				details["fw_mark"] = markHex(cfg.FwMark)
 			}
 			return platform.NewError(platform.CodePolicyRoutingConflict,
-				"an existing policy rule collides with OpenSurge's requested selector, priority or table").
+				"an existing policy rule collides with OpenSurge's requested selector, priority, guard or table").
 				WithDetails(details)
 		}
 	}
 	return nil
 }
 
-// applyPolicyRouting installs the dedicated routing table and either an exact
-// fwmark selector (historical nft backend) or an ingress-interface selector
-// (same-LAN QNAP backend).
 func (b *Backend) applyPolicyRouting(ctx context.Context, cfg platform.RoutingConfig) error {
 	if err := validateInterfaceName(cfg.LANInterface); err != nil {
 		return err
@@ -405,6 +443,26 @@ func (b *Backend) applyPolicyRouting(ctx context.Context, cfg platform.RoutingCo
 		return platform.NewError(platform.CodeInvalidArgument, "unsupported policy routing rule mode").WithDetail("rule_mode", string(mode))
 	}
 	table := strconv.FormatUint(uint64(cfg.TableID), 10)
+
+	// Install the fail-closed guard before touching the owned routing table. If
+	// the primary selector or table is missing during start/recovery, forwarded
+	// same-LAN traffic is prohibited instead of falling through to main.
+	if mode == platform.RoutingRuleIngressInterface {
+		priority, err := guardRulePriority(cfg)
+		if err != nil {
+			return err
+		}
+		guard, err := b.guardRulePresent(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		if !guard {
+			if err := b.runner.run(ctx, b.runner.ipPath, "rule", "add", "pref",
+				strconv.FormatUint(uint64(priority), 10), "iif", cfg.LANInterface, "prohibit"); err != nil {
+				return err
+			}
+		}
+	}
 
 	if err := b.runner.run(ctx, b.runner.ipPath, "route", "replace", cfg.LANCIDR,
 		"dev", cfg.LANInterface, "scope", "link", "table", table); err != nil {
@@ -455,8 +513,6 @@ func (b *Backend) applyPolicyRouting(ctx context.Context, cfg platform.RoutingCo
 	return nil
 }
 
-// removePolicyRouting removes only the exact rule and the two exact routes
-// OpenSurge creates. It intentionally does not flush the whole routing table.
 func (b *Backend) removePolicyRouting(ctx context.Context, cfg platform.RoutingConfig) error {
 	mode := effectiveRuleMode(cfg)
 	if cfg.TableID == 0 || cfg.RulePriority == 0 || (mode == platform.RoutingRuleFWMark && cfg.FwMark == 0) {
@@ -502,6 +558,23 @@ func (b *Backend) removePolicyRouting(ctx context.Context, cfg platform.RoutingC
 		if err := b.runner.run(ctx, b.runner.ipPath, "route", "del", "default",
 			"dev", cfg.TUNDevice, "table", table); err != nil && !isNotExist(err) {
 			failures = append(failures, fmt.Sprintf("delete TUN route: %v", err))
+		}
+	}
+
+	// Keep the guard until all owned routes and the primary selector are gone.
+	// Stop/recovery therefore fail closed throughout teardown as well as setup.
+	if mode == platform.RoutingRuleIngressInterface {
+		guard, err := b.guardRulePresent(ctx, cfg)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("check guard rule: %v", err))
+		} else if guard {
+			priority, priorityErr := guardRulePriority(cfg)
+			if priorityErr != nil {
+				failures = append(failures, fmt.Sprintf("guard priority: %v", priorityErr))
+			} else if err := b.runner.run(ctx, b.runner.ipPath, "rule", "del", "pref",
+				strconv.FormatUint(uint64(priority), 10), "iif", cfg.LANInterface, "prohibit"); err != nil && !isNotExist(err) {
+				failures = append(failures, fmt.Sprintf("delete guard rule: %v", err))
+			}
 		}
 	}
 
