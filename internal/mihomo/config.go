@@ -12,8 +12,8 @@ import (
 )
 
 const configTemplate = `mixed-port: {{ .MixedPort }}
-allow-lan: true
-bind-address: "*"
+allow-lan: {{ .LANProxyEnabled }}
+bind-address: "{{ .MihomoBindAddress }}"
 mode: rule
 log-level: info
 ipv6: {{ .IPv6Enabled }}
@@ -41,7 +41,7 @@ geox-url:
 
 dns:
   enable: true
-  listen: 0.0.0.0:1053
+  listen: 127.0.0.1:1053
   ipv6: {{ .DNSIPv6 }}
   enhanced-mode: fake-ip
   fake-ip-range: 198.18.0.1/16
@@ -119,6 +119,8 @@ type templateData struct {
 	TUNStrictRoute         bool
 	TUNRouteAddresses      string
 	TUNCustomRoutes        bool
+	LANProxyEnabled        bool
+	MihomoBindAddress      string
 	IPv6Enabled            bool
 	TUNIPv6Enabled         bool
 	TUNIPv6Address         string
@@ -136,8 +138,6 @@ type templateData struct {
 }
 
 func newTemplateData(cfg config.Config) (templateData, error) {
-	// Rendering consumes one immutable compiled policy snapshot so the rule
-	// sections and IPv6 MAC-to-user sideband cannot drift from each other.
 	if err := config.PrepareDevicePolicy(&cfg); err != nil {
 		return templateData{}, err
 	}
@@ -168,6 +168,11 @@ func newTemplateData(cfg config.Config) (templateData, error) {
 		return templateData{}, fmt.Errorf("resolve IPv6 packet socket: %w", err)
 	}
 	tunRouteAddresses := renderTailscaleRouteAddresses(cfg, lanPrefix)
+	lanProxyEnabled := !transparent.TUNEnabled()
+	mihomoBindAddress := "127.0.0.1"
+	if lanProxyEnabled {
+		mihomoBindAddress = "*"
+	}
 	return templateData{
 		MihomoConfig:           cfg.Mihomo,
 		TUNEnabled:             transparent.TUNEnabled(),
@@ -178,6 +183,8 @@ func newTemplateData(cfg config.Config) (templateData, error) {
 		TUNStrictRoute:         transparent.TUNStrictRoute,
 		TUNRouteAddresses:      tunRouteAddresses,
 		TUNCustomRoutes:        tunRouteAddresses != "",
+		LANProxyEnabled:        lanProxyEnabled,
+		MihomoBindAddress:      mihomoBindAddress,
 		IPv6Enabled:            cfg.DNS.IPv6 || transparent.TUNIPv6 != config.TUNIPv6Off,
 		TUNIPv6Enabled:         transparent.TUNIPv6 != config.TUNIPv6Off,
 		TUNIPv6Address:         config.MihomoTUNIPv6,
