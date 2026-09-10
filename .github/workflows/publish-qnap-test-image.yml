@@ -6,8 +6,6 @@ on:
     paths:
       - 'docker/**'
       - 'cmd/opensurge-container/**'
-      - 'cmd/opensurge-manager/**'
-      - 'cmd/opensurge-orchestrator/**'
       - 'internal/**'
       - 'web/**'
       - 'deploy/qnap/**'
@@ -17,7 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: qnap-test-image
@@ -27,6 +25,10 @@ jobs:
   build:
     name: Build ${{ matrix.arch }} Docker archive
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -36,9 +38,9 @@ jobs:
           - arch: arm64
             platform: linux/arm64
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build Docker archive
         run: |
@@ -51,11 +53,40 @@ jobs:
             --tag opensurge-for-qnap:test \
             --output "type=docker,dest=artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.tar" \
             .
-          gzip -9 artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.tar
-          sha256sum artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.tar.gz \
-            > artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.tar.gz.sha256
 
-      - uses: actions/upload-artifact@v4
+      - name: Load image for SBOM generation
+        run: docker load --input artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.tar
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: opensurge-for-qnap:test
+          format: spdx-json
+          output-file: artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.spdx.json
+          artifact-name: OpenSurge-for-QNAP-test-${{ matrix.arch }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Compress and checksum archive
+        run: |
+          gzip -9 artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.tar
+          sha256sum \
+            artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.tar.gz \
+            artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.spdx.json \
+            > artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.sha256
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.tar.gz
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2
+        with:
+          subject-path: artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.tar.gz
+          sbom-path: artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.spdx.json
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: qnap-test-${{ matrix.arch }}
           path: artifacts/*
@@ -66,8 +97,11 @@ jobs:
     name: Publish rolling test prerelease
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: qnap-test-*
           path: artifacts
@@ -76,7 +110,7 @@ jobs:
       - name: Create combined checksums
         run: |
           cd artifacts
-          sha256sum OpenSurge-for-QNAP-test-*.tar.gz > SHA256SUMS
+          sha256sum OpenSurge-for-QNAP-test-*.tar.gz OpenSurge-for-QNAP-test-*.spdx.json > SHA256SUMS
 
       - name: Replace rolling test prerelease
         env:
@@ -85,11 +119,9 @@ jobs:
           if gh release view qnap-test-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release delete qnap-test-latest --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
           fi
-          cat > /tmp/qnap-test-notes.md <<EOF
-          # OpenSurge for QNAP — rolling test image
-
-          Commit: $GITHUB_SHA
-
+          {
+            printf '# OpenSurge for QNAP — rolling test image\n\nCommit: `%s`\n\n' "$GITHUB_SHA"
+            cat <<'EOF'
           This is a **test-only** Docker image archive, not a stable release.
 
           QNAP TS-264C / x86_64 users should download:
@@ -100,10 +132,17 @@ jobs:
 
           The loaded image tag is:
           `opensurge-for-qnap:test`
+
+          Each architecture also includes an SPDX JSON SBOM. The Docker archives
+          have GitHub build-provenance and SBOM attestations; `SHA256SUMS` covers
+          both archives and both published SBOM files.
           EOF
+          } > /tmp/qnap-test-notes.md
           gh release create qnap-test-latest \
             artifacts/OpenSurge-for-QNAP-test-amd64.tar.gz \
             artifacts/OpenSurge-for-QNAP-test-arm64.tar.gz \
+            artifacts/OpenSurge-for-QNAP-test-amd64.spdx.json \
+            artifacts/OpenSurge-for-QNAP-test-arm64.spdx.json \
             artifacts/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
