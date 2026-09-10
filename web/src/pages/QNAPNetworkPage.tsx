@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, waitForOperation } from '../api'
 import { PageHeader, SectionTitle } from '../components/Common'
 import type { OperationNotification } from '../components/OperationNotifications'
+import { RemoteManagementCard } from '../components/RemoteManagementCard'
 import type { ControlConfig, NetworkDefaults, Overview } from '../types'
 import { t } from '../i18n'
 
@@ -176,6 +177,8 @@ export function QNAPNetworkPage({
         <button className="primary" type="button" onClick={() => void saveRuntime()} disabled={saving || lifecycleBusy}>{saving ? t('正在保存…') : t(running ? '保存并重启网关' : '保存运行参数')}</button>
       </div>
     </section>}
+
+    <RemoteManagementCard />
 
     <section className="section" id="gateway-control-bottom">
       <SectionTitle title="如何修改物理网卡或静态 IP" subtitle="这是容器部署操作，不是 OpenSurge 运行配置" />
