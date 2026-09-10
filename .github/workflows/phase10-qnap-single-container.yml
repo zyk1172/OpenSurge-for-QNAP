@@ -8,8 +8,11 @@ on:
       - 'internal/controlapi/**'
       - 'internal/gateway/**'
       - 'internal/linuxnetwork/**'
+      - 'internal/mihomo/**'
+      - 'internal/platform/**'
       - 'internal/process/**'
       - 'internal/runtime/**'
+      - 'internal/webgateway/**'
       - 'docker/**'
       - 'deploy/qnap/**'
       - 'web/**'
@@ -61,6 +64,17 @@ jobs:
           grep -q 'NET_ADMIN' /tmp/opensurge-qnap-compose.yaml
           grep -q 'NET_RAW' /tmp/opensurge-qnap-compose.yaml
           grep -q '/dev/net/tun' /tmp/opensurge-qnap-compose.yaml
+      - name: Guard QNAP image surface
+        run: |
+          ! grep -q '/out/opensurge-manager' docker/Dockerfile
+          ! grep -q '/out/opensurge-orchestrator' docker/Dockerfile
+          ! grep -q 'COPY --from=go-builder /out/opensurge-manager' docker/Dockerfile
+          ! grep -q 'COPY --from=go-builder /out/opensurge-orchestrator' docker/Dockerfile
+          grep -q 'util-linux' docker/Dockerfile
+          grep -q -- '--component web' docker/entrypoint.sh
+          grep -q -- '--component control' docker/entrypoint.sh
+          grep -q -- '--bounding-set=-all' docker/entrypoint.sh
+          grep -q -- '--require-bootstrap-token' docker/entrypoint.sh
 
   qnap-web:
     runs-on: ubuntu-latest
@@ -120,6 +134,12 @@ jobs:
           grep -q 'identity, err = linuxProcessIdentity(pid)' internal/process/process.go
           test "$(grep -c 'exec.Command("/bin/ps"' internal/process/process.go)" -eq 1
           grep -q 'func psProcessIdentity' internal/process/process.go
+      - name: QNAP Web security boundary tests
+        run: go test ./internal/webgateway -run 'TestQNAP|TestReadyRequiresAuthenticatedControlConfig' -count=1
+      - name: QNAP Mihomo exposure tests
+        run: go test ./internal/mihomo -run 'Test.*Exposure|Test.*Bind|Test.*DNS' -count=1
+      - name: QNAP source network policy tests
+        run: go test ./internal/controlapi -run 'Test.*Source.*Address|Test.*Public.*Source|Test.*CGNAT' -count=1
       - name: Profile persistence tests
         run: go test ./internal/controlapi -run 'TestApplyProfileLeavesStoppedGatewayPendingForNextStart|TestApplyProfileFlowStyleUsesAuthoritativeRenderer' -count=1
       - name: QNAP container runner tests
