@@ -1,3 +1,5 @@
+import { registerEnglishMessages } from './i18n'
+
 export const profileOverlayEnglishMessages: Record<string, string> = {
   'Hosts 条目': 'Hosts entries',
   'Hosts 与本地解析': 'Hosts & local resolution',
@@ -10,3 +12,5 @@ export const profileOverlayEnglishMessages: Record<string, string> = {
   '支持空行、# 注释、IPv4、IPv6 和一行多个主机名；重复的主机/IP 会自动去重，同一主机的多个 IP 会合并。': 'Supports blank lines, # comments, IPv4, IPv6, and multiple hostnames per line. Duplicate host/IP pairs are deduplicated and multiple IPs for one host are combined.',
   '导入本地 Hosts 文件': 'Import local Hosts file',
 }
+
+registerEnglishMessages(profileOverlayEnglishMessages)
