@@ -1,0 +1,328 @@
+html[data-product-target="qnap"] body {
+  min-width: 0;
+}
+
+html[data-product-target="qnap"] .workspace {
+  max-width: 1560px;
+}
+
+html[data-product-target="qnap"] .section,
+html[data-product-target="qnap"] .gateway-card,
+html[data-product-target="qnap"] .metric,
+html[data-product-target="qnap"] .source-card,
+html[data-product-target="qnap"] .device-card,
+html[data-product-target="qnap"] .policy-list article {
+  box-shadow: 0 18px 55px #02090718;
+}
+
+html[data-product-target="qnap"] .sidebar nav button {
+  min-height: 44px;
+}
+
+html[data-product-target="qnap"] .diagnostic-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: -8px 0 18px;
+}
+
+html[data-product-target="qnap"] .diagnostic-summary-card {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #20342d;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #0f211b, #0b1815);
+}
+
+html[data-product-target="qnap"] .diagnostic-summary-card small {
+  color: #78aa95;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+
+html[data-product-target="qnap"] .diagnostic-summary-card strong {
+  overflow: hidden;
+  color: #edf7f2;
+  font-size: 22px;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-product-target="qnap"] .diagnostic-summary-card span {
+  overflow: hidden;
+  color: #71877e;
+  font-size: 11px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-product-target="qnap"] .diagnostic-summary-card.ok {
+  border-color: #28543f;
+  background: linear-gradient(145deg, #10251d, #0b1a16);
+}
+
+html[data-product-target="qnap"] .diagnostic-summary-card.warn {
+  border-color: #675024;
+  background: linear-gradient(145deg, #2b2413, #17180f);
+}
+
+html[data-product-target="qnap"] .qnap-diagnostic-main {
+  align-items: start;
+}
+
+html[data-product-target="qnap"] .qnap-doctor-note {
+  margin: -2px 0 14px;
+}
+
+html[data-product-target="qnap"] .qnap-doctor-note p {
+  margin: 6px 0 0;
+}
+
+html[data-product-target="qnap"] .doctor-check-list {
+  display: grid;
+  gap: 8px;
+}
+
+html[data-product-target="qnap"] .doctor-check-list .check {
+  margin: 0;
+  border: 1px solid #1d302a;
+  border-radius: 11px;
+  background: #0a17138c;
+}
+
+html[data-product-target="qnap"] .doctor-check-list .doctor-check-failed {
+  border-color: #68433b;
+  background: #2a1715;
+}
+
+html[data-product-target="qnap"] .provider-status-list {
+  display: grid;
+  gap: 8px;
+}
+
+html[data-product-target="qnap"] .provider-status-list .row {
+  margin: 0;
+  border: 1px solid #1d302a;
+  border-radius: 11px;
+  background: #0a17138c;
+}
+
+html[data-product-target="qnap"] .connection-summary-line {
+  display: flex;
+  gap: 18px;
+  margin: -8px 0 14px;
+  color: #8aa098;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+html[data-product-target="qnap"] .diagnostic-connection-list {
+  overflow: hidden;
+  border: 1px solid #1d302a;
+  border-radius: 12px;
+}
+
+html[data-product-target="qnap"] .diagnostic-connection-row {
+  display: grid;
+  grid-template-columns: minmax(110px, .35fr) minmax(0, 1fr);
+  gap: 16px;
+  padding: 12px 14px;
+  border-top: 1px solid #182923;
+}
+
+html[data-product-target="qnap"] .diagnostic-connection-row:first-child {
+  border-top: 0;
+}
+
+html[data-product-target="qnap"] .diagnostic-connection-row strong {
+  overflow: hidden;
+  color: #dce9e3;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-product-target="qnap"] .diagnostic-connection-row span {
+  overflow: hidden;
+  color: #748981;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-product-target="qnap"] .diagnostic-log-list {
+  display: grid;
+  gap: 10px;
+}
+
+html[data-product-target="qnap"] .diagnostic-log-panel {
+  overflow: hidden;
+  border: 1px solid #1d302a;
+  border-radius: 12px;
+  background: #091511;
+}
+
+html[data-product-target="qnap"] .diagnostic-log-panel summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 15px;
+  cursor: pointer;
+  list-style: none;
+}
+
+html[data-product-target="qnap"] .diagnostic-log-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+html[data-product-target="qnap"] .diagnostic-log-panel summary strong {
+  color: #dce9e3;
+  font-size: 12px;
+}
+
+html[data-product-target="qnap"] .diagnostic-log-panel summary span {
+  color: #667c74;
+  font-size: 10px;
+}
+
+html[data-product-target="qnap"] .diagnostic-log-panel pre {
+  max-height: 360px;
+  margin: 0;
+  padding: 14px 15px;
+  border-top: 1px solid #182923;
+  overflow: auto;
+}
+
+@media (max-width: 1120px) {
+  html[data-product-target="qnap"] .workspace {
+    padding-right: 28px;
+    padding-left: 28px;
+  }
+
+  html[data-product-target="qnap"] .diagnostic-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  html[data-product-target="qnap"] .app-shell {
+    display: block;
+  }
+
+  html[data-product-target="qnap"] .sidebar {
+    position: sticky;
+    z-index: 50;
+    top: 0;
+    width: 100%;
+    padding: 12px 14px;
+    border-right: 0;
+    border-bottom: 1px solid #20302b;
+    background: #091512f2;
+  }
+
+  html[data-product-target="qnap"] .brand {
+    padding: 0 4px 10px;
+  }
+
+  html[data-product-target="qnap"] .brand-mark {
+    width: 34px;
+    height: 34px;
+  }
+
+  html[data-product-target="qnap"] .sidebar nav {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  html[data-product-target="qnap"] .sidebar nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  html[data-product-target="qnap"] .sidebar nav button {
+    flex: 0 0 auto;
+    min-height: 38px;
+    padding: 8px 11px;
+  }
+
+  html[data-product-target="qnap"] .sidebar nav button.active {
+    box-shadow: inset 0 -2px #79e6b3;
+  }
+
+  html[data-product-target="qnap"] .sidebar-controls,
+  html[data-product-target="qnap"] .sidebar-status {
+    display: none;
+  }
+
+  html[data-product-target="qnap"] .workspace {
+    width: 100%;
+    max-width: none;
+    padding: 24px 16px 64px;
+  }
+
+  html[data-product-target="qnap"] .page-header {
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  html[data-product-target="qnap"] .page-header h1 {
+    font-size: clamp(27px, 7vw, 34px);
+  }
+
+  html[data-product-target="qnap"] .split,
+  html[data-product-target="qnap"] .hero-grid,
+  html[data-product-target="qnap"] .dashboard-live-grid,
+  html[data-product-target="qnap"] .dashboard-monitor-grid,
+  html[data-product-target="qnap"] .service-grid,
+  html[data-product-target="qnap"] .source-import-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  html[data-product-target="qnap"] .diagnostic-summary-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  html[data-product-target="qnap"] .diagnostic-summary-card {
+    padding: 14px;
+  }
+
+  html[data-product-target="qnap"] .diagnostic-summary-card strong {
+    font-size: 18px;
+  }
+
+  html[data-product-target="qnap"] .page-header {
+    display: grid;
+  }
+
+  html[data-product-target="qnap"] .page-header > :last-child {
+    justify-self: start;
+  }
+
+  html[data-product-target="qnap"] .section {
+    padding: 18px;
+  }
+
+  html[data-product-target="qnap"] .diagnostic-doctor-head {
+    display: grid;
+  }
+
+  html[data-product-target="qnap"] .diagnostic-doctor-head > button {
+    justify-self: start;
+  }
+
+  html[data-product-target="qnap"] .diagnostic-connection-row {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+}
