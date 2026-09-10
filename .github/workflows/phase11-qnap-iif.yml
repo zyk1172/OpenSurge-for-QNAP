@@ -28,9 +28,9 @@ jobs:
           ip -Version
       - name: Compile Linux network integration tests
         run: go test -c -o /tmp/opensurge-linux-network.test ./internal/platform/linux
-      - name: Verify TCP and UDP ingress-interface routing without nftables
+      - name: Verify QNAP ingress routing and fail-closed guard without nftables
         run: |
           sudo env OPEN_SURGE_NETWORK_TESTS=1 \
             /tmp/opensurge-linux-network.test \
             -test.v \
-            -test.run '^TestNetworkIngressInterfaceRoutesTCPAndUDPToTUN$'
+            -test.run '^TestNetworkIngressInterface(RoutesTCPAndUDPToTUN|KillSwitchBlocksMainRouteFallback)$'
