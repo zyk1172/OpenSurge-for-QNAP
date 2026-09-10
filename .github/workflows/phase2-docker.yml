@@ -215,8 +215,8 @@ jobs:
           docker exec opensurge-ci test ! -e /usr/local/bin/opensurge-manager
           docker exec opensurge-ci test ! -e /usr/local/bin/opensurge-orchestrator
           docker exec opensurge-ci sh -c 'command -v setpriv >/dev/null'
-          web_pid="$(docker exec opensurge-ci sh -c 'for p in /proc/[0-9]*; do cmd="$(tr "\000" " " < "$p/cmdline" 2>/dev/null || true)"; case "$cmd" in *"--component web"*) basename "$p"; break;; esac; done')"
-          control_pid="$(docker exec opensurge-ci sh -c 'for p in /proc/[0-9]*; do cmd="$(tr "\000" " " < "$p/cmdline" 2>/dev/null || true)"; case "$cmd" in *"--component control"*) basename "$p"; break;; esac; done')"
+          web_pid="$(docker exec opensurge-ci sh -c 'for p in /proc/[0-9]*; do [ "$(readlink "$p/exe" 2>/dev/null || true)" = "/usr/local/bin/opensurge-container" ] || continue; cmd="$(tr "\000" " " < "$p/cmdline" 2>/dev/null || true)"; case "$cmd" in *"--component web"*) basename "$p"; break;; esac; done')"
+          control_pid="$(docker exec opensurge-ci sh -c 'for p in /proc/[0-9]*; do [ "$(readlink "$p/exe" 2>/dev/null || true)" = "/usr/local/bin/opensurge-container" ] || continue; cmd="$(tr "\000" " " < "$p/cmdline" 2>/dev/null || true)"; case "$cmd" in *"--component control"*) basename "$p"; break;; esac; done')"
           test -n "$web_pid"
           test -n "$control_pid"
           web_uid="$(docker exec opensurge-ci sh -c "set -- \$(grep '^Uid:' /proc/$web_pid/status); echo \$2")"
