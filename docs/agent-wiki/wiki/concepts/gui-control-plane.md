@@ -332,11 +332,14 @@ OpenSurge lease 自动填写 hostname、MAC 与 IPv4；`same_lan` 则列出 miho
 policy 是整文档提交，因此这些入口是操作者修正身份的唯一途径；`out_of_lan_devices`
 标记的设备只能在这里改地址或删除，界面必须把这条出路说清楚。
 
-策略页承担完整节点健康中心：`GET /api/v1/proxy-health` 汇总 mihomo `/proxies`，
-`POST /api/v1/proxy-health/tests` 只允许探测当前 snapshot 中的 leaf proxy，并使用固定
-`generate_204` URL 和受限并发调用 mihomo delay API。策略页显示全部节点状态并允许
-Selector 即时切换；设备页仅显示当前出口摘要，打开选择器后才展开候选。该探测是网关
-Mac 上 mihomo 到检测地址的节点可达性，不是下游设备数据面证据。
+策略页承担完整节点健康中心：`GET /api/v1/proxy-health` 汇总 mihomo `/proxies` 与
+`/providers/proxies`，从后者补充 proxy-provider leaf 的原生 `alive/history`；
+`POST /api/v1/proxy-health/tests` 只允许探测当前 snapshot 中可直接探测的 leaf proxy，
+并使用固定 `generate_204` URL 和受限并发调用 mihomo delay API。provider leaf 会展示
+核心自身的健康结果，但不重复发起控制面 delay 请求，因为该 API 不保证对 provider
+leaf 可用。策略页显示全部节点状态并允许 Selector 即时切换；设备页仅显示当前出口
+摘要，打开选择器后才展开候选。该探测是网关 Mac 上 mihomo 到检测地址的节点可达性，
+不是下游设备数据面证据。
 
 连通性页使用后端固定 catalog，避免把任意 URL 探测变成 SSRF 接口。
 `POST /api/v1/connectivity/tests` 从 Control Service 经 applied runtime mixed-port 发起

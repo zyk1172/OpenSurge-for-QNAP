@@ -227,12 +227,13 @@ JSON 结构检查。`GET /api/v1/devices` 同时返回 desired/applied 设备与
 设备 ID，供界面精确显示“已应用、待应用、待更新、待移除”；身份就绪还要求在线且未
 过期的 lease MAC、IPv4 与 applied reservation 完全一致。
 
-策略页是完整节点健康中心。`GET /api/v1/proxy-health` 从 mihomo `/proxies` 读取节点
-类型、UDP 能力、provider、当前链路和最近 history；`POST /api/v1/proxy-health/tests`
-只接受当前可探测的节点名称，并通过 mihomo 单节点 delay API 使用固定检测 URL。页面
-集中显示延迟/超时/不可达并允许 Selector 即时切换；设备页只保留当前出口摘要，展开
-选择器时才显示候选健康。这里的延迟是网关 Mac 到检测地址的节点探测，不是设备端到端
-验收。
+策略页是完整节点健康中心。`GET /api/v1/proxy-health` 汇总 mihomo `/proxies` 与
+`/providers/proxies`：前者提供策略组和可直接探测节点，后者补充 proxy-provider
+节点的原生 `alive/history` 健康记录。`POST /api/v1/proxy-health/tests` 只接受当前
+可直接探测的节点名称，并通过 mihomo 单节点 delay API 使用固定检测 URL；provider
+节点保留为不可直接探测，但仍展示核心自身的健康结果。页面集中显示延迟/超时/不可达
+并允许 Selector 即时切换；设备页只保留当前出口摘要，展开选择器时才显示候选健康。
+这里的延迟是网关 Mac 到检测地址的节点探测，不是设备端到端验收。
 
 连通性页使用后端固定目录，`POST /api/v1/connectivity/tests` 由 Control Service 通过
 当前 runtime mixed-port 对每个真实站点进行三轮请求，展示中位延迟，并尝试从活动

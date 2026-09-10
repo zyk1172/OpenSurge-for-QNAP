@@ -170,6 +170,73 @@ func TestFetchProxyHealthKeepsLeafStatusAndLatestDelay(t *testing.T) {
 	}
 }
 
+func TestFetchProxyHealthIncludesProviderHistoryWithoutEnablingDirectProbe(t *testing.T) {
+	cfg := config.Default()
+	cfg.Mihomo.APIAddr = "127.0.0.1:9090"
+	response := func(body string) *http.Response {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}
+	}
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/proxies":
+			return response(`{
+			  "proxies": {
+			    "DIRECT": {"name":"DIRECT","type":"Direct","alive":true},
+			    "Auto": {"name":"Auto","type":"URLTest","now":"Provider-OK","all":["Provider-OK","Provider-Fail"]},
+			    "Provider-Top": {"name":"Provider-Top","type":"AnyTLS","provider":"provider-c","alive":null,"history":[{"time":"2026-09-10T02:02:00Z","delay":223}]}
+			  }
+			}`), nil
+		case "/providers/proxies":
+			return response(`{
+			  "providers": {
+			    "provider-c": {
+			      "name":"provider-c",
+			      "type":"Proxy",
+			      "proxies": [
+			        {"name":"Provider-OK","type":"AnyTLS","udp":true,"alive":null,"history":[{"time":"2026-09-10T02:00:00Z","delay":312}]},
+			        {"name":"Provider-Fail","type":"AnyTLS","alive":null,"history":[{"time":"2026-09-10T02:01:00Z","delay":0}]},
+			        {"name":"Provider-Top","type":"AnyTLS","alive":true},
+			        {"name":"DIRECT","type":"Direct","alive":false}
+			      ]
+			    }
+			  }
+			}`), nil
+		default:
+			t.Fatalf("unexpected URL = %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	snapshot, err := fetchProxyHealthWithClient(context.Background(), cfg, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Proxies) != 5 {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+	byName := map[string]ProxyHealth{}
+	for _, proxy := range snapshot.Proxies {
+		byName[proxy.Name] = proxy
+	}
+	if got := byName["Provider-OK"]; got.Status != "reachable" || got.DelayMS != 312 || got.TestedAt != "2026-09-10T02:00:00Z" || got.Provider != "provider-c" || !got.UDP || got.Probeable {
+		t.Fatalf("Provider-OK = %#v", got)
+	}
+	if got := byName["Provider-Fail"]; got.Status != "unreachable" || got.TestedAt != "2026-09-10T02:01:00Z" || got.Probeable {
+		t.Fatalf("Provider-Fail = %#v", got)
+	}
+	if got := byName["Provider-Top"]; got.Status != "reachable" || got.DelayMS != 223 || got.Provider != "provider-c" || got.Probeable {
+		t.Fatalf("Provider-Top = %#v", got)
+	}
+	if got := byName["DIRECT"]; got.Provider != "" {
+		t.Fatalf("duplicate DIRECT provider health should be ignored: %#v", got)
+	}
+}
+
 func TestFetchProxyHealthUsesRoleSpecificTailscaleStatus(t *testing.T) {
 	response := func() *http.Response {
 		return &http.Response{

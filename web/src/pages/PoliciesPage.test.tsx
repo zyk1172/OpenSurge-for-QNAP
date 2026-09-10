@@ -128,6 +128,24 @@ describe('PoliciesPage', () => {
     expect(api.testProxyHealth).not.toHaveBeenCalled()
   })
 
+  it('shows native provider health without sending provider leaves to direct probes', async () => {
+    workspace.groups = [{ name: 'Provider URLTest', type: 'URLTest', selected: 'Provider-OK', options: ['Provider-OK', 'Proxy-A'] }]
+    workspace.health = {
+      ...health,
+      proxies: [...health.proxies, { name: 'Provider-OK', type: 'AnyTLS', selected: '', provider: 'provider-c', udp: true, status: 'reachable', delay_ms: 312, tested_at: '2026-09-10T02:00:00Z', probeable: false }],
+    }
+    render(<PoliciesPageHarness />)
+
+    const heading = await screen.findByRole('heading', { name: 'Provider URLTest' })
+    const card = heading.closest('article')
+    expect(card).toBeTruthy()
+    expect(within(card as HTMLElement).getByText('312 ms')).toBeTruthy()
+    expect(card?.querySelector('.group-health-summary')?.textContent).toContain('2 / 2 可达')
+
+    await userEvent.click(screen.getByRole('button', { name: '检测当前视图' }))
+    await waitFor(() => expect(api.policyWorkspace).toHaveBeenCalledWith({ action: 'test', names: ['Proxy-A'] }))
+  })
+
   it('prepares and selects nodes before the gateway starts without using overview policies', async () => {
     workspace.mode = 'prepared'
     workspace.groups.push({ name: 'Extension', type: 'Selector', selected: 'Proxy-A', options: ['Proxy-A', 'Proxy-B'] })
