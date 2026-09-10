@@ -405,7 +405,8 @@ func (s *Server) issueSession(w http.ResponseWriter) {
 				delete(s.sessions, key)
 			}
 		}
-	sessions[token] = session{Expires: time.Now().Add(sessionLifetime)}
+	}
+	s.sessions[token] = session{Expires: time.Now().Add(sessionLifetime)}
 	s.mu.Unlock()
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
