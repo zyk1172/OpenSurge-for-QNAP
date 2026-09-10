@@ -124,6 +124,7 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
         <div className="overlay-summary" aria-label={t('附加配置摘要')}>
           <OverlayMetric value={document.rules.prepend.length} label="自定义规则" />
           <OverlayMetric value={document.proxies.add.length} label="自定义节点" />
+          <OverlayMetric value={hostsEntryCount(document.dns.merge['hosts-file'])} label="Hosts 条目" />
           <OverlayMetric value={expertOperations} label="专家操作" />
           <OverlayMetric value={standalone ? t('内置配置') : `${compatible}/${sources.length}`} label={standalone ? '合成基底' : '来源兼容'} />
         </div>
@@ -131,6 +132,7 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
         {mode === 'guided' ? <div className="overlay-guided-editor">
           <RuleOperationsEditor value={document.rules.prepend} onChange={prepend => update(current => { current.rules.prepend = prepend })} />
           <ManualProxyEditor proxies={document.proxies.add} onChange={proxies => update(current => { current.proxies.add = proxies })} />
+          <HostsFileEditor merge={document.dns.merge} onChange={merge => update(current => { current.dns.merge = merge })} />
         </div> : null}
 
         <section className={`overlay-expert-editor ${mode === 'yaml' ? 'open' : ''}`}>
@@ -228,6 +230,28 @@ function ManualProxyEditor({ proxies, onChange }: { proxies: Array<Record<string
   </div></section>
 }
 
+function HostsFileEditor({ merge, onChange }: { merge: Record<string, unknown>; onChange: (merge: Record<string, unknown>) => void }) {
+  const content = typeof merge['hosts-file'] === 'string' ? merge['hosts-file'] as string : ''
+  const useHosts = booleanSetting(merge['use-hosts'], true)
+  const useSystemHosts = booleanSetting(merge['use-system-hosts'], true)
+  const updateField = (field: string, value: unknown) => onChange({ ...merge, [field]: value })
+
+  return <section className="overlay-editor-section open"><header><span>03</span><div><strong>{t('Hosts 与本地解析')}</strong><small>{t('导入标准 Hosts 文件生成 mihomo hosts 映射，并控制是否读取容器系统 Hosts。')}</small></div></header><div className="overlay-section-body">
+    <div className="overlay-enable-row">
+      <div><strong>{t('使用配置 Hosts')}</strong><small>{t('对应 mihomo dns.use-hosts；关闭后保留已导入内容，但 DNS 不使用这些映射。')}</small></div>
+      <button className={`overlay-switch ${useHosts ? 'on' : ''}`} type="button" role="switch" aria-checked={useHosts} onClick={() => updateField('use-hosts', !useHosts)}><i aria-hidden="true" /><span>{t(useHosts ? '已启用' : '已停用')}</span></button>
+    </div>
+    <div className="overlay-enable-row">
+      <div><strong>{t('读取系统 Hosts')}</strong><small>{t('对应 mihomo dns.use-system-hosts；QNAP Docker 中读取的是容器内 /etc/hosts。')}</small></div>
+      <button className={`overlay-switch ${useSystemHosts ? 'on' : ''}`} type="button" role="switch" aria-checked={useSystemHosts} onClick={() => updateField('use-system-hosts', !useSystemHosts)}><i aria-hidden="true" /><span>{t(useSystemHosts ? '已启用' : '已停用')}</span></button>
+    </div>
+    <div className="overlay-share-form">
+      <label>{t('Hosts 文件内容')}<textarea aria-label={t('Hosts 文件内容')} rows={8} spellCheck={false} value={content} onChange={event => updateField('hosts-file', event.target.value)} placeholder={'# IP hostname [alias ...]\n0.0.0.0 ads.example.com\n192.168.2.10 nas.home\n2001:db8::10 nas-v6.home'} /></label>
+      <div><small>{t('支持空行、# 注释、IPv4、IPv6 和一行多个主机名；重复的主机/IP 会自动去重，同一主机的多个 IP 会合并。')}</small><label><span>{t('导入本地 Hosts 文件')}</span><input type="file" accept="text/plain,.hosts" aria-label={t('导入本地 Hosts 文件')} onChange={event => { const file = event.currentTarget.files?.[0]; if (!file) return; void file.text().then(text => updateField('hosts-file', text)); event.currentTarget.value = '' }} /></label></div>
+    </div>
+  </div></section>
+}
+
 function ResourceList({ resources, onRemove, empty }: { resources: Array<Record<string, unknown>>; onRemove: (index: number) => void; empty: string }) {
   if (!resources.length) return <p className="overlay-empty">{t(empty)}</p>
   return <ul className="overlay-resource-list">{resources.map((resource, index) => <li key={`${String(resource.name)}-${index}`}><span><strong>{String(resource.name || t('未命名'))}</strong><small>{String(resource.type || 'resource')}{resource.server ? ` · ${String(resource.server)}:${String(resource.port ?? '')}` : ''}</small></span><button type="button" aria-label={t('移除 {{name}}', { name: String(resource.name) })} onClick={() => onRemove(index)}>{t('移除')}</button></li>)}</ul>
@@ -254,6 +278,7 @@ function shareLinkErrorMessage(error: ProxyShareLinkError) {
 }
 
 function expertOperationCount(document: ProfileOverlayDocument) {
+  const guidedDNSFields = new Set(['hosts-file', 'use-hosts', 'use-system-hosts'])
   return document.rules.append_before_match.length
     + document.proxies.replace.length
     + Object.keys(document.proxy_providers.add).length
@@ -263,8 +288,24 @@ function expertOperationCount(document: ProfileOverlayDocument) {
     + document.proxy_groups.patch.length
     + Object.keys(document.rule_providers.add).length
     + Object.keys(document.rule_providers.replace).length
-    + Object.keys(document.dns.merge).length
+    + Object.keys(document.dns.merge).filter(field => !guidedDNSFields.has(field)).length
     + Object.keys(document.dns.append).length
+}
+
+function booleanSetting(value: unknown, fallback: boolean) {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+function hostsEntryCount(value: unknown) {
+  if (typeof value !== 'string' || !value.trim()) return 0
+  let count = 0
+  for (const raw of value.split('\n')) {
+    const line = raw.replace(/#.*/, '').trim()
+    if (!line) continue
+    const fields = line.split(/\s+/)
+    if (fields.length >= 2) count += fields.length - 1
+  }
+  return count
 }
 
 function lines(values: string[]) {

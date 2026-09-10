@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProfileOverlay, ProfileOverlayDocument, ProfileOverlayPreview, Source } from '../types'
 import { activateLanguage, prepareLanguage } from '../i18n'
+import '../i18n.profile-overlay.en'
 
 vi.mock('../api', () => ({
   api: {
@@ -85,6 +86,7 @@ describe('ProfileOverlayPanel', () => {
     expect(panel.open).toBe(false)
     await userEvent.click(screen.getByRole('heading', { name: 'Advanced: Global Profile Overlay' }))
     expect(panel.open).toBe(true)
+    expect(screen.getByText('Hosts & local resolution')).toBeTruthy()
     await userEvent.selectOptions(screen.getByLabelText('Select a source to preview'), 'home')
     await userEvent.click(screen.getByRole('button', { name: 'View composed result' }))
     const dialog = await screen.findByRole('dialog', { name: 'Final configuration preview' })
@@ -117,6 +119,28 @@ describe('ProfileOverlayPanel', () => {
     expect(saved.rules.prepend).toEqual(['DOMAIN,first.example,DIRECT'])
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ revision: 'saved-revision' }))
     expect(await screen.findByText(/停止态可在策略页预览或直接启动/)).toBeTruthy()
+  })
+
+  it('stores Hosts file text and explicit mihomo Hosts switches in the overlay draft', async () => {
+    vi.mocked(api.saveProfileOverlayDocument).mockImplementation(async candidate => ({ ...overlay, document: candidate }))
+    render(<ProfileOverlayPanel overlay={overlay} sources={[source]} onSaved={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('heading', { name: '高级：全局附加配置' }))
+    expect(screen.getByText('Hosts 与本地解析')).toBeTruthy()
+    const switches = screen.getAllByRole('switch')
+    const configuredHosts = switches.find(element => element.textContent === '已启用' && element.parentElement?.textContent?.includes('使用配置 Hosts'))
+    const systemHosts = switches.find(element => element.textContent === '已启用' && element.parentElement?.textContent?.includes('读取系统 Hosts'))
+    expect(configuredHosts).toBeTruthy()
+    expect(systemHosts).toBeTruthy()
+
+    await userEvent.click(systemHosts!)
+    await userEvent.type(screen.getByLabelText('Hosts 文件内容'), '0.0.0.0 ads.example.test\n192.168.2.10 nas.home')
+    await userEvent.click(screen.getByRole('button', { name: '保存附加配置草稿' }))
+
+    await waitFor(() => expect(api.saveProfileOverlayDocument).toHaveBeenCalled())
+    const saved = vi.mocked(api.saveProfileOverlayDocument).mock.calls[0][0]
+    expect(saved.dns.merge['use-system-hosts']).toBe(false)
+    expect(saved.dns.merge['hosts-file']).toBe('0.0.0.0 ads.example.test\n192.168.2.10 nas.home')
   })
 
   it('treats the built-in configuration as a complete base when no source exists', async () => {
