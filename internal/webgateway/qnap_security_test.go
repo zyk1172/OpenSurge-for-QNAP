@@ -52,6 +52,7 @@ func TestQNAPFirstAdminRequiresBootstrapToken(t *testing.T) {
 
 	postSetup := func(bootstrap string) *httptest.ResponseRecorder {
 		body := []byte(`{"username":"admin","password":"very-long-password","bootstrap_token":"` + bootstrap + `"}`)
+		body = bytes.ReplaceAll(body, []byte(`\"`), []byte(`"`))
 		req := httptest.NewRequest(http.MethodPost, "http://192.168.2.241:8080/api/auth/setup", bytes.NewReader(body))
 		req.Host = "192.168.2.241:8080"
 		req.Header.Set("Origin", "http://192.168.2.241:8080")
