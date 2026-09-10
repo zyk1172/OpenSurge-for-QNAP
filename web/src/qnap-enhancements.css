@@ -199,6 +199,28 @@ html[data-product-target="qnap"] .diagnostic-log-panel pre {
   overflow: auto;
 }
 
+html[data-product-target="qnap"] .qnap-remote-management code {
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+html[data-product-target="qnap"] .qnap-remote-management .inventory span {
+  min-width: 0;
+}
+
+html[data-product-target="qnap"] .remote-token-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+html[data-product-target="qnap"] .remote-token-row input {
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 @media (max-width: 1120px) {
   html[data-product-target="qnap"] .workspace {
     padding-right: 28px;
@@ -321,8 +343,13 @@ html[data-product-target="qnap"] .diagnostic-log-panel pre {
     justify-self: start;
   }
 
-  html[data-product-target="qnap"] .diagnostic-connection-row {
+  html[data-product-target="qnap"] .diagnostic-connection-row,
+  html[data-product-target="qnap"] .remote-token-row {
     grid-template-columns: 1fr;
     gap: 5px;
+  }
+
+  html[data-product-target="qnap"] .remote-token-row button {
+    justify-self: start;
   }
 }
