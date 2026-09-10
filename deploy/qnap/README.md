@@ -1,6 +1,6 @@
 # OpenSurge for QNAP — Docker deployment
 
-The supported QNAP deployment runs one `opensurge` container. The QNET parent, static IPv4, LAN CIDR, upstream router, and persistent path are fixed when the container is created; the running Web UI manages OpenSurge itself and does not modify QTS host networking.
+The supported QNAP deployment runs one `opensurge` container. The QNET parent, static IPv4, LAN CIDR, upstream router, persistent path, and the unprivileged Web identity are fixed when the container is created; the running Web UI manages OpenSurge itself and does not modify QTS host networking.
 
 The current stabilization target is **IPv4 same-LAN manual gateway**: main-router DHCP remains unchanged, and only selected clients use OpenSurge as their IPv4 gateway and DNS server.
 
@@ -87,10 +87,52 @@ The default Compose uses `pull_policy: never`, so a missing local test image fai
 | `OPENSURGE_SUBNET` | LAN CIDR | `192.168.2.0/24` |
 | `OPENSURGE_GATEWAY` | Upstream router IPv4 | `192.168.2.1` |
 | `OPENSURGE_DATA_PATH` | Persistent QNAP path | `/share/Container/opensurge` |
+| `OPENSURGE_WEB_UID` | Unprivileged Web UID | `1000` |
+| `OPENSURGE_WEB_GID` | Unprivileged Web GID | `100` |
 
 Do not infer the physical port from an `eth0`/`eth1` number alone. Check QTS Network & Virtual Switch together with host `ip addr` / `ip route` output.
 
 The container-side data interface is normally still `eth0`; it is a different namespace from the selected QNAP host-side NIC/bridge/bond.
+
+### QNAP UID/GID is configurable, not a universal constant
+
+A first normal QNAP user commonly has UID `1000`, while GID `100` is commonly the `everyone` group. Those values are useful defaults but are not guaranteed by QTS/QuTS. Verify the NAS account that owns or is allowed to use the Container share:
+
+```sh
+id <username>
+```
+
+Use the numeric UID/GID in `.env`.
+
+Do not solve permission failures with recursive `chmod 777` or by blindly chowning the whole OpenSurge data tree. The privileged Control process owns gateway/runtime state. The LAN-facing Web process is dropped to `OPENSURGE_WEB_UID:GID` and only needs a persistent writable surface at:
+
+```text
+/data/web-auth
+```
+
+The entrypoint never recursively chowns `/data`; it only assigns the OpenSurge-owned `web-auth` directory to the configured Web identity.
+
+QTS/QuTS shared-folder permissions, Advanced Folder Permissions/ACL inheritance, and quota settings can still affect a Docker bind mount even when a host-side `[ -w PATH ]` check succeeds.
+
+## Run the real QNAP preflight first
+
+From `deploy/qnap`:
+
+```sh
+cp .env.example .env
+# edit .env
+sh ./preflight.sh
+```
+
+The host-specific preflight now verifies the actual deployment path instead of assuming generic Linux permissions. It checks:
+
+1. Docker, Compose, qnet, parent interface, topology and `/dev/net/tun`;
+2. the real OpenSurge image and real `/share/... -> /data` bind mount;
+3. create/write/sync/rename/delete semantics as container root;
+4. ownership of only `/data/web-auth`;
+5. create/rename/delete as `OPENSURGE_WEB_UID:OPENSURGE_WEB_GID` inside `/data/web-auth`.
+
+If the last probe fails, verify `id <username>`, QTS/QuTS shared-folder read/write permission, Advanced Folder Permissions/ACLs, and quotas. Do not mask the failure with `777`.
 
 ## Compose
 
@@ -114,6 +156,8 @@ export OPENSURGE_IP=192.168.2.241
 export OPENSURGE_SUBNET=192.168.2.0/24
 export OPENSURGE_GATEWAY=192.168.2.1
 export OPENSURGE_DATA_PATH=/share/Container/opensurge
+export OPENSURGE_WEB_UID=1000
+export OPENSURGE_WEB_GID=100
 
 docker compose -f docker-compose.yml config
 docker compose -f docker-compose.yml up -d
@@ -134,6 +178,7 @@ the entrypoint seeds the initial configuration from creation-time values. An exi
 Therefore:
 
 - preserve `/data` when recreating/updating the container on the same NAS;
+- keep the verified Web UID/GID unless the NAS account/ACL changed;
 - change parent NIC/IP/CIDR/upstream router as container-creation parameters and recreate the container;
 - manage subscriptions, policies, DNS, TUN, providers, and devices in the Web UI.
 
@@ -148,13 +193,16 @@ Important directories:
 | Path | Purpose |
 |---|---|
 | `/data/config` | Main configuration |
-| `/data/control` | Admin/control state |
+| `/data/control` | Internal Control state |
+| `/data/web-auth` | Web administrator credential hash |
 | `/data/profiles` | Imported/managed profiles |
 | `/data/providers` | Provider data |
 | `/data/state` | Durable feature state |
 | `/data/backups` | Configuration backups |
 | `/data/runtime` | Ownership/recovery journal |
 | `/data/logs` | Component logs |
+
+See [`PERSISTENCE.md`](PERSISTENCE.md) for the QNAP ACL/ownership and migration model.
 
 ## Web UI
 
@@ -166,7 +214,9 @@ http://<OpenSurge-IP>:8080
 
 Create the first administrator account, then use the QNAP Web surface to manage runtime settings and proxy configuration. Container-creation network values are shown as deployment state rather than mutable QTS controls.
 
-The QNAP build exposes NAS-relevant functions only; desktop-host controls are not presented as QNAP features.
+The QNAP build exposes NAS-relevant functions only; desktop-host controls are not presented as QNAP features. QNAP-specific responsive overrides remove the previous hard 1080px minimum page width. The diagnostics surface prioritizes gateway/Doctor/connection/provider status, collapses logs by process, and surfaces the QNAP persistence checks.
+
+The QNAP Doctor is platform-aware: same-LAN Linux checks iproute2, `/dev/net/tun`, interfaces, configuration, and durable runtime-storage operations. It does not treat upstream macOS `pfctl` as a QNAP requirement. nftables is required only for topologies that actually need the NAT backend.
 
 ## Basic validation
 
@@ -206,5 +256,6 @@ Verify DNS, DIRECT, PROXY, UDP/QUIC, long-lived traffic, container restart recov
 - No downstream IPv6 takeover.
 - No automatic QNAP Network & Virtual Switch mutation.
 - Changing QNET parent/static IP/CIDR/upstream router requires container recreation.
-- QNET/kernel behavior still needs coverage across QNAP models and firmware versions.
+- QNET/kernel/ACL behavior still needs coverage across QNAP models and firmware versions.
+- ARM64 is buildable but still requires broader QNAP hardware validation.
 - Real-client, reboot, 24h/72h soak, and update/rollback validation remain stable-release gates.
