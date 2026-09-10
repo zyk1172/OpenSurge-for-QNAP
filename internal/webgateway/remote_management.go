@@ -262,7 +262,7 @@ func remoteCapabilities() map[string]any {
 			{Method: "POST", Path: "/local-routing/connections/refresh", Summary: "Refresh local gateway connections after route changes."},
 			{Method: "GET", Path: "/proxy-health", Summary: "Read proxy health status."},
 			{Method: "POST", Path: "/proxy-health/tests", Summary: "Run proxy latency/health tests."},
-			{Method: "GET|POST", Path: "/connectivity", Summary: "Read connectivity status."},
+			{Method: "GET", Path: "/connectivity", Summary: "Read connectivity status."},
 			{Method: "POST", Path: "/connectivity/tests", Summary: "Run connectivity tests."},
 			{Method: "GET", Path: "/providers", Summary: "List proxy and rule providers."},
 			{Method: "POST", Path: "/providers/{name}/refresh", Summary: "Refresh a provider."},
@@ -282,6 +282,15 @@ func remoteCapabilities() map[string]any {
 	}
 }
 
+func remotePathBlocked(path string) bool {
+	if qnapPathBlocked(path) {
+		return true
+	}
+	// The bootstrap exchange belongs to the loopback/native launcher trust
+	// boundary. A remote management token never needs to mint a browser session.
+	return path == "/api/v1/session/bootstrap"
+}
+
 func (s *Server) handleRemoteManagement(w http.ResponseWriter, r *http.Request) {
 	if !s.remoteTokens.Verify(bearerToken(r)) {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": map[string]string{"code": "remote_token_required", "message": "a valid remote management bearer token is required"}})
@@ -299,7 +308,7 @@ func (s *Server) handleRemoteManagement(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	targetPath := "/api/v1" + suffix
-	if s.qnapOnly && qnapPathBlocked(targetPath) {
+	if remotePathBlocked(targetPath) {
 		http.NotFound(w, r)
 		return
 	}
