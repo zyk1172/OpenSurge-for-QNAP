@@ -39,7 +39,10 @@ geox-url:
   mmdb: https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb
   asn: https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb
 
-dns:
+{{ if .Hosts }}hosts:
+{{ .Hosts }}
+
+{{ end }}dns:
   enable: true
   listen: 127.0.0.1:1053
   ipv6: {{ .DNSIPv6 }}
@@ -133,6 +136,7 @@ type templateData struct {
 	IPv6PacketSocket       string
 	IPv6PacketMTU          int
 	IPv6DeviceUsers        string
+	Hosts                   string
 	DNSResolverFields      string
 	PolicySections         string
 }
@@ -147,6 +151,7 @@ func newTemplateData(cfg config.Config) (templateData, error) {
 	}
 	var imported *importedProfile
 	dnsResolverFields := defaultDNSResolverFieldsYAML
+	hostsYAML := ""
 	if cfg.Mihomo.ProfileMode == config.MihomoProfileModeImported {
 		loaded, err := loadImportedProfile(cfg.Mihomo.Profile)
 		if err != nil {
@@ -154,6 +159,10 @@ func newTemplateData(cfg config.Config) (templateData, error) {
 		}
 		imported = &loaded
 		dnsResolverFields = loaded.dnsResolverFields
+		hostsYAML, err = loadProfileHostsYAML(cfg.Mihomo.Profile)
+		if err != nil {
+			return templateData{}, err
+		}
 	}
 	if err := resolveDevicePolicy(&cfg, imported); err != nil {
 		return templateData{}, err
@@ -172,6 +181,9 @@ func newTemplateData(cfg config.Config) (templateData, error) {
 	mihomoBindAddress := "127.0.0.1"
 	if lanProxyEnabled {
 		mihomoBindAddress = "*"
+	}
+	if hostsYAML != "" {
+		hostsYAML = indentYAMLBlock(hostsYAML, "  ")
 	}
 	return templateData{
 		MihomoConfig:           cfg.Mihomo,
@@ -197,6 +209,7 @@ func newTemplateData(cfg config.Config) (templateData, error) {
 		IPv6PacketSocket:       yamlQuote(packetSocket),
 		IPv6PacketMTU:          transparent.IPv6PacketMTU,
 		IPv6DeviceUsers:        renderIPv6DeviceUsers(cfg),
+		Hosts:                   hostsYAML,
 		DNSResolverFields:      indentYAMLBlock(dnsResolverFields, "  "),
 		PolicySections:         policySections,
 	}, nil
