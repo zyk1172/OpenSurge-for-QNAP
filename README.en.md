@@ -120,6 +120,7 @@ The QNAP Web surface currently provides:
 - actual container network status;
 - mutable DNS/TUN runtime settings;
 - HTTPS subscription and local YAML import;
+- Hosts-file import in Advanced Global Profile Overlay, native top-level `hosts:` mappings, and `dns.use-hosts` / `dns.use-system-hosts` controls;
 - persistent draft, running, and next-start versions;
 - providers, policy groups and rules;
 - device policies;
