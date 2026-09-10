@@ -98,7 +98,11 @@ LABEL org.opencontainers.image.title="OpenSurge for QNAP" \
 VOLUME ["/data"]
 EXPOSE 8080/tcp 61780/tcp 53/tcp 53/udp
 
-HEALTHCHECK --interval=30s --timeout=4s --start-period=20s --retries=3 \
-  CMD curl --fail --silent --show-error http://127.0.0.1:8080/health/ready >/dev/null || exit 1
+# Health is defined by desired-vs-observed gateway state, not merely by the Web
+# and Control processes answering HTTP. An intentionally stopped gateway is
+# healthy; when the persisted intent is running, Mihomo/DNS/TUN/policy routing
+# must all be active in the current container network namespace.
+HEALTHCHECK --interval=30s --timeout=8s --start-period=30s --retries=3 \
+  CMD /bin/sh -c '/usr/local/bin/opensurge-container --component health --config "${OPENSURGE_CONFIG:-/data/config/opensurge.yaml}" >/dev/null' || exit 1
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/opensurge-entrypoint"]
