@@ -53,6 +53,7 @@ type Server struct {
 	controlToken          string
 	authDir               string
 	auth                  *AuthStore
+	remoteTokens          *RemoteTokenStore
 	proxy                 *httputil.ReverseProxy
 	client                *http.Client
 	allowedHosts          map[string]struct{}
@@ -101,6 +102,7 @@ func New(options Options) (*Server, error) {
 		controlToken:          options.ControlToken,
 		authDir:               options.AuthDir,
 		auth:                  NewAuthStore(options.AuthDir),
+		remoteTokens:          NewRemoteTokenStore(options.AuthDir),
 		client:                &http.Client{Timeout: 3 * time.Second},
 		allowedHosts:          allowed,
 		requireBootstrapToken: options.RequireBootstrapToken,
@@ -212,6 +214,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/setup", s.handleSetup)
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
+	mux.HandleFunc("GET /api/auth/remote-token", s.handleRemoteTokenStatus)
+	mux.HandleFunc("POST /api/auth/remote-token", s.handleRemoteTokenRotate)
+	mux.HandleFunc("DELETE /api/auth/remote-token", s.handleRemoteTokenRevoke)
+	mux.HandleFunc(remoteAPIPrefix, s.handleRemoteManagement)
+	mux.HandleFunc(remoteAPIPrefix+"/", s.handleRemoteManagement)
 	mux.HandleFunc("/", s.handleProxy)
 	return s.securityHeaders(mux)
 }

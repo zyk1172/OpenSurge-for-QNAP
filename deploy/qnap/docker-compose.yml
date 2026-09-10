@@ -25,6 +25,8 @@ services:
       OPENSURGE_ROLE: gateway
       OPENSURGE_WEB_ADDR: 0.0.0.0:8080
       OPENSURGE_ALLOWED_HOSTS: ${OPENSURGE_ALLOWED_HOSTS:-}
+      OPENSURGE_WEB_UID: ${OPENSURGE_WEB_UID:-1000}
+      OPENSURGE_WEB_GID: ${OPENSURGE_WEB_GID:-100}
       # Set true only when clients reach OpenSurge through an HTTPS reverse
       # proxy. Cookies will then carry Secure and the Web response emits HSTS.
       OPENSURGE_SECURE_COOKIES: ${OPENSURGE_SECURE_COOKIES:-false}
@@ -35,7 +37,7 @@ services:
       OPENSURGE_SEED_LAN_IP: ${OPENSURGE_IP:?set OpenSurge static IPv4 when creating the container}
       OPENSURGE_SEED_LAN_CIDR: ${OPENSURGE_SUBNET:?set LAN CIDR when creating the container}
       OPENSURGE_SEED_UPSTREAM_GATEWAY: ${OPENSURGE_GATEWAY:?set upstream router IPv4 when creating the container}
-      OPENSURGE_CONTAINER_INTERFACE: eth0
+      OPENSURGE_CONTAINER_INTERFACE: ${OPENSURGE_CONTAINER_INTERFACE:-eth0}
 
     volumes:
       - ${OPENSURGE_DATA_PATH:?set absolute QNAP /share/... persistence path}:/data
