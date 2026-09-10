@@ -15,6 +15,8 @@ import (
 
 const ProfileOverlaySchemaVersion = 1
 
+const profileOverlayHostsFileField = "hosts-file"
+
 var profileOverlayDNSFields = map[string]bool{
 	"cache-algorithm":                 true,
 	"default-nameserver":              true,
@@ -31,6 +33,7 @@ var profileOverlayDNSFields = map[string]bool{
 	"respect-rules":                   true,
 	"use-hosts":                       true,
 	"use-system-hosts":                true,
+	profileOverlayHostsFileField:       true,
 }
 
 // ProfileOverlayDocument is a deliberately small, declarative patch language
@@ -184,19 +187,28 @@ func ValidateProfileOverlay(document ProfileOverlayDocument) error {
 			return err
 		}
 	}
-	for field := range document.DNS.Merge {
+	for field, value := range document.DNS.Merge {
 		if gatewayOwnedDNSFields[field] {
 			return fmt.Errorf("dns.%s is managed by OpenSurge and cannot be changed by a profile overlay", field)
 		}
 		if !profileOverlayDNSFields[field] {
 			return fmt.Errorf("dns.%s is not a supported resolver or filtering field for a profile overlay", field)
 		}
+		if field == profileOverlayHostsFileField {
+			content, ok := value.(string)
+			if !ok {
+				return fmt.Errorf("dns.%s must be a string containing hosts-file text", profileOverlayHostsFileField)
+			}
+			if _, err := parseHostsFileContent(content); err != nil {
+				return fmt.Errorf("dns.%s: %w", profileOverlayHostsFileField, err)
+			}
+		}
 	}
 	for field, values := range document.DNS.Append {
 		if gatewayOwnedDNSFields[field] {
 			return fmt.Errorf("dns.%s is managed by OpenSurge and cannot be changed by a profile overlay", field)
 		}
-		if !profileOverlayDNSFields[field] {
+		if !profileOverlayDNSFields[field] || field == profileOverlayHostsFileField {
 			return fmt.Errorf("dns.%s is not a supported resolver or filtering field for a profile overlay", field)
 		}
 		if len(values) == 0 {
@@ -221,6 +233,19 @@ func ComposeProfileOverlay(source []byte, document ProfileOverlayDocument) (Prof
 			return ProfileOverlayComposition{}, err
 		}
 		return ProfileOverlayComposition{ProfileYAML: string(source), Inspection: inspection, Digest: ProfileOverlayDigest(source)}, nil
+	}
+
+	profileHosts, err := profileHostsFromYAML(source)
+	if err != nil {
+		return ProfileOverlayComposition{}, fmt.Errorf("parse imported profile hosts: %w", err)
+	}
+	if value, exists := document.DNS.Merge[profileOverlayHostsFileField]; exists {
+		content, _ := value.(string)
+		overlayHosts, err := parseHostsFileContent(content)
+		if err != nil {
+			return ProfileOverlayComposition{}, fmt.Errorf("dns.%s: %w", profileOverlayHostsFileField, err)
+		}
+		profileHosts = mergeProfileHosts(profileHosts, overlayHosts)
 	}
 
 	targets := make(map[string]string, len(base.inventory.targets))
@@ -268,12 +293,23 @@ func ComposeProfileOverlay(source []byte, document ProfileOverlayDocument) (Prof
 	if err != nil {
 		return ProfileOverlayComposition{}, fmt.Errorf("parse retained imported DNS: %w", err)
 	}
-	if err := applyOverlayDNS(dns, document.DNS); err != nil {
+	dnsOperations := document.DNS
+	dnsOperations.Merge = make(map[string]any, len(document.DNS.Merge))
+	for field, value := range document.DNS.Merge {
+		if field != profileOverlayHostsFileField {
+			dnsOperations.Merge[field] = value
+		}
+	}
+	if err := applyOverlayDNS(dns, dnsOperations); err != nil {
 		return ProfileOverlayComposition{}, err
 	}
 	rendered, err := renderComposedProfileSource(&base, dns)
 	if err != nil {
 		return ProfileOverlayComposition{}, err
+	}
+	rendered, err = injectProfileHosts(rendered, profileHosts)
+	if err != nil {
+		return ProfileOverlayComposition{}, fmt.Errorf("render composed profile hosts: %w", err)
 	}
 	inspection, err := InspectImportedProfile(rendered)
 	if err != nil {
