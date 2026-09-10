@@ -19,12 +19,23 @@ SEED_LAN_IP="${OPENSURGE_SEED_LAN_IP:-192.168.50.2}"
 SEED_LAN_CIDR="${OPENSURGE_SEED_LAN_CIDR:-192.168.50.0/24}"
 SEED_UPSTREAM_GATEWAY="${OPENSURGE_SEED_UPSTREAM_GATEWAY:-192.168.50.1}"
 CONTAINER_INTERFACE="${OPENSURGE_CONTAINER_INTERFACE:-eth0}"
-WEB_UID="${OPENSURGE_WEB_UID:-65532}"
-WEB_GID="${OPENSURGE_WEB_GID:-65532}"
+# QNAP commonly assigns the first normal NAS account UID 1000 and the
+# `everyone` group GID 100, but installations differ. These values are fully
+# configurable and deploy/qnap/preflight.sh verifies them against the real bind
+# mount before the supported deployment is started.
+WEB_UID="${OPENSURGE_WEB_UID:-1000}"
+WEB_GID="${OPENSURGE_WEB_GID:-100}"
 
 fatal() {
   echo "OpenSurge entrypoint: $*" >&2
   exit 1
+}
+
+validate_uint() {
+  case "$2" in
+    ''|*[!0-9]*) fatal "$1 must be a numeric uid/gid, got: $2" ;;
+  esac
+  [ "$2" -ge 0 ] && [ "$2" -le 2147483647 ] || fatal "$1 is outside the supported numeric range"
 }
 
 validate_seed_tokens() {
@@ -81,6 +92,9 @@ seed_config() {
   echo "Seeded ${CONFIG_PATH} from Web deployment values. Existing configs are never overwritten." >&2
 }
 
+validate_uint OPENSURGE_WEB_UID "$WEB_UID"
+validate_uint OPENSURGE_WEB_GID "$WEB_GID"
+
 umask 077
 mkdir -p \
   "${DATA_DIR}/config" \
@@ -100,8 +114,20 @@ fi
 
 # The LAN-facing HTTP process must not retain the gateway's NET_ADMIN/NET_RAW
 # capabilities. Its only persistent write surface is the dedicated auth dir.
-chown "${WEB_UID}:${WEB_GID}" "${AUTH_DIR}"
-chmod 700 "${AUTH_DIR}"
+# Never recursively chown /data: on QNAP that bind mount may carry QTS/QuTS
+# ACLs and user ownership that must remain intact. Only the OpenSurge-owned
+# web-auth directory is assigned to the configured unprivileged identity.
+if ! chown "${WEB_UID}:${WEB_GID}" "${AUTH_DIR}"; then
+  fatal "cannot assign ${AUTH_DIR} to ${WEB_UID}:${WEB_GID}; check QNAP shared-folder ACLs and run deploy/qnap/preflight.sh"
+fi
+if ! chmod 700 "${AUTH_DIR}"; then
+  fatal "cannot set secure permissions on ${AUTH_DIR}; check QNAP shared-folder ACLs"
+fi
+if ! setpriv --reuid="$WEB_UID" --regid="$WEB_GID" --clear-groups --no-new-privs \
+  /bin/sh -c 'test -r "$1" && test -w "$1" && test -x "$1"' sh "${AUTH_DIR}"; then
+  fatal "${AUTH_DIR} is not usable by Web uid:gid ${WEB_UID}:${WEB_GID}; QNAP ACL/ownership conflicts with OPENSURGE_WEB_UID/GID"
+fi
+
 if [ ! -f "${AUTH_DIR}/admin.json" ] && [ -f "${STORE_DIR}/admin.json" ]; then
   cp "${STORE_DIR}/admin.json" "${AUTH_DIR}/admin.json"
   chmod 600 "${AUTH_DIR}/admin.json"
