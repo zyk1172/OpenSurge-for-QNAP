@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 
 	"open-mihomo-gateway/internal/config"
@@ -31,13 +32,33 @@ func Run(cfg config.Config) Report {
 		checkPath("dnsmasq", cfg.DHCP.Binary),
 		checkPath("mihomo", cfg.Mihomo.Binary),
 		checkMihomoConfigRender(cfg),
-		checkCommand("pfctl", "pfctl"),
+	}
+
+	if goruntime.GOOS == "linux" {
+		// QNAP/Linux must not inherit the upstream macOS pfctl health model.
+		// same_lan uses ingress-interface policy routing and therefore requires
+		// iproute2 + TUN but not nftables. Isolated/NAT topologies additionally
+		// require nftables.
+		checks = append(checks,
+			checkCommand("iproute2", "ip"),
+			checkTUNDevice("/dev/net/tun"),
+			checkWritableDirectory("persistent runtime storage", cfg.Runtime.Dir),
+		)
+		if !cfg.Gateway.SameLAN() {
+			checks = append(checks, checkCommand("nftables", "nft"))
+		}
+	} else {
+		checks = append(checks, checkCommand("pfctl", "pfctl"))
+	}
+
+	checks = append(checks,
 		checkInterface(cfg.Gateway.Interface),
 		checkInterface(cfg.Gateway.UpstreamInterface),
 		checkGatewayInterfaceTopology(cfg.Gateway),
 		checkIPv4("LAN IP", cfg.Gateway.LANIP),
 		checkInterfaceIPv4(cfg.Gateway.Interface, cfg.Gateway.LANIP),
-	}
+	)
+
 	// Downstream IPv6 takeover is out of scope for QNAP v1. Say so explicitly
 	// rather than silently dropping IPv6, so users who still receive IPv6 from
 	// their main router understand why some traffic can bypass OpenSurge.
@@ -105,7 +126,7 @@ func checkRoot() Check {
 	if os.Geteuid() == 0 {
 		return Check{Name: "root privileges", OK: true}
 	}
-	return Check{Name: "root privileges", OK: false, Message: "start/stop require sudo"}
+	return Check{Name: "root privileges", OK: false, Message: "start/stop require elevated network privileges"}
 }
 
 func checkCommand(name, command string) Check {
@@ -128,6 +149,74 @@ func checkPath(name, path string) Check {
 		return Check{Name: name, OK: true, Message: path}
 	}
 	return checkCommand(name, path)
+}
+
+func checkTUNDevice(path string) Check {
+	info, err := os.Stat(path)
+	if err != nil {
+		return Check{Name: "TUN device", OK: false, Message: err.Error()}
+	}
+	if info.Mode()&os.ModeCharDevice == 0 {
+		return Check{Name: "TUN device", OK: false, Message: path + " is not a character device"}
+	}
+	return Check{Name: "TUN device", OK: true, Message: path}
+}
+
+// checkWritableDirectory verifies the filesystem operations OpenSurge depends
+// on for durable QNAP state: create, write, fsync, rename, parent-directory
+// fsync and cleanup. This is intentionally stronger than os.Access or a simple
+// writable-bit check because QTS/QuTS shared-folder ACLs can make those checks
+// misleading for bind mounts.
+func checkWritableDirectory(name, path string) Check {
+	if strings.TrimSpace(path) == "" {
+		return Check{Name: name, OK: false, Message: "path is empty"}
+	}
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return Check{Name: name, OK: false, Message: "mkdir: " + err.Error()}
+	}
+	file, err := os.CreateTemp(path, ".opensurge-doctor-*.tmp")
+	if err != nil {
+		return Check{Name: name, OK: false, Message: "create: " + err.Error()}
+	}
+	tmp := file.Name()
+	final := strings.TrimSuffix(tmp, ".tmp") + ".state"
+	cleanup := func() {
+		_ = file.Close()
+		_ = os.Remove(tmp)
+		_ = os.Remove(final)
+	}
+	defer cleanup()
+
+	if err := file.Chmod(0o600); err != nil {
+		return Check{Name: name, OK: false, Message: "chmod: " + err.Error()}
+	}
+	if _, err := file.WriteString("opensurge-storage-probe\n"); err != nil {
+		return Check{Name: name, OK: false, Message: "write: " + err.Error()}
+	}
+	if err := file.Sync(); err != nil {
+		return Check{Name: name, OK: false, Message: "file fsync: " + err.Error()}
+	}
+	if err := file.Close(); err != nil {
+		return Check{Name: name, OK: false, Message: "close: " + err.Error()}
+	}
+	if err := os.Rename(tmp, final); err != nil {
+		return Check{Name: name, OK: false, Message: "rename: " + err.Error()}
+	}
+	dir, err := os.Open(path)
+	if err != nil {
+		return Check{Name: name, OK: false, Message: "open parent: " + err.Error()}
+	}
+	if err := dir.Sync(); err != nil {
+		_ = dir.Close()
+		return Check{Name: name, OK: false, Message: "parent fsync: " + err.Error()}
+	}
+	if err := dir.Close(); err != nil {
+		return Check{Name: name, OK: false, Message: "close parent: " + err.Error()}
+	}
+	if err := os.Remove(final); err != nil {
+		return Check{Name: name, OK: false, Message: "cleanup: " + err.Error()}
+	}
+	return Check{Name: name, OK: true, Message: path + " supports durable create/rename/fsync"}
 }
 
 func checkInterface(name string) Check {
