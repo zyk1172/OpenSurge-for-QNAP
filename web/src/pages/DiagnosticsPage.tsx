@@ -70,21 +70,21 @@ export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
   return <>
     <PageHeader
       eyebrow="DIAGNOSTICS"
-      title={qnapBuild ? 'QNAP 系统与诊断' : '诊断、连接与 Provider'}
+      title="诊断、连接与 Provider"
       description={qnapBuild
-        ? '优先回答三个问题：QNAP 容器能否可靠持久化、透明代理数据面是否完整、当前故障下一步该检查什么。不会修改 QTS 宿主网络。'
+        ? '查看 QNAP 容器的数据面、Provider、连接和日志；不会执行任何 QTS 宿主网络修改。'
         : '错误保持结构化；日志经过已知凭据脱敏，菜单栏只复制压缩摘要。'}
     />
 
-    {qnapBuild && <section className="diagnostic-summary-grid" aria-label={t('诊断摘要')}>
+    {qnapBuild && <section className="diagnostic-summary-grid" aria-label="Diagnostics summary">
       <article className="diagnostic-summary-card">
         <small>GATEWAY</small>
         <strong>{overview?.status.gateway ?? 'unknown'}</strong>
-        <span>{overview?.status.runtime_state ?? t('正在读取运行状态')}</span>
+        <span>{overview?.status.runtime_state ?? 'loading'}</span>
       </article>
       <article className={`diagnostic-summary-card ${failedChecks ? 'warn' : doctorStatus?.healthy ? 'ok' : ''}`}>
         <small>DOCTOR</small>
-        <strong>{running ? t('检查中') : failedChecks ? t('{{count}} 项异常', { count: failedChecks }) : doctorStatus?.healthy ? t('通过') : t('未运行')}</strong>
+        <strong>{running ? t('后台检查中…') : failedChecks ? `${failedChecks} issues` : doctorStatus?.healthy ? 'Healthy' : 'Not run'}</strong>
         <span>{doctorSubtitle(doctorStatus)}</span>
       </article>
       <article className="diagnostic-summary-card">
@@ -106,8 +106,8 @@ export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
           <button className="primary" type="button" disabled={running} onClick={() => void runDoctor()}>{running ? <><span className="button-spinner" aria-hidden="true" />{t('后台检查中…')}</> : t(doctorStatus?.state === 'idle' ? '运行 Doctor' : '重新运行 Doctor')}</button>
         </div>
         {qnapBuild && <div className="notice qnap-doctor-note">
-          <strong>{t('QNAP 权限检查不是普通写权限检查')}</strong>
-          <p>{t('Doctor 会在容器内验证 /data/runtime 的创建、fsync、rename 和目录 fsync；部署前 preflight 还会使用配置的 Web UID/GID 验证 /data/web-auth。')}</p>
+          <strong>QNAP persistent-storage verification</strong>
+          <p>Doctor verifies create, fsync, rename and directory fsync under /data/runtime. Deployment preflight additionally verifies /data/web-auth with the configured Web UID/GID.</p>
         </div>}
         {doctorError && <div className="notice warn" role="alert">{t('Doctor 状态暂不可用：{{error}}', { error: doctorError })}</div>}
         {doctorStatus?.state === 'failed' && <div className="notice warn" role="alert">{t('Doctor 后台任务失败：{{error}}', { error: doctorStatus.error || t('未知错误') })}</div>}
@@ -117,10 +117,10 @@ export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
         {!checks.length && !doctorError && doctorStatus?.state !== 'failed' && <div className="empty">{t(running ? '检查在 Control Service 后台执行；离开本页不会启动第二份任务。' : qnapBuild ? '点击“运行 Doctor”后才会执行完整检查；普通 Web 刷新不会触发。' : '点击“运行 Doctor”后才会执行完整检查；总览与菜单栏刷新不会触发。')}</div>}
       </div>
       <div>
-        <SectionTitle title="Proxy Providers" subtitle={qnapBuild ? '只把需要处理的 Provider 状态放在这里' : '可从这里观察和刷新，不在菜单栏中执行'} />
+        <SectionTitle title="Proxy Providers" subtitle={qnapBuild ? '从这里观察和刷新 Provider' : '可从这里观察和刷新，不在菜单栏中执行'} />
         <div className="provider-status-list">
           {providers.map(provider => <div className="row" key={provider.name}><StatusDot status={provider.proxies.some(proxy => proxy.alive) ? 'running' : 'degraded'} /><div className="grow"><strong>{provider.name}</strong><small>{provider.proxy_count} proxies · {provider.vehicle_type}</small></div><button onClick={() => void api.refreshProvider(provider.name)}>{t('刷新')}</button></div>)}
-          {!providers.length && <div className="empty">{t('尚无 Proxy Provider')}</div>}
+          {!providers.length && <div className="empty">No Proxy Providers</div>}
         </div>
       </div>
     </section>
@@ -128,14 +128,14 @@ export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
     <section className="section">
       <SectionTitle title="Live Connections" subtitle={details?.connection_error || `${connections.length} active connections`} />
       <div className="connection-summary-line"><span>↑ {formatBytes(details?.connections.upload_total ?? 0)}</span><span>↓ {formatBytes(details?.connections.download_total ?? 0)}</span></div>
-      {connections.length ? <div className="diagnostic-connection-list">{connections.slice(0, 12).map(connection => <div className="diagnostic-connection-row" key={connection.id}><strong>{connection.rule || 'MATCH'}</strong><span>{(connection.chains ?? []).join(' → ') || connection.id.slice(0, 8)}</span></div>)}</div> : <div className="empty">{t('当前没有活动连接')}</div>}
+      {connections.length ? <div className="diagnostic-connection-list">{connections.slice(0, 12).map(connection => <div className="diagnostic-connection-row" key={connection.id}><strong>{connection.rule || 'MATCH'}</strong><span>{(connection.chains ?? []).join(' → ') || connection.id.slice(0, 8)}</span></div>)}</div> : <div className="empty">No active connections</div>}
     </section>
 
     <section className="section">
       <SectionTitle title="Recent logs" subtitle="每个进程最多 80 行；API 会遮蔽 mihomo secret 与 upstream credentials" />
       <div className="diagnostic-log-list">
         {Object.entries(details?.logs ?? {}).map(([name, lines]) => <details key={name} className="diagnostic-log-panel"><summary><strong>{name}</strong><span>{lines.length} lines</span></summary><pre>{lines.join('\n') || 'No log output'}</pre></details>)}
-        {!Object.keys(details?.logs ?? {}).length && <div className="empty">{t('暂无日志')}</div>}
+        {!Object.keys(details?.logs ?? {}).length && <div className="empty">No logs</div>}
       </div>
     </section>
 
