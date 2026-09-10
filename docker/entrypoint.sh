@@ -2,32 +2,25 @@
 set -eu
 
 ROLE="${OPENSURGE_ROLE:-gateway}"
-
-case "$ROLE" in
-  manager)
-    exec /usr/local/bin/opensurge-manager
-    ;;
-  orchestrator)
-    exec /usr/local/bin/opensurge-orchestrator
-    ;;
-  gateway)
-    ;;
-  *)
-    echo "OpenSurge entrypoint: unsupported OPENSURGE_ROLE=$ROLE" >&2
-    exit 1
-    ;;
-esac
+[ "$ROLE" = "gateway" ] || {
+  echo "OpenSurge entrypoint: only OPENSURGE_ROLE=gateway is supported by the QNAP image" >&2
+  exit 1
+}
 
 DATA_DIR="${OPENSURGE_DATA_DIR:-/data}"
 CONFIG_PATH="${OPENSURGE_CONFIG:-${DATA_DIR}/config/opensurge.yaml}"
 STORE_DIR="${OPENSURGE_STORE:-${DATA_DIR}/control}"
+AUTH_DIR="${OPENSURGE_AUTH_DIR:-${DATA_DIR}/web-auth}"
 WEB_ADDR="${OPENSURGE_WEB_ADDR:-0.0.0.0:8080}"
 CONTROL_ADDR="${OPENSURGE_CONTROL_ADDR:-127.0.0.1:61767}"
 ALLOWED_HOSTS="${OPENSURGE_ALLOWED_HOSTS:-}"
+SECURE_COOKIES="${OPENSURGE_SECURE_COOKIES:-false}"
 SEED_LAN_IP="${OPENSURGE_SEED_LAN_IP:-192.168.50.2}"
 SEED_LAN_CIDR="${OPENSURGE_SEED_LAN_CIDR:-192.168.50.0/24}"
 SEED_UPSTREAM_GATEWAY="${OPENSURGE_SEED_UPSTREAM_GATEWAY:-192.168.50.1}"
 CONTAINER_INTERFACE="${OPENSURGE_CONTAINER_INTERFACE:-eth0}"
+WEB_UID="${OPENSURGE_WEB_UID:-65532}"
+WEB_GID="${OPENSURGE_WEB_GID:-65532}"
 
 fatal() {
   echo "OpenSurge entrypoint: $*" >&2
@@ -98,15 +91,75 @@ mkdir -p \
   "${DATA_DIR}/logs" \
   "${DATA_DIR}/backups" \
   "${DATA_DIR}/licenses" \
-  "${STORE_DIR}"
+  "${STORE_DIR}" \
+  "${AUTH_DIR}"
 
 if [ ! -f "${CONFIG_PATH}" ]; then
   seed_config
 fi
 
-exec /usr/local/bin/opensurge-container \
+# The LAN-facing HTTP process must not retain the gateway's NET_ADMIN/NET_RAW
+# capabilities. Its only persistent write surface is the dedicated auth dir.
+chown "${WEB_UID}:${WEB_GID}" "${AUTH_DIR}"
+chmod 700 "${AUTH_DIR}"
+if [ ! -f "${AUTH_DIR}/admin.json" ] && [ -f "${STORE_DIR}/admin.json" ]; then
+  cp "${STORE_DIR}/admin.json" "${AUTH_DIR}/admin.json"
+  chmod 600 "${AUTH_DIR}/admin.json"
+  chown "${WEB_UID}:${WEB_GID}" "${AUTH_DIR}/admin.json"
+  echo "Migrated legacy Web administrator credentials to ${AUTH_DIR}." >&2
+fi
+
+CONTROL_TOKEN="$(/usr/local/bin/opensurge-container --component token --store "${STORE_DIR}")"
+[ -n "$CONTROL_TOKEN" ] || fatal "internal control token is empty"
+
+/usr/local/bin/opensurge-container \
+  --component control \
   --config "${CONFIG_PATH}" \
   --store "${STORE_DIR}" \
+  --control-addr "${CONTROL_ADDR}" &
+CONTROL_PID=$!
+
+set -- /usr/local/bin/opensurge-container \
+  --component web \
+  --store "${STORE_DIR}" \
+  --auth-dir "${AUTH_DIR}" \
   --control-addr "${CONTROL_ADDR}" \
+  --control-token "${CONTROL_TOKEN}" \
   --web-addr "${WEB_ADDR}" \
-  --allowed-hosts "${ALLOWED_HOSTS}"
+  --allowed-hosts "${ALLOWED_HOSTS}" \
+  --require-bootstrap-token \
+  --qnap-only
+case "$(printf '%s' "$SECURE_COOKIES" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on) set -- "$@" --secure-cookies ;;
+  0|false|no|off|'') ;;
+  *) kill -TERM "$CONTROL_PID" 2>/dev/null || true; fatal "OPENSURGE_SECURE_COOKIES must be a boolean" ;;
+esac
+
+setpriv \
+  --reuid="$WEB_UID" \
+  --regid="$WEB_GID" \
+  --clear-groups \
+  --bounding-set=-all \
+  --inh-caps=-all \
+  --ambient-caps=-all \
+  --no-new-privs \
+  "$@" &
+WEB_PID=$!
+
+shutdown_children() {
+  kill -TERM "$WEB_PID" "$CONTROL_PID" 2>/dev/null || true
+  wait "$WEB_PID" 2>/dev/null || true
+  wait "$CONTROL_PID" 2>/dev/null || true
+}
+
+trap 'shutdown_children; exit 0' INT TERM HUP
+
+# One Docker container, two privilege domains. If either process exits
+# unexpectedly, stop the sibling and let Docker's restart policy recover both.
+while kill -0 "$CONTROL_PID" 2>/dev/null && kill -0 "$WEB_PID" 2>/dev/null; do
+  sleep 1
+done
+
+echo "OpenSurge entrypoint: a supervised component exited; restarting the container" >&2
+shutdown_children
+exit 1
