@@ -25,6 +25,9 @@ services:
       OPENSURGE_ROLE: gateway
       OPENSURGE_WEB_ADDR: 0.0.0.0:8080
       OPENSURGE_ALLOWED_HOSTS: ${OPENSURGE_ALLOWED_HOSTS:-}
+      # Set true only when clients reach OpenSurge through an HTTPS reverse
+      # proxy. Cookies will then carry Secure and the Web response emits HSTS.
+      OPENSURGE_SECURE_COOKIES: ${OPENSURGE_SECURE_COOKIES:-false}
 
       # Creation-time network seed. These values are used only when
       # /data/config/opensurge.yaml does not exist; an existing persistent
