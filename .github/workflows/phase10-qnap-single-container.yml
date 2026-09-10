@@ -135,6 +135,13 @@ jobs:
           grep -q 'min-width: 0' web/src/qnap-enhancements.css
           grep -q 'QNAP Environment Doctor' web/src/pages/DiagnosticsPage.tsx
           grep -q 'diagnostic-summary-grid' web/src/pages/DiagnosticsPage.tsx
+      - name: Guard LAN remote management UI
+        run: |
+          grep -q 'RemoteManagementCard' web/src/pages/QNAPNetworkPage.tsx
+          grep -q '/api/auth/remote-token' web/src/components/RemoteManagementCard.tsx
+          grep -q '/api/remote/v1' web/src/components/RemoteManagementCard.tsx
+          grep -q 'remote-token-row' web/src/qnap-enhancements.css
+          test -f docs/REMOTE_MANAGEMENT.md
       - name: Guard current QNAP docs against Mac product identity
         run: |
           ! grep -Eq '^# .*OpenSurge for Mac|^# 为 OpenSurge for Mac|OpenSurge for Mac App 使用指南|OpenSurge for Mac App User Guide' README.md README.en.md CONTRIBUTING.md AGENTS.md docs/app-user-guide.md docs/app-user-guide.zh-CN.md docs/faq.md docs/faq.zh-CN.md
@@ -165,6 +172,8 @@ jobs:
           grep -q 'checkTUNDevice("/dev/net/tun")' internal/doctor/doctor.go
       - name: QNAP Web security boundary tests
         run: go test ./internal/webgateway -run 'TestQNAPFirstAdminRequiresBootstrapToken|TestQNAPDesktopOnlyPathsAreBlocked|TestReadyRequiresAuthenticatedControlConfig' -count=1
+      - name: Remote management security boundary tests
+        run: go test ./internal/webgateway -run 'TestRemoteTokenStorePersistsOnlyHashAndRevokes|TestRemoteManagementTokenProxiesQNAPAPIWithoutBrowserOrigin|TestRemoteCapabilitiesRequireTokenAndDescribeManagementSurface' -count=1
       - name: QNAP Mihomo exposure tests
         run: go test ./internal/mihomo -run 'TestTUNModeKeepsMihomoInternalListenersOnLoopback|TestTransparentOffExplicitlyEnablesManualLANMixedPort' -count=1
       - name: QNAP source network policy tests
