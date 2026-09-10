@@ -285,10 +285,10 @@ tun:
 
 	for _, want := range []string{
 		"mixed-port: 17890",
-		"allow-lan: true",
-		"bind-address: \"*\"",
+		"allow-lan: false",
+		"bind-address: \"127.0.0.1\"",
 		"external-controller: 127.0.0.1:19090",
-		"listen: 0.0.0.0:1053",
+		"listen: 127.0.0.1:1053",
 		"ipv6: false",
 		"enhanced-mode: fake-ip",
 		"fake-ip-range: 198.18.0.1/16",
@@ -313,7 +313,9 @@ tun:
 		}
 	}
 	for _, notWant := range []string{
-		"allow-lan: false",
+		"allow-lan: true",
+		"bind-address: \"*\"",
+		"listen: 0.0.0.0:1053",
 		"external-controller: 127.0.0.1:9999",
 		"enable: false",
 		"listen: 127.0.0.1:5335",
