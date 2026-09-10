@@ -80,6 +80,8 @@ jobs:
           grep -q 'source: /share/Container/opensurge' /tmp/opensurge-default-compose.yaml
           grep -q 'target: /data' /tmp/opensurge-default-compose.yaml
           grep -q 'OPENSURGE_SEED_LAN_IP: 192.168.50.2' /tmp/opensurge-default-compose.yaml
+          grep -q 'OPENSURGE_WEB_UID: "1000"' /tmp/opensurge-default-compose.yaml
+          grep -q 'OPENSURGE_WEB_GID: "100"' /tmp/opensurge-default-compose.yaml
           ! grep -q '/var/run/docker.sock' /tmp/opensurge-default-compose.yaml
           ! grep -q 'opensurge-manager' /tmp/opensurge-default-compose.yaml
           ! grep -q 'opensurge-orchestrator' /tmp/opensurge-default-compose.yaml
@@ -193,6 +195,8 @@ jobs:
             -e OPENSURGE_SEED_LAN_CIDR=10.55.0.0/24 \
             -e OPENSURGE_SEED_UPSTREAM_GATEWAY=10.55.0.1 \
             -e OPENSURGE_CONTAINER_INTERFACE=eth0 \
+            -e OPENSURGE_WEB_UID=1000 \
+            -e OPENSURGE_WEB_GID=100 \
             -v /tmp/opensurge-ci-data:/data \
             opensurge-qnap:ci
           for i in $(seq 1 30); do
@@ -220,11 +224,13 @@ jobs:
           test -n "$web_pid"
           test -n "$control_pid"
           web_uid="$(docker exec opensurge-ci sh -c "set -- \$(grep '^Uid:' /proc/$web_pid/status); echo \$2")"
+          web_gid="$(docker exec opensurge-ci sh -c "set -- \$(grep '^Gid:' /proc/$web_pid/status); echo \$2")"
           control_uid="$(docker exec opensurge-ci sh -c "set -- \$(grep '^Uid:' /proc/$control_pid/status); echo \$2")"
           web_caps="$(docker exec opensurge-ci sh -c "set -- \$(grep '^CapEff:' /proc/$web_pid/status); echo \$2")"
-          echo "web pid=$web_pid uid=$web_uid CapEff=$web_caps"
+          echo "web pid=$web_pid uid=$web_uid gid=$web_gid CapEff=$web_caps"
           echo "control pid=$control_pid uid=$control_uid"
-          test "$web_uid" = "65532"
+          test "$web_uid" = "1000"
+          test "$web_gid" = "100"
           test "$control_uid" = "0"
           test "$web_caps" = "0000000000000000"
       - name: Verify first-run auth boundary and bootstrap token
@@ -263,6 +269,8 @@ jobs:
             -e OPENSURGE_SEED_LAN_IP=10.99.0.2 \
             -e OPENSURGE_SEED_LAN_CIDR=10.99.0.0/24 \
             -e OPENSURGE_SEED_UPSTREAM_GATEWAY=10.99.0.1 \
+            -e OPENSURGE_WEB_UID=1000 \
+            -e OPENSURGE_WEB_GID=100 \
             -v /tmp/opensurge-ci-data:/data \
             opensurge-qnap:ci
           for i in $(seq 1 30); do
