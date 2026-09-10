@@ -11,7 +11,7 @@ The guided editor exposes two native Mihomo DNS switches:
 
 On QNAP, Mihomo runs inside the OpenSurge container. Therefore `use-system-hosts` reads the container's `/etc/hosts`, not an arbitrary file from the QNAP host filesystem.
 
-Both Mihomo switches default to `true` when they are absent, matching Mihomo's current defaults. The UI shows that effective state and only writes an explicit value after the user changes a switch.
+Mihomo defaults both switches to `true` when they are absent. The guided editor presents that kernel default when the overlay has not explicitly overridden a switch; changing a switch writes an explicit overlay value that takes precedence over an imported profile.
 
 ## Standard Hosts file import
 
