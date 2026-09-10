@@ -122,6 +122,7 @@ QNAP Web 当前提供：
 - 容器实际网络状态；
 - DNS / TUN 可变运行参数；
 - HTTPS 订阅和本地 YAML 导入；
+- 高级全局附加配置中的 Hosts 文件导入、顶层 `hosts:` 映射，以及 `dns.use-hosts` / `dns.use-system-hosts` 控制；
 - 草稿、当前运行版本和下次启动版本持久化；
 - Provider / 策略组 / 规则；
 - 设备策略；
