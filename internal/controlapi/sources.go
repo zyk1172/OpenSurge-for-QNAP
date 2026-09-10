@@ -419,6 +419,7 @@ func sequenceNames(node *yaml.Node) []string {
 				names = append(names, item.Content[i+1].Value)
 			}
 		}
+	}
 	sort.Strings(names)
 	return names
 }
