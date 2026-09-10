@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_IMAGE=node:24-bookworm-slim
-ARG GO_IMAGE=golang:1.25-bookworm
-ARG DEBIAN_IMAGE=debian:bookworm-slim
+ARG NODE_IMAGE=node:24-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e
+ARG GO_IMAGE=golang:1.25-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437
+ARG DEBIAN_IMAGE=debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 
 FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS web-builder
 ARG OPENSURGE_VERSION=dev
@@ -22,12 +22,8 @@ RUN go mod download
 COPY . .
 COPY --from=web-builder /src/internal/webui/dist/ ./internal/webui/dist/
 RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/opensurge-container ./cmd/opensurge-container \
- && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/opensurge-manager ./cmd/opensurge-manager \
- && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/opensurge-orchestrator ./cmd/opensurge-orchestrator \
  && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/omg ./cmd/omg
 
-# dnsmasq is a C binary, so this stage intentionally runs on TARGETPLATFORM.
-# buildx/QEMU is used only for this small native build when targeting arm64.
 FROM ${DEBIAN_IMAGE} AS dnsmasq-builder
 ARG DNSMASQ_VERSION=2.93
 ARG DNSMASQ_SHA256=0c00d4e5c97c8306e5fb932b348b34269c9c29a0e7df0e8e82958b407092bc19
@@ -74,12 +70,10 @@ ARG DNSMASQ_VERSION=2.93
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      ca-certificates curl iproute2 nftables tini tzdata \
+      ca-certificates curl iproute2 nftables tini tzdata util-linux \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=go-builder /out/opensurge-container /usr/local/bin/opensurge-container
-COPY --from=go-builder /out/opensurge-manager /usr/local/bin/opensurge-manager
-COPY --from=go-builder /out/opensurge-orchestrator /usr/local/bin/opensurge-orchestrator
 COPY --from=go-builder /out/omg /usr/local/bin/omg
 COPY --from=dnsmasq-builder /out/dnsmasq /usr/local/bin/dnsmasq
 COPY --from=mihomo-fetcher /out-mihomo /usr/local/bin/mihomo
@@ -89,7 +83,7 @@ COPY LICENSE THIRD_PARTY_NOTICES.md NOTICE.md /usr/share/opensurge/licenses/
 COPY third_party/licenses/ /usr/share/opensurge/licenses/third_party/
 
 RUN chmod 0755 /usr/local/bin/opensurge-entrypoint \
- && mkdir -p /data/config /data/profiles /data/providers /data/runtime /data/state /data/logs /data/backups /data/licenses /data/control /run/opensurge
+ && mkdir -p /data/config /data/profiles /data/providers /data/runtime /data/state /data/logs /data/backups /data/licenses /data/control /data/web-auth /run/opensurge
 
 LABEL org.opencontainers.image.title="OpenSurge for QNAP" \
       org.opencontainers.image.description="Web-managed Linux transparent proxy gateway for QNAP NAS" \
@@ -105,6 +99,6 @@ VOLUME ["/data"]
 EXPOSE 8080/tcp 61780/tcp 53/tcp 53/udp
 
 HEALTHCHECK --interval=30s --timeout=4s --start-period=20s --retries=3 \
-  CMD curl --fail --silent --show-error http://127.0.0.1:8080/health/live >/dev/null || exit 1
+  CMD curl --fail --silent --show-error http://127.0.0.1:8080/health/ready >/dev/null || exit 1
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/opensurge-entrypoint"]
