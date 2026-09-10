@@ -27,6 +27,41 @@ const (
 	sourceUserAgent = "clash.meta"
 )
 
+var sourceBlockedNetworks = mustSourceBlockedNetworks(
+	"100.64.0.0/10",
+	"192.0.0.0/24",
+	"192.0.2.0/24",
+	"198.18.0.0/15",
+	"198.51.100.0/24",
+	"203.0.113.0/24",
+	"240.0.0.0/4",
+	"2001:db8::/32",
+)
+
+func mustSourceBlockedNetworks(values ...string) []*net.IPNet {
+	result := make([]*net.IPNet, 0, len(values))
+	for _, value := range values {
+		_, network, err := net.ParseCIDR(value)
+		if err != nil {
+			panic("invalid built-in source network: " + value)
+		}
+		result = append(result, network)
+	}
+	return result
+}
+
+func sourceIPAllowed(ip net.IP) bool {
+	if ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		return false
+	}
+	for _, network := range sourceBlockedNetworks {
+		if network.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Server) importURL(ctx context.Context, req SourceImportRequest) (Source, error) {
 	parsed, err := url.Parse(req.URL)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
@@ -75,9 +110,6 @@ func newSourceRequest(ctx context.Context, sourceURL string) (*http.Request, err
 	if err != nil {
 		return nil, err
 	}
-	// Subscription services commonly use the client User-Agent to choose the
-	// response format. Identify the requested format as mihomo/Clash Meta while
-	// keeping OpenSurge as the product identity everywhere else.
 	request.Header.Set("User-Agent", sourceUserAgent)
 	return request, nil
 }
@@ -92,9 +124,12 @@ func safeDialContext(ctx context.Context, network, address string) (net.Conn, er
 		return nil, err
 	}
 	for _, ip := range ips {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-			return nil, fmt.Errorf("source URL resolves to a private or local address")
+		if !sourceIPAllowed(ip) {
+			return nil, fmt.Errorf("source URL resolves to a non-public or special-use address")
 		}
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("source URL did not resolve to an address")
 	}
 	dialer := &net.Dialer{Timeout: 8 * time.Second}
 	return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
