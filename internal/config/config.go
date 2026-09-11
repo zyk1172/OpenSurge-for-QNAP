@@ -169,6 +169,12 @@ type TransparentConfig struct {
 	TUNStrictRoute         bool
 	TUNIPv6                string
 	IPv6SharedL2Ready      bool
+	// IPv6RAEnabled is an explicit QNAP same-LAN opt-in for automatic client
+	// provisioning. It makes dnsmasq advertise the downstream ULA with
+	// RA/SLAAC/RDNSS. It is deliberately separate from IPv6SharedL2Ready so an
+	// existing manual-ULA installation can never start broadcasting RA merely
+	// because it upgrades OpenSurge.
+	IPv6RAEnabled          bool
 	IPv6PacketBrokerBinary string
 	IPv6PacketMTU          int
 	// NFTTableName is the only nftables table OpenSurge ever touches.
@@ -281,6 +287,7 @@ func Default() Config {
 			TUNStrictRoute:         false,
 			TUNIPv6:                TUNIPv6Off,
 			IPv6SharedL2Ready:      false,
+			IPv6RAEnabled:          false,
 			IPv6PacketBrokerBinary: "",
 			IPv6PacketMTU:          0,
 			NFTTableName:           DefaultNFTTableName,
