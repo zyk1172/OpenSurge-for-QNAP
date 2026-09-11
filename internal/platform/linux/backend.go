@@ -94,7 +94,7 @@ func (b *Backend) RemoveNAT(ctx context.Context) error {
 }
 
 func (b *Backend) SetupPolicyRouting(ctx context.Context, cfg platform.RoutingConfig) error {
-	if err := b.applyPolicyRouting(ctx, cfg); err != nil {
+	if err := b.applyPolicyRoutingWithIPv6(ctx, cfg); err != nil {
 		return err
 	}
 	b.ensureActive().routing = cfg
@@ -102,14 +102,14 @@ func (b *Backend) SetupPolicyRouting(ctx context.Context, cfg platform.RoutingCo
 }
 
 func (b *Backend) PolicyRoutingPresent(ctx context.Context, cfg platform.RoutingConfig) (bool, error) {
-	return b.policyRoutingPresent(ctx, cfg)
+	return b.policyRoutingWithIPv6Present(ctx, cfg)
 }
 
 func (b *Backend) RemovePolicyRouting(ctx context.Context) error {
 	if b.active == nil {
 		return nil
 	}
-	return b.removePolicyRouting(ctx, b.active.routing)
+	return b.removePolicyRoutingWithIPv6(ctx, b.active.routing)
 }
 
 func (b *Backend) SwitchToDirectFallback(ctx context.Context, cfg platform.RoutingConfig) error {
@@ -118,7 +118,7 @@ func (b *Backend) SwitchToDirectFallback(ctx context.Context, cfg platform.Routi
 			"direct fallback requires an applied OpenSurge routing recipe")
 	}
 	cfg.DirectFallback = true
-	if err := b.applyPolicyRouting(ctx, cfg); err != nil {
+	if err := b.applyPolicyRoutingWithIPv6(ctx, cfg); err != nil {
 		return err
 	}
 	b.active.routing = cfg
@@ -126,6 +126,8 @@ func (b *Backend) SwitchToDirectFallback(ctx context.Context, cfg platform.Routi
 	// Same-LAN iif mode preserves the client's source address and sends packets
 	// directly back to the real router on the same L2 segment. It needs no
 	// masquerade and therefore remains usable on QNAP kernels without nf_tables.
+	// IPv6 intentionally stays fail-closed here because the QNAP config has no
+	// authoritative IPv6 upstream next hop to use for a safe direct fallback.
 	if effectiveRuleMode(cfg) == platform.RoutingRuleIngressInterface {
 		return nil
 	}
@@ -290,7 +292,7 @@ func (b *Backend) Restore(ctx context.Context, snapshot *platform.NetworkSnapsho
 	if snapshot.Applied.PolicyRouting {
 		if snapshot.Routing == nil {
 			failures = append(failures, "policy routing journaled but routing recipe is missing")
-		} else if err := b.removePolicyRouting(ctx, *snapshot.Routing); err != nil {
+		} else if err := b.removePolicyRoutingWithIPv6(ctx, *snapshot.Routing); err != nil {
 			failures = append(failures, "remove policy routing: "+err.Error())
 		}
 	}
