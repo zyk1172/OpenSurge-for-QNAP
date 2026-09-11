@@ -254,7 +254,29 @@ func TestRenderConfigWithDownstreamIPv6RAAndRDNSS(t *testing.T) {
 	}
 }
 
-func TestRenderConfigSameLANIPv6ListensWithoutAdvertisingRA(t *testing.T) {
+func TestRenderConfigSameLANIPv6ManualDistributionDoesNotAdvertiseRA(t *testing.T) {
+	cfg := config.Default()
+	cfg.Gateway.Mode = config.GatewayModeSameLAN
+	cfg.Gateway.UpstreamInterface = cfg.Gateway.Interface
+	cfg.DHCP.Enabled = false
+	cfg.Transparent.Mode = config.TransparentModeTUN
+	cfg.Transparent.TUNIPv6 = config.TUNIPv6Always
+	cfg.Transparent.IPv6SharedL2Ready = false
+	rendered, err := RenderConfig(cfg, runtime.NewPaths(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered, "listen-address="+config.DownstreamIPv6Gateway) {
+		t.Fatalf("same-LAN IPv6 DNS listener missing:\n%s", rendered)
+	}
+	for _, forbidden := range []string{"enable-ra", "ra-stateless", "option6:dns-server", "ra-param="} {
+		if strings.Contains(rendered, forbidden) {
+			t.Fatalf("same-LAN manual IPv6 config unexpectedly advertises %q:\n%s", forbidden, rendered)
+		}
+	}
+}
+
+func TestRenderConfigSameLANIPv6AutomaticDistribution(t *testing.T) {
 	cfg := config.Default()
 	cfg.Gateway.Mode = config.GatewayModeSameLAN
 	cfg.Gateway.UpstreamInterface = cfg.Gateway.Interface
@@ -266,12 +288,25 @@ func TestRenderConfigSameLANIPv6ListensWithoutAdvertisingRA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rendered, "listen-address="+config.DownstreamIPv6Gateway) {
-		t.Fatalf("same-LAN IPv6 DNS listener missing:\n%s", rendered)
+	for _, want := range []string{
+		"enable-ra",
+		"dhcp-range=fdfe:dcba:9878::,ra-stateless,64,12h",
+		"dhcp-option=option6:dns-server,[fe80::]",
+		"ra-param=en0,20,60",
+		"listen-address=" + config.DownstreamIPv6Gateway,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("same-LAN automatic IPv6 config missing %q:\n%s", want, rendered)
+		}
 	}
-	for _, forbidden := range []string{"enable-ra", "ra-stateless", "option6:dns-server", "ra-param="} {
+	for _, forbidden := range []string{
+		"dhcp-range=192.168.",
+		"dhcp-option=option:router",
+		"dhcp-option=option:dns-server,192.168.",
+		"dhcp-leasefile=",
+	} {
 		if strings.Contains(rendered, forbidden) {
-			t.Fatalf("same-LAN selective IPv6 config unexpectedly advertises %q:\n%s", forbidden, rendered)
+			t.Fatalf("same-LAN automatic IPv6 config unexpectedly enables IPv4 DHCP via %q:\n%s", forbidden, rendered)
 		}
 	}
 }
