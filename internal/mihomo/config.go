@@ -174,14 +174,13 @@ func newTemplateData(cfg config.Config) (templateData, error) {
 	}
 	transparent := cfg.Transparent
 	// QNAP configs loaded through config.Load are normalized to the explicit
-	// native-linux-tun marker. An empty marker is kept as the historical
-	// packet-listener behavior for direct, unnormalized Config values used by
-	// upstream/macOS compatibility tests and callers.
+	// native-linux-tun marker. Native same-LAN IPv6 now keeps client public IPv6
+	// and the main router's default route; only fake IPv6 destinations are sent
+	// into the TUN. Therefore there is no fixed client ULA to rewrite into
+	// SRC-IP-CIDR6 device rules. The historical packet listener path is retained
+	// only for direct, unnormalized upstream/macOS compatibility callers.
 	nativeLinuxIPv6 := transparent.TUNIPv6 != config.TUNIPv6Off &&
 		strings.TrimSpace(transparent.IPv6PacketBrokerBinary) == config.NativeLinuxIPv6Runtime
-	if nativeLinuxIPv6 {
-		policySections = rewriteQNAPIPv6IdentityRules(policySections, cfg)
-	}
 	legacyPacketListener := transparent.TUNIPv6 != config.TUNIPv6Off && !nativeLinuxIPv6
 	packetSocket := ""
 	if legacyPacketListener {
