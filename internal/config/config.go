@@ -137,10 +137,11 @@ const (
 	TUNIPv6Always = "always"
 )
 
-// The three IPv6 ranges are deliberately disjoint. Downstream clients use the
-// LAN /64, fake-IP answers use another /64 so clients do not attempt on-link
-// neighbour discovery for synthetic destinations, and the host TUN keeps its
-// own tiny point-to-point range.
+// QNAP same-LAN IPv6 keeps the main router's ordinary RA/default route. DNS
+// returns synthetic IPv6 addresses from MihomoFakeIPv6Range and the router
+// forwards only that prefix to OpenSurge; the TUN itself owns a separate /126.
+// DownstreamIPv6* remains for compatibility with older/manual deployments and
+// DHCP-owning topologies, but is no longer the QNAP same-LAN default path.
 const (
 	MihomoFakeIPv6Range        = "fdfe:dcba:9876::/64"
 	MihomoTUNIPv6              = "fdfe:dcba:9877::1/126"
@@ -168,6 +169,11 @@ type TransparentConfig struct {
 	TUNAutoDetectInterface bool
 	TUNStrictRoute         bool
 	TUNIPv6                string
+	// IPv6SharedL2Ready is retained for configuration/API compatibility. In
+	// QNAP same_lan it now acknowledges that the main router uses OpenSurge DNS
+	// and has a static route for MihomoFakeIPv6Range via the OpenSurge LAN
+	// interface. It no longer means that clients changed their IPv6 default
+	// gateway. same_wifi_dhcp keeps the historical shared-L2 readiness meaning.
 	IPv6SharedL2Ready      bool
 	IPv6PacketBrokerBinary string
 	IPv6PacketMTU          int
