@@ -47,20 +47,22 @@ func TestRenderRoundTrip(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsRenderedUnsupportedIPv6Takeover(t *testing.T) {
+func TestLoadAcceptsRenderedIPv6Takeover(t *testing.T) {
 	cfg := Default()
 	cfg.Transparent.Mode = TransparentModeTUN
 	cfg.Transparent.TUNIPv6 = TUNIPv6Always
 	cfg.Transparent.IPv6SharedL2Ready = true
-	cfg.Transparent.IPv6PacketBrokerBinary = "/tmp/opensurge-network"
-	cfg.Transparent.IPv6PacketMTU = 1420
 	cfg.DNS.IPv6 = true
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(Render(cfg)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "IPv6") {
-		t.Fatalf("Load(Render(unsupported IPv6)) error = %v, want explicit QNAP v1 rejection", err)
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(Render(IPv6 takeover)) error = %v", err)
+	}
+	if loaded.Transparent.TUNIPv6 != TUNIPv6Always || loaded.Transparent.IPv6PacketBrokerBinary != NativeLinuxIPv6Runtime || loaded.Transparent.IPv6PacketMTU != 1500 || !loaded.DNS.IPv6 {
+		t.Fatalf("IPv6 takeover round trip mismatch: %#v", loaded.Transparent)
 	}
 }
 
