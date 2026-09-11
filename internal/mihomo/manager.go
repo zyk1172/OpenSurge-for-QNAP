@@ -220,7 +220,18 @@ func (m Manager) waitForTUN(pid int, timeout time.Duration) error {
 		state, err := FetchTUNRuntimeState(ctx, m.cfg)
 		cancel()
 		if err == nil && state.Enabled {
-			return nil
+			if m.cfg.Transparent.TUNIPv6 == config.TUNIPv6Off {
+				return nil
+			}
+			ready, addressErr := nativeTUNIPv6Ready(m.cfg.Transparent.TUNDevice)
+			if addressErr == nil && ready {
+				return nil
+			}
+			if addressErr != nil {
+				lastErr = addressErr
+			} else {
+				lastErr = fmt.Errorf("TUN %s is enabled but %s is not assigned", m.cfg.Transparent.TUNDevice, config.MihomoTUNIPv6)
+			}
 		}
 		if err != nil {
 			lastErr = err
@@ -235,6 +246,34 @@ func (m Manager) waitForTUN(pid int, timeout time.Duration) error {
 		return fmt.Errorf("mihomo TUN not ready after %s: %w", timeout, lastErr)
 	}
 	return fmt.Errorf("mihomo TUN not ready after %s: runtime config still reports disabled", timeout)
+}
+
+func nativeTUNIPv6Ready(device string) (bool, error) {
+	iface, err := net.InterfaceByName(device)
+	if err != nil {
+		return false, err
+	}
+	addresses, err := iface.Addrs()
+	if err != nil {
+		return false, err
+	}
+	expected, _, err := net.ParseCIDR(config.MihomoTUNIPv6)
+	if err != nil {
+		return false, err
+	}
+	for _, address := range addresses {
+		var actual net.IP
+		switch value := address.(type) {
+		case *net.IPNet:
+			actual = value.IP
+		case *net.IPAddr:
+			actual = value.IP
+		}
+		if actual != nil && actual.Equal(expected) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func enrichTUNRouteError(detail string) string {
