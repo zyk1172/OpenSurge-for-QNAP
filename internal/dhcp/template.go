@@ -24,15 +24,15 @@ dhcp-option=tag:opensurge-router-bypass,option:dns-server,{{ .BypassDNS }}
 domain={{ .Domain }}
 {{ range .Reservations }}dhcp-host={{ .MAC }}{{ if eq .GatewayTarget "upstream_router" }},set:opensurge-router-bypass{{ end }},{{ .IPv4 }}
 {{ end }}
+
+log-dhcp
+dhcp-leasefile={{ .LeaseFile }}
+{{ end }}
 {{ if .IPv6RAEnabled }}
 enable-ra
 dhcp-range={{ .IPv6Prefix }},ra-stateless,64,{{ .LeaseTime }}
 dhcp-option=option6:dns-server,[fe80::]
 ra-param={{ .Interface }},20,60
-{{ end }}
-
-log-dhcp
-dhcp-leasefile={{ .LeaseFile }}
 {{ end }}
 log-queries
 
@@ -107,6 +107,15 @@ func RenderConfig(cfg config.Config, paths runtime.Paths) (string, error) {
 	if dnsUpstream == "" {
 		dnsUpstream = config.MihomoDNSUpstream
 	}
+	ipv6Requested := cfg.Transparent.TUNIPv6 != config.TUNIPv6Off
+	ipv6RAEnabled := ipv6Requested && cfg.DHCP.Enabled
+	if cfg.Gateway.Mode == config.GatewayModeSameLAN {
+		// QNAP same-LAN normally keeps IPv4 DHCP disabled. The existing
+		// ipv6_shared_l2_ready switch is used here as the explicit opt-in for
+		// LAN-wide RA/SLAAC/RDNSS. When it is false, IPv6 remains manual and
+		// selective just like the original QNAP takeover path.
+		ipv6RAEnabled = ipv6Requested && cfg.Transparent.IPv6SharedL2Ready
+	}
 	data := templateData{
 		DHCPEnabled:         cfg.DHCP.Enabled,
 		Interface:           cfg.Gateway.Interface,
@@ -125,14 +134,10 @@ func RenderConfig(cfg config.Config, paths runtime.Paths) (string, error) {
 		DNSListen:           cfg.DNS.Listen,
 		DNSUpstream:         dnsUpstream,
 		Reservations:        reservations,
-		IPv6GatewayEnabled:  cfg.Transparent.TUNIPv6 != config.TUNIPv6Off,
-		// same_lan is selective, manual IPv6 onboarding. Advertising RA on a
-		// shared LAN would silently move devices that were never selected for
-		// the bypass-router path. DHCP-owning topologies deliberately remain
-		// LAN-wide providers.
-		IPv6RAEnabled: cfg.Transparent.TUNIPv6 != config.TUNIPv6Off && cfg.DHCP.Enabled,
-		IPv6Gateway:   config.DownstreamIPv6Gateway,
-		IPv6Prefix:    strings.TrimSuffix(config.DownstreamIPv6Prefix, "/64"),
+		IPv6GatewayEnabled:  ipv6Requested,
+		IPv6RAEnabled:       ipv6RAEnabled,
+		IPv6Gateway:         config.DownstreamIPv6Gateway,
+		IPv6Prefix:          strings.TrimSuffix(config.DownstreamIPv6Prefix, "/64"),
 	}
 
 	tmpl, err := template.New("dnsmasq").Parse(dnsmasqTemplate)
