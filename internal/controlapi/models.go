@@ -222,6 +222,9 @@ type TransparentConfigInput struct {
 	StrictRoute       bool   `json:"strict_route"`
 	TUNIPv6           string `json:"tun_ipv6"`
 	IPv6SharedL2Ready bool   `json:"ipv6_shared_l2_ready"`
+	// Pointer keeps compatibility with older schema-v1 clients. Omitting the
+	// field preserves the current value; GET responses set it explicitly.
+	IPv6RAEnabled *bool `json:"ipv6_ra_enabled,omitempty"`
 }
 
 type LocalSystemProxyConfigInput struct {
@@ -283,7 +286,7 @@ type TailscaleDiscoveredNode struct {
 
 type TailscaleDiscoveryResponse struct {
 	SchemaVersion        int                            `json:"schema_version"`
-	Available            bool                           `json:"available"`
+	Available            bool                           `json:"available,omitempty"`
 	Cached               bool                           `json:"cached,omitempty"`
 	CachedAt             *time.Time                     `json:"cached_at,omitempty"`
 	BackendState         string                         `json:"backend_state,omitempty"`
@@ -357,17 +360,17 @@ type Source struct {
 	Digest              string          `json:"digest"`
 	Size                int64           `json:"size"`
 	Valid               bool            `json:"valid"`
-	Validation          string          `json:"validation,omitempty"`
-	Inventory           Inventory       `json:"inventory"`
-	ImportedAt          time.Time       `json:"imported_at"`
-	Desired             bool            `json:"desired"`
-	Applied             bool            `json:"applied"`
-	Versions            []SourceVersion `json:"versions"`
-	Diff                SourceDiff      `json:"diff"`
-	EffectiveDigest     string          `json:"effective_digest,omitempty"`
-	EffectiveInventory  Inventory       `json:"effective_inventory"`
-	OverlayCompatible   bool            `json:"overlay_compatible"`
-	OverlayValidation   string          `json:"overlay_validation,omitempty"`
+	Validation          string           `json:"validation,omitempty"`
+	Inventory           Inventory        `json:"inventory"`
+	ImportedAt          time.Time        `json:"imported_at"`
+	Desired             bool             `json:"desired"`
+	Applied             bool             `json:"applied"`
+	Versions            []SourceVersion  `json:"versions"`
+	Diff                SourceDiff       `json:"diff"`
+	EffectiveDigest     string           `json:"effective_digest,omitempty"`
+	EffectiveInventory  Inventory        `json:"effective_inventory"`
+	OverlayCompatible   bool             `json:"overlay_compatible"`
+	OverlayValidation   string           `json:"overlay_validation,omitempty"`
 }
 
 type SourceSnapshotFile struct {
