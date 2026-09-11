@@ -140,14 +140,25 @@ func validate(cfg Config, checkDevicePolicy bool) error {
 	if err := validateTransparent(cfg.Transparent); err != nil {
 		return err
 	}
-	// On QNAP same_lan, ipv6_shared_l2_ready is the explicit opt-in for
-	// LAN-wide RA/SLAAC/RDNSS. Manual fixed-ULA onboarding remains valid with
-	// the flag false. same_wifi_dhcp keeps the upstream readiness contract:
-	// competing router advertisements/default routes must be removed first.
-	if cfg.Gateway.Mode == GatewayModeSameLAN && cfg.Transparent.IPv6SharedL2Ready && !cfg.Transparent.IPv6Requested() {
-		return fmt.Errorf("transparent.ipv6_shared_l2_ready enables automatic RA/SLAAC in gateway.mode same_lan and requires transparent.tun_ipv6: auto or always")
+	// Automatic QNAP client provisioning is deliberately a separate opt-in
+	// from the shared-L2 readiness acknowledgement. This keeps existing manual
+	// fixed-ULA deployments from beginning to broadcast Router Advertisements
+	// after an upgrade.
+	if cfg.Transparent.IPv6RAEnabled {
+		if cfg.Gateway.Mode != GatewayModeSameLAN {
+			return fmt.Errorf("transparent.ipv6_ra_enabled is only supported in gateway.mode same_lan")
+		}
+		if !cfg.Transparent.IPv6Requested() {
+			return fmt.Errorf("transparent.ipv6_ra_enabled requires transparent.tun_ipv6: auto or always")
+		}
 	}
-	if cfg.Transparent.IPv6Requested() && cfg.Gateway.Mode == GatewayModeSameWiFiDHCP && !cfg.Transparent.IPv6SharedL2Ready {
+	if cfg.Transparent.IPv6Requested() && cfg.Gateway.SameLAN() && !cfg.Transparent.IPv6SharedL2Ready {
+		if cfg.Gateway.Mode == GatewayModeSameLAN {
+			if cfg.Transparent.IPv6RAEnabled {
+				return fmt.Errorf("transparent.ipv6_ra_enabled in gateway.mode same_lan requires transparent.ipv6_shared_l2_ready: true after competing IPv6 RA/default routes have been removed from the shared LAN")
+			}
+			return fmt.Errorf("transparent.tun_ipv6 in gateway.mode same_lan requires transparent.ipv6_shared_l2_ready: true after selected clients use the OpenSurge ULA, default gateway, and DNS without a competing IPv6 default route")
+		}
 		return fmt.Errorf("transparent.tun_ipv6 in gateway.mode same_wifi_dhcp requires transparent.ipv6_shared_l2_ready: true after competing IPv6 RA/default routes have been removed from the shared LAN")
 	}
 	if cfg.LocalSystemProxy.Enabled && !cfg.Transparent.TUNEnabled() {
