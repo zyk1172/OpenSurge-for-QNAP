@@ -34,9 +34,9 @@ type Status struct {
 	ClientCount      int    `json:"client_count"`
 	DNSIPv6          bool   `json:"dns_ipv6"`
 	TUNIPv6Requested string `json:"tun_ipv6_requested"`
-	// IPv6Takeover tells the UI that downstream IPv6 is intentionally not
-	// supported in v1. Clients that still receive IPv6 from the main router can
-	// bypass OpenSurge, so this must be surfaced rather than silently dropped.
+	IPv6RAEnabled    bool   `json:"ipv6_ra_enabled"`
+	// IPv6Takeover is retained for schema compatibility with older QNAP Web
+	// builds. Newer clients should use the requested mode and runtime TUN state.
 	IPv6Takeover string `json:"ipv6_takeover"`
 }
 
@@ -218,6 +218,7 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 		ClientCount:      len(clients),
 		DNSIPv6:          dnsIPv6,
 		TUNIPv6Requested: tunIPv6Requested,
+		IPv6RAEnabled:    m.cfg.Transparent.IPv6RAEnabled,
 		IPv6Takeover:     ipv6Takeover,
 	}, nil
 }
@@ -275,6 +276,7 @@ func (s Status) Format() string {
 		fmt.Sprintf("mihomo: %s", s.Mihomo),
 		fmt.Sprintf("TUN: %s", tunLabel),
 		fmt.Sprintf("IPv6 DNS queries: %t", s.DNSIPv6),
+		fmt.Sprintf("IPv6 client RA: %t", s.IPv6RAEnabled),
 		fmt.Sprintf("Downstream IPv6 takeover: requested=%s state=%s", s.TUNIPv6Requested, s.IPv6Takeover),
 		fmt.Sprintf("nftables: %s", s.NFTables),
 		fmt.Sprintf("IP forwarding: %s", s.Forwarding),
