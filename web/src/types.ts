@@ -18,6 +18,7 @@ export type GatewayStatus = {
   forwarding: string
   dns_ipv6: boolean
   tun_ipv6_requested: 'off' | 'auto' | 'always'
+  ipv6_ra_enabled?: boolean
   ipv6_packet: 'disabled' | 'stopped' | 'ready' | 'failed'
   native_ipv6_available: boolean
   ipv6_reason?: string
@@ -104,7 +105,7 @@ export type ControlConfig = {
   dhcp: { enabled: boolean; range_start: string; range_end: string; lease_time: string; domain: string; bypass_gateway: string; bypass_dns: string[] }
   dns: { listen: string; upstream: string; ipv6: boolean }
   mihomo: { store_fake_ip: boolean }
-  transparent: { mode: 'off' | 'tun'; strict_route: boolean; tun_ipv6: 'off' | 'auto' | 'always'; ipv6_shared_l2_ready?: boolean }
+  transparent: { mode: 'off' | 'tun'; strict_route: boolean; tun_ipv6: 'off' | 'auto' | 'always'; ipv6_shared_l2_ready?: boolean; ipv6_ra_enabled?: boolean }
   local_system_proxy: { enabled: boolean }
   device_policy: { enabled: boolean; protected_ipv4: string[] }
 }
