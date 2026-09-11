@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const NativeLinuxIPv6Runtime = "native-linux-tun"
+
 // Normalize materializes derived/default-compatible values into cfg before the
 // configuration is validated or frozen for application. Only settings that
 // would make the Linux data plane unsafe are rejected here. Legacy control-plane
@@ -49,7 +51,7 @@ func Normalize(cfg *Config) error {
 	// fields that the Web UI no longer exposes.
 	if cfg.Transparent.TUNIPv6 != "" && cfg.Transparent.TUNIPv6 != TUNIPv6Off {
 		if strings.TrimSpace(cfg.Transparent.IPv6PacketBrokerBinary) == "" {
-			cfg.Transparent.IPv6PacketBrokerBinary = "native-linux-tun"
+			cfg.Transparent.IPv6PacketBrokerBinary = NativeLinuxIPv6Runtime
 		}
 		if cfg.Transparent.IPv6PacketMTU == 0 {
 			cfg.Transparent.IPv6PacketMTU = 1500
