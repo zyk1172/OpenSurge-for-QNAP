@@ -116,7 +116,6 @@ func (m Manager) Start() (int, error) {
 
 func (m Manager) usesLegacyIPv6PacketListener() bool {
 	return m.cfg.Transparent.TUNIPv6 != config.TUNIPv6Off &&
-		strings.TrimSpace(m.cfg.Transparent.IPv6PacketBrokerBinary) != "" &&
 		strings.TrimSpace(m.cfg.Transparent.IPv6PacketBrokerBinary) != config.NativeLinuxIPv6Runtime
 }
 
