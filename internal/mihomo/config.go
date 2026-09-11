@@ -237,6 +237,7 @@ func renderIPv6DeviceUsers(cfg config.Config) string {
 			if managed.MAC != "" {
 				users[managed.MAC] = DeviceInboundUser(managed.ID)
 			}
+		}
 	}
 	keys := make([]string, 0, len(users))
 	for mac := range users {
