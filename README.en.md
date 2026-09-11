@@ -2,7 +2,7 @@
 
 OpenSurge for QNAP is a single-container transparent proxy gateway for QNAP NAS. It combines the Web control plane, mihomo, DNS, TUN, policy routing, and persistent recovery in one Docker container with its own LAN IPv4 through QNAP QNET.
 
-The project is currently in **real-QNAP stabilization / test-image** stage. The default target is IPv4 same-LAN manual-gateway mode: the main router keeps DHCP enabled, while selected clients point their IPv4 gateway and DNS to OpenSurge.
+The project is currently in **real-QNAP stabilization / test-image** stage. The default target remains IPv4 same-LAN manual-gateway mode: the main router keeps DHCP enabled, while selected clients point their IPv4 gateway and DNS to OpenSurge. QNAP same-LAN also has an optional **IPv6 DNS / fake-IP steering** path: clients keep their main-router/public IPv6 and default route, while only Mihomo's fake IPv6 prefix is statically routed to OpenSurge.
 
 > The current rolling image is for testing only and is not a stable release.
 
@@ -10,7 +10,7 @@ The project is currently in **real-QNAP stabilization / test-image** stage. The 
 
 ```text
 LAN client
- gateway / DNS = OpenSurge IP
+ IPv4 gateway / DNS = OpenSurge IP (manual-gateway mode)
         │
         ▼
 QNAP QNET LAN IP
@@ -38,7 +38,7 @@ opensurge
 
 There is no Manager/Orchestrator pair and the LAN-facing Web UI is not given the Docker socket.
 
-### Same-LAN QNAP data plane
+### Same-LAN IPv4 data plane
 
 For QNAP kernels that provide TUN and Linux policy routing but not `nf_tables`, OpenSurge uses ingress-interface policy routing:
 
@@ -54,9 +54,36 @@ tun0
 mihomo
 ```
 
-The supported same-LAN QNET mode therefore **does not require nftables**. Both TCP and UDP remain on the TUN data plane.
+The supported same-LAN QNET IPv4 manual-gateway mode therefore **does not require nftables**. Both TCP and UDP remain on the TUN data plane.
 
 An nftables/fwmark backend is retained for isolated downstream topologies that require NAT, with strict capability and ownership checks.
+
+### Optional IPv6 DNS / fake-IP steering
+
+QNAP same-LAN IPv6 no longer requires clients to use an OpenSurge ULA and does not compete with the main router's Router Advertisements/default route.
+
+```text
+normal IPv6: client ──► main router ──► Internet
+
+DNS: client ──► main-router DNS ──► OpenSurge DNS
+                                    │
+                                    └─ fake AAAA = fdfe:dcba:9876::/64
+                                                   │
+                                         main-router static route
+                                                   ▼
+                                               OpenSurge
+                                                   ▼
+                                                  TUN
+```
+
+The main router keeps its existing RA, DHCPv6/bridge/passthrough, public IPv6 prefix, and client default router. Only `fdfe:dcba:9876::/64` is routed to the stable OpenSurge link-local next hop shown by the Web UI.
+
+OpenSurge's Linux IPv6 policy route also matches only the fake prefix; the old broad `iif eth0 → IPv6 default dev tun0` takeover is removed. This path guarantees global Mihomo policy behavior, not precise per-device IPv6 identity. Existing IPv4 device policy is unchanged.
+
+See:
+
+- [QNAP IPv6 DNS / fake-IP steering](docs/QNAP_IPV6_DNS_FAKEIP.md)
+- [中文 IPv6 DNS / fake-IP 指南](docs/QNAP_IPV6_DNS_FAKEIP.zh-CN.md)
 
 ## Test image
 
@@ -88,6 +115,7 @@ The image is built by GitHub Actions. The NAS does not need Go, Node.js, pnpm, g
 
 - [Chinese deployment guide](deploy/qnap/README.zh-CN.md)
 - [English deployment guide](deploy/qnap/README.md)
+- [IPv6 DNS / fake-IP steering guide](docs/QNAP_IPV6_DNS_FAKEIP.md)
 - [Persistence model](deploy/qnap/PERSISTENCE.md)
 - [Default Compose](deploy/qnap/docker-compose.yml)
 
@@ -119,6 +147,7 @@ The QNAP Web surface currently provides:
 - gateway start/stop and interrupted-state recovery;
 - actual container network status;
 - mutable DNS/TUN runtime settings;
+- IPv6 DNS/fake-IP steering with the main-router DNS/static-route values to configure;
 - HTTPS subscription and local YAML import;
 - Hosts-file import in Advanced Global Profile Overlay, native top-level `hosts:` mappings, and `dns.use-hosts` / `dns.use-system-hosts` controls;
 - persistent draft, running, and next-start versions;
@@ -161,9 +190,10 @@ A QNAP 5.10.60-qnap x86_64 environment has confirmed:
 - `NET_ADMIN` / `NET_RAW` capability support;
 - working `iproute2`;
 - missing `nf_tables` netlink support on that kernel;
-- working manual mihomo HTTP / SOCKS5 / DNS paths.
+- working manual mihomo HTTP / SOCKS5 / DNS paths;
+- QNET IPv6 IPAM rejects IPv6 address pools, while IPv6 can still be enabled and bound inside the container network namespace.
 
-The project now includes nft-free ingress-interface TUN policy routing for this same-LAN QNAP class, plus dedicated TCP/UDP namespace CI.
+The project includes nft-free TUN policy routing for this same-LAN QNAP class. The IPv6 fake-IP path additionally keeps `accept_ra=2` while forwarding so the container can retain the main router's native IPv6 route.
 
 Physical-client, reboot, and long-duration validation remain in progress.
 
@@ -177,6 +207,7 @@ Physical-client, reboot, and long-duration validation remain in progress.
 6. Kernel objects must be owned, snapshotted, journaled, and removed precisely.
 7. A recreated container network namespace is a recovery boundary.
 8. Normal QNAP Web operations do not change QTS default routes, DNS, DHCP, or Virtual Switch configuration.
+9. IPv6 DNS/fake-IP mode installs only the container-side `fdfe:dcba:9876::/64` TUN route; it never takes over the LAN's `::/0` default route.
 
 ## Current scope
 
@@ -190,10 +221,17 @@ First stable release priorities:
 - subscriptions/providers/policies/device management;
 - persistent recovery across container recreation.
 
+Experimental / continuing validation:
+
+- QNAP same-LAN IPv6 DNS / fake-IP steering;
+- main-router DNS plus a static route for `fdfe:dcba:9876::/64`;
+- preserving the client's native public IPv6 and main-router default IPv6 route.
+
 Not first-stable goals:
 
 - automatic main-router DHCP takeover;
-- downstream IPv6 takeover;
+- OpenSurge RA/SLAAC or whole-LAN IPv6 default-route takeover;
+- precise per-device IPv6 policy;
 - automatic QNAP Network & Virtual Switch mutation;
 - QPKG packaging;
 - fully automatic household-network migration.
@@ -201,6 +239,7 @@ Not first-stable goals:
 ## Remaining stable gates
 
 - real client TCP / UDP / QUIC end-to-end validation;
+- IPv6 fake-IP static-route, DIRECT/PROXY/REJECT, and public-IPv6 preservation validation;
 - QNAP reboot recovery;
 - 24h / 72h soak testing;
 - long-running CPU, memory, FD, and log-capacity checks;
