@@ -73,6 +73,9 @@ jobs:
           grep -q 'NET_ADMIN' /tmp/opensurge-qnap-compose.yaml
           grep -q 'NET_RAW' /tmp/opensurge-qnap-compose.yaml
           grep -q '/dev/net/tun' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'net.ipv6.conf.all.disable_ipv6: "0"' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'net.ipv6.conf.default.disable_ipv6: "0"' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'net.ipv6.conf.eth0.disable_ipv6: "0"' /tmp/opensurge-qnap-compose.yaml
       - name: Guard QNAP permission model
         run: |
           grep -q 'OPENSURGE_WEB_UID:-1000' docker/entrypoint.sh
@@ -91,6 +94,10 @@ jobs:
           grep -q -- '--component control' docker/entrypoint.sh
           grep -q -- '--bounding-set=-all' docker/entrypoint.sh
           grep -q -- '--require-bootstrap-token' docker/entrypoint.sh
+          grep -q 'enable_container_ipv6' docker/entrypoint.sh
+          grep -q 'net/ipv6/conf/all/disable_ipv6' docker/entrypoint.sh
+          grep -q 'net/ipv6/conf/default/disable_ipv6' docker/entrypoint.sh
+          grep -q 'net/ipv6/conf/.*disable_ipv6' docker/entrypoint.sh
 
   qnap-web:
     runs-on: ubuntu-latest

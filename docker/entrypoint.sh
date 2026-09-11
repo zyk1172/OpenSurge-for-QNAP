@@ -121,8 +121,29 @@ fi
 # The QNAP product owns this ULA only inside its container network namespace.
 # It gives selected same-LAN clients a stable IPv6 gateway/DNS endpoint without
 # changing QTS, Virtual Switch, the NAS default route, or any other container.
-# Keep startup usable when the kernel/network has IPv6 disabled; enabling IPv6
-# takeover will then fail closed later during routing setup with a clear error.
+enable_container_ipv6() {
+  iface="$1"
+  for knob in \
+    /proc/sys/net/ipv6/conf/all/disable_ipv6 \
+    /proc/sys/net/ipv6/conf/default/disable_ipv6 \
+    "/proc/sys/net/ipv6/conf/${iface}/disable_ipv6"
+  do
+    if [ -e "$knob" ]; then
+      printf '0\n' > "$knob" || {
+        echo "OpenSurge entrypoint: warning: cannot enable IPv6 through ${knob}" >&2
+      }
+    fi
+  done
+}
+
+# Compose enables these values at container creation time on QNAP. This
+# runtime pass also covers older Compose definitions, custom interface names,
+# and hosts that recreate the network namespace with different defaults.
+enable_container_ipv6 "${CONTAINER_INTERFACE}"
+
+# Keep startup usable when the kernel/network still has IPv6 disabled; enabling
+# IPv6 takeover will then fail closed later during routing setup with a clear
+# error.
 if ! ip -6 addr replace "${IPV6_GATEWAY_CIDR}" dev "${CONTAINER_INTERFACE}" nodad 2>/dev/null; then
   echo "OpenSurge entrypoint: IPv6 ULA gateway could not be provisioned on ${CONTAINER_INTERFACE}; IPv4 remains available." >&2
 fi
