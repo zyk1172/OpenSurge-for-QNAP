@@ -30,7 +30,7 @@ dhcp-leasefile={{ .LeaseFile }}
 {{ end }}
 {{ if .IPv6RAEnabled }}
 enable-ra
-dhcp-range={{ .IPv6Prefix }},ra-stateless,64,{{ .LeaseTime }}
+dhcp-range={{ .IPv6Prefix }},ra-stateless,64,{{ .IPv6RALifetime }}
 dhcp-option=option6:dns-server,[fe80::]
 ra-param={{ .Interface }},20,60
 {{ end }}
@@ -70,6 +70,7 @@ type templateData struct {
 	IPv6RAEnabled       bool
 	IPv6Gateway         string
 	IPv6Prefix          string
+	IPv6RALifetime      string
 }
 
 func RenderConfig(cfg config.Config, paths runtime.Paths) (string, error) {
@@ -110,11 +111,14 @@ func RenderConfig(cfg config.Config, paths runtime.Paths) (string, error) {
 	ipv6Requested := cfg.Transparent.TUNIPv6 != config.TUNIPv6Off
 	ipv6RAEnabled := ipv6Requested && cfg.DHCP.Enabled
 	if cfg.Gateway.Mode == config.GatewayModeSameLAN {
-		// QNAP same-LAN normally keeps IPv4 DHCP disabled. The existing
-		// ipv6_shared_l2_ready switch is used here as the explicit opt-in for
-		// LAN-wide RA/SLAAC/RDNSS. When it is false, IPv6 remains manual and
-		// selective just like the original QNAP takeover path.
-		ipv6RAEnabled = ipv6Requested && cfg.Transparent.IPv6SharedL2Ready
+		// QNAP same-LAN normally keeps IPv4 DHCP disabled. Automatic IPv6
+		// distribution is an explicit, independent opt-in so upgrading a manual
+		// ULA deployment cannot silently begin broadcasting Router Advertisements.
+		ipv6RAEnabled = ipv6Requested && cfg.Transparent.IPv6RAEnabled
+	}
+	ipv6RALifetime := strings.TrimSpace(cfg.DHCP.LeaseTime)
+	if ipv6RALifetime == "" {
+		ipv6RALifetime = "12h"
 	}
 	data := templateData{
 		DHCPEnabled:         cfg.DHCP.Enabled,
@@ -138,6 +142,7 @@ func RenderConfig(cfg config.Config, paths runtime.Paths) (string, error) {
 		IPv6RAEnabled:       ipv6RAEnabled,
 		IPv6Gateway:         config.DownstreamIPv6Gateway,
 		IPv6Prefix:          strings.TrimSuffix(config.DownstreamIPv6Prefix, "/64"),
+		IPv6RALifetime:      ipv6RALifetime,
 	}
 
 	tmpl, err := template.New("dnsmasq").Parse(dnsmasqTemplate)
