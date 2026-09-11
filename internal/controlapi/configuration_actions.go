@@ -670,6 +670,17 @@ func applyControlConfig(configPath, revision string, payload []byte) (string, er
 		cfg.DevicePolicy.File = policyPath
 	}
 	cfg.DevicePolicy.Bundle = nil
+	// The loaded configuration was normalized before the control payload was
+	// applied. Normalize again after changing the IPv6 mode so the QNAP native
+	// Linux TUN marker and its default MTU are materialized before validation.
+	// Without this second pass, enabling IPv6 from the Web UI is incorrectly
+	// rejected as an unsupported legacy packet-broker configuration.
+	if err := config.Normalize(&cfg); err != nil {
+		if createdPolicy != "" {
+			_ = os.Remove(createdPolicy)
+		}
+		return "", err
+	}
 	if err := config.Validate(cfg); err != nil {
 		if createdPolicy != "" {
 			_ = os.Remove(createdPolicy)
