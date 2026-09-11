@@ -113,7 +113,9 @@ Web 会在后端返回后重新读取持久化 sources 状态。只有确认 `de
 
 OpenSurge 不会把上一次 network namespace 的 runtime 状态直接当成当前仍然有效。
 
-先点击 **安全清理旧状态**。清理依据持久化 snapshot/journal 和 ownership 信息，只处理能够确认属于 OpenSurge 的对象，然后再启动新的 Gateway。
+容器启动时会先根据持久化 runtime 状态进行恢复；只有持久化的 Gateway 运行意图为开启时才会自动拉起。如果 QNAP 此时仍在启动 Docker、QNET 或 TUN，Web 和 Control 会先保持可用，entrypoint 会在后台继续重试恢复。用户主动停止的 Gateway 不会被这些重试重新启动。
+
+如果有限次数的重试仍然失败，再点击 **安全清理旧状态**。清理依据持久化 snapshot/journal 和 ownership 信息，只处理能够确认属于 OpenSurge 的对象，然后再启动新的 Gateway。
 
 ## 为什么不自动修改 QTS 的默认网关、DNS 或 Virtual Switch？
 

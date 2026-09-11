@@ -113,7 +113,9 @@ This prevents the UI from showing success when the configuration was not actuall
 
 OpenSurge does not assume that kernel/network objects from the previous container namespace are still valid.
 
-Run **Safe cleanup** first. Cleanup uses persisted snapshots, journals, and ownership data to remove only objects that can be proven to belong to OpenSurge, then a new Gateway can be started.
+At container startup, OpenSurge first reconciles the persisted runtime and restores the Gateway only when the persisted desired state says it should be running. If QNAP is still bringing up Docker, QNET, or TUN, the Web and Control processes remain available while the entrypoint retries recovery in the background. An intentionally stopped Gateway is not started by these retries.
+
+If the bounded retries are exhausted, run **Safe cleanup**. Cleanup uses persisted snapshots, journals, and ownership data to remove only objects that can be proven to belong to OpenSurge, then a new Gateway can be started.
 
 ## Why doesn’t OpenSurge automatically change QTS default routes, DNS, or Virtual Switch?
 

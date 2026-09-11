@@ -25,6 +25,8 @@ CONTAINER_INTERFACE="${OPENSURGE_CONTAINER_INTERFACE:-eth0}"
 # mount before the supported deployment is started.
 WEB_UID="${OPENSURGE_WEB_UID:-1000}"
 WEB_GID="${OPENSURGE_WEB_GID:-100}"
+RECOVERY_RETRY_ATTEMPTS="${OPENSURGE_RECOVERY_RETRY_ATTEMPTS:-20}"
+RECOVERY_RETRY_DELAY_SECONDS="${OPENSURGE_RECOVERY_RETRY_DELAY_SECONDS:-15}"
 
 fatal() {
   echo "OpenSurge entrypoint: $*" >&2
@@ -94,6 +96,9 @@ seed_config() {
 
 validate_uint OPENSURGE_WEB_UID "$WEB_UID"
 validate_uint OPENSURGE_WEB_GID "$WEB_GID"
+validate_uint OPENSURGE_RECOVERY_RETRY_ATTEMPTS "$RECOVERY_RETRY_ATTEMPTS"
+validate_uint OPENSURGE_RECOVERY_RETRY_DELAY_SECONDS "$RECOVERY_RETRY_DELAY_SECONDS"
+[ "$RECOVERY_RETRY_ATTEMPTS" -gt 0 ] || fatal "OPENSURGE_RECOVERY_RETRY_ATTEMPTS must be greater than zero"
 
 umask 077
 mkdir -p \
@@ -117,12 +122,30 @@ fi
 # gateway was running, this discards stale PID/runtime ownership safely and
 # performs a complete fresh Gateway/Mihomo/DNS/TUN/routing start in the new
 # network namespace. Recovery failure is deliberately non-fatal here: Web and
-# Control must remain reachable for diagnostics, while Docker's data-plane
-# HEALTHCHECK will report unhealthy until desired and observed state agree.
+# Control must remain reachable for diagnostics, while the retry worker below
+# gives a QNAP host time to finish bringing up Docker/QNET/TUN after reboot.
+retry_gateway_recovery() {
+  attempt=1
+  while [ "$attempt" -le "$RECOVERY_RETRY_ATTEMPTS" ]; do
+    sleep "$RECOVERY_RETRY_DELAY_SECONDS"
+    if /usr/local/bin/opensurge-container \
+      --component recover \
+      --config "${CONFIG_PATH}"; then
+      echo "OpenSurge entrypoint: gateway recovery succeeded on retry ${attempt}." >&2
+      return 0
+    fi
+    echo "OpenSurge entrypoint: gateway recovery retry ${attempt}/${RECOVERY_RETRY_ATTEMPTS} failed." >&2
+    attempt=$((attempt + 1))
+  done
+  echo "OpenSurge entrypoint: gateway recovery retries exhausted; data-plane readiness remains unhealthy." >&2
+}
+
+RECOVERY_RETRY_NEEDED=0
 if ! /usr/local/bin/opensurge-container \
   --component recover \
   --config "${CONFIG_PATH}"; then
   echo "OpenSurge entrypoint: automatic gateway recovery failed; starting Control/Web for diagnostics. Data-plane readiness remains unhealthy." >&2
+  RECOVERY_RETRY_NEEDED=1
 fi
 
 # The LAN-facing HTTP process must not retain the gateway's NET_ADMIN/NET_RAW
@@ -186,10 +209,18 @@ setpriv \
 WEB_PID=$!
 
 shutdown_children() {
+  kill -TERM "${RECOVERY_PID}" 2>/dev/null || true
   kill -TERM "$WEB_PID" "$CONTROL_PID" 2>/dev/null || true
+  wait "${RECOVERY_PID}" 2>/dev/null || true
   wait "$WEB_PID" 2>/dev/null || true
   wait "$CONTROL_PID" 2>/dev/null || true
 }
+
+RECOVERY_PID=""
+if [ "$RECOVERY_RETRY_NEEDED" -eq 1 ]; then
+  retry_gateway_recovery &
+  RECOVERY_PID=$!
+fi
 
 trap 'shutdown_children; exit 0' INT TERM HUP
 
