@@ -2,9 +2,6 @@ package mihomo
 
 import (
 	"bytes"
-	"fmt"
-	"path/filepath"
-	"sort"
 	"strings"
 	"text/template"
 
@@ -83,16 +80,6 @@ tun:
 {{- end }}
 
 {{ end }}
-{{ if .TUNIPv6Enabled }}
-listeners:
-  - name: {{ .IPv6PacketListenerName }}
-    type: opensurge-packet
-    socket: {{ .IPv6PacketSocket }}
-    mtu: {{ .IPv6PacketMTU }}
-    device-users:
-{{ .IPv6DeviceUsers }}
-
-{{ end }}
 {{ .PolicySections }}
 `
 
@@ -132,11 +119,7 @@ type templateData struct {
 	UpstreamProxy          config.UpstreamProxyConfig
 	DNSIPv6                bool
 	FakeIPv6Range          string
-	IPv6PacketListenerName string
-	IPv6PacketSocket       string
-	IPv6PacketMTU          int
-	IPv6DeviceUsers        string
-	Hosts                   string
+	Hosts                  string
 	DNSResolverFields      string
 	PolicySections         string
 }
@@ -171,11 +154,8 @@ func newTemplateData(cfg config.Config) (templateData, error) {
 	if err != nil {
 		return templateData{}, err
 	}
+	policySections = rewriteQNAPIPv6IdentityRules(policySections, cfg)
 	transparent := cfg.Transparent
-	packetSocket, err := filepath.Abs(cfg.RuntimePath("ipv6-packet.sock"))
-	if err != nil {
-		return templateData{}, fmt.Errorf("resolve IPv6 packet socket: %w", err)
-	}
 	tunRouteAddresses := renderTailscaleRouteAddresses(cfg, lanPrefix)
 	lanProxyEnabled := !transparent.TUNEnabled()
 	mihomoBindAddress := "127.0.0.1"
@@ -205,38 +185,10 @@ func newTemplateData(cfg config.Config) (templateData, error) {
 		UpstreamProxy:          cfg.UpstreamProxy,
 		DNSIPv6:                cfg.DNS.IPv6,
 		FakeIPv6Range:          config.MihomoFakeIPv6Range,
-		IPv6PacketListenerName: config.IPv6PacketListenerName,
-		IPv6PacketSocket:       yamlQuote(packetSocket),
-		IPv6PacketMTU:          transparent.IPv6PacketMTU,
-		IPv6DeviceUsers:        renderIPv6DeviceUsers(cfg),
-		Hosts:                   hostsYAML,
+		Hosts:                  hostsYAML,
 		DNSResolverFields:      indentYAMLBlock(dnsResolverFields, "  "),
 		PolicySections:         policySections,
 	}, nil
-}
-
-func renderIPv6DeviceUsers(cfg config.Config) string {
-	users := map[string]string{}
-	if cfg.DevicePolicy.Bundle != nil {
-		for _, managed := range cfg.DevicePolicy.Bundle.Compiled.Devices {
-			if managed.MAC != "" {
-				users[managed.MAC] = DeviceInboundUser(managed.ID)
-			}
-		}
-	}
-	keys := make([]string, 0, len(users))
-	for mac := range users {
-		keys = append(keys, mac)
-	}
-	sort.Strings(keys)
-	if len(keys) == 0 {
-		return "      {}"
-	}
-	var out strings.Builder
-	for _, mac := range keys {
-		out.WriteString("      " + yamlQuote(mac) + ": " + yamlQuote(users[mac]) + "\n")
-	}
-	return strings.TrimRight(out.String(), "\n")
 }
 
 func indentYAMLBlock(value, indent string) string {
