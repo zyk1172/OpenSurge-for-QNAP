@@ -1,13 +1,13 @@
 package config
 
 import (
-	"regexp"
 	"fmt"
 	"net"
 	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -140,10 +140,14 @@ func validate(cfg Config, checkDevicePolicy bool) error {
 	if err := validateTransparent(cfg.Transparent); err != nil {
 		return err
 	}
-	if cfg.Transparent.IPv6Requested() && cfg.Gateway.SameLAN() && !cfg.Transparent.IPv6SharedL2Ready {
-		if cfg.Gateway.Mode == GatewayModeSameLAN {
-			return fmt.Errorf("transparent.tun_ipv6 in gateway.mode same_lan requires transparent.ipv6_shared_l2_ready: true after selected clients use the OpenSurge ULA, link-local default gateway, and DNS without a competing IPv6 default route")
-		}
+	// On QNAP same_lan, ipv6_shared_l2_ready is the explicit opt-in for
+	// LAN-wide RA/SLAAC/RDNSS. Manual fixed-ULA onboarding remains valid with
+	// the flag false. same_wifi_dhcp keeps the upstream readiness contract:
+	// competing router advertisements/default routes must be removed first.
+	if cfg.Gateway.Mode == GatewayModeSameLAN && cfg.Transparent.IPv6SharedL2Ready && !cfg.Transparent.IPv6Requested() {
+		return fmt.Errorf("transparent.ipv6_shared_l2_ready enables automatic RA/SLAAC in gateway.mode same_lan and requires transparent.tun_ipv6: auto or always")
+	}
+	if cfg.Transparent.IPv6Requested() && cfg.Gateway.Mode == GatewayModeSameWiFiDHCP && !cfg.Transparent.IPv6SharedL2Ready {
 		return fmt.Errorf("transparent.tun_ipv6 in gateway.mode same_wifi_dhcp requires transparent.ipv6_shared_l2_ready: true after competing IPv6 RA/default routes have been removed from the shared LAN")
 	}
 	if cfg.LocalSystemProxy.Enabled && !cfg.Transparent.TUNEnabled() {
