@@ -59,15 +59,11 @@ func Run(cfg config.Config) Report {
 		checkInterfaceIPv4(cfg.Gateway.Interface, cfg.Gateway.LANIP),
 	)
 
-	// Downstream IPv6 takeover is out of scope for QNAP v1. Say so explicitly
-	// rather than silently dropping IPv6, so users who still receive IPv6 from
-	// their main router understand why some traffic can bypass OpenSurge.
-	if cfg.Transparent.TUNIPv6 != config.TUNIPv6Off {
-		checks = append(checks, Check{
-			Name:    "downstream IPv6 takeover",
-			OK:      false,
-			Message: "requested but unsupported in OpenSurge for QNAP v1; clients with IPv6 may bypass the gateway",
-		})
+	if goruntime.GOOS == "linux" && cfg.Transparent.TUNIPv6 != config.TUNIPv6Off {
+		checks = append(checks,
+			checkIPv6Forwarding(),
+			checkInterfaceIPv6(cfg.Gateway.Interface, config.DownstreamIPv6Gateway),
+		)
 	}
 	return Report{Checks: checks}
 }
@@ -160,6 +156,47 @@ func checkTUNDevice(path string) Check {
 		return Check{Name: "TUN device", OK: false, Message: path + " is not a character device"}
 	}
 	return Check{Name: "TUN device", OK: true, Message: path}
+}
+
+func checkIPv6Forwarding() Check {
+	const path = "/proc/sys/net/ipv6/conf/all/forwarding"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Check{Name: "IPv6 forwarding", OK: false, Message: err.Error()}
+	}
+	if strings.TrimSpace(string(data)) != "1" {
+		return Check{Name: "IPv6 forwarding", OK: false, Message: "set net.ipv6.conf.all.forwarding=1 in the OpenSurge container namespace"}
+	}
+	return Check{Name: "IPv6 forwarding", OK: true, Message: "enabled"}
+}
+
+func checkInterfaceIPv6(interfaceName, ipValue string) Check {
+	name := "IPv6 gateway bound to " + interfaceName
+	target := net.ParseIP(ipValue)
+	if target == nil || target.To4() != nil {
+		return Check{Name: name, OK: false, Message: "invalid IPv6 address"}
+	}
+	iface, err := net.InterfaceByName(interfaceName)
+	if err != nil {
+		return Check{Name: name, OK: false, Message: err.Error()}
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return Check{Name: name, OK: false, Message: err.Error()}
+	}
+	for _, addr := range addrs {
+		switch value := addr.(type) {
+		case *net.IPNet:
+			if value.IP.Equal(target) {
+				return Check{Name: name, OK: true, Message: ipValue}
+			}
+		case *net.IPAddr:
+			if value.IP.Equal(target) {
+				return Check{Name: name, OK: true, Message: ipValue}
+			}
+		}
+	}
+	return Check{Name: name, OK: false, Message: "not configured on interface"}
 }
 
 // checkWritableDirectory verifies the filesystem operations OpenSurge depends
