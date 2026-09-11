@@ -314,6 +314,12 @@ func applyValue(cfg *Config, section, key, value string) error {
 			return fmt.Errorf("transparent.ipv6_shared_l2_ready must be a boolean")
 		}
 		cfg.Transparent.IPv6SharedL2Ready = ready
+	case "transparent.ipv6_ra_enabled":
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("transparent.ipv6_ra_enabled must be a boolean")
+		}
+		cfg.Transparent.IPv6RAEnabled = enabled
 	case "transparent.ipv6_packet_broker_binary":
 		cfg.Transparent.IPv6PacketBrokerBinary = value
 	case "transparent.ipv6_packet_mtu":
