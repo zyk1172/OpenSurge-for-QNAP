@@ -188,7 +188,6 @@ func TestRenderConfigSkipsReservationsOutsideTheServedLAN(t *testing.T) {
 	if !strings.Contains(rendered, "dhcp-host=aa:bb:cc:dd:ee:01,192.168.50.101") {
 		t.Fatalf("rendered config missing the on-LAN reservation:\n%s", rendered)
 	}
-	// dnsmasq refuses to start on a reservation outside the served subnet.
 	if strings.Contains(rendered, "192.168.1.101") {
 		t.Fatalf("rendered config kept a reservation from another LAN:\n%s", rendered)
 	}
@@ -246,9 +245,6 @@ func TestRenderConfigWithDownstreamIPv6RAAndRDNSS(t *testing.T) {
 	if strings.Contains(rendered, "ra-param=en0,high") || strings.Contains(rendered, "ra-param=en0,low") {
 		t.Fatalf("rendered IPv6 dnsmasq config overrides the default medium router preference:\n%s", rendered)
 	}
-	// dnsmasq replaces [fe80::] with the interface's link-local address for
-	// DHCPv6 and RDNSS. An explicit value is required because its automatic
-	// DHCPv6 option otherwise prefers the downstream ULA when one is present.
 	if strings.Contains(rendered, "option6:dns-server,[fdfe:") {
 		t.Fatalf("rendered IPv6 dnsmasq config advertises a ULA DNS endpoint:\n%s", rendered)
 	}
@@ -261,7 +257,7 @@ func TestRenderConfigSameLANIPv6ManualDistributionDoesNotAdvertiseRA(t *testing.
 	cfg.DHCP.Enabled = false
 	cfg.Transparent.Mode = config.TransparentModeTUN
 	cfg.Transparent.TUNIPv6 = config.TUNIPv6Always
-	cfg.Transparent.IPv6SharedL2Ready = false
+	cfg.Transparent.IPv6SharedL2Ready = true
 	rendered, err := RenderConfig(cfg, runtime.NewPaths(cfg))
 	if err != nil {
 		t.Fatal(err)
@@ -284,6 +280,7 @@ func TestRenderConfigSameLANIPv6AutomaticDistribution(t *testing.T) {
 	cfg.Transparent.Mode = config.TransparentModeTUN
 	cfg.Transparent.TUNIPv6 = config.TUNIPv6Always
 	cfg.Transparent.IPv6SharedL2Ready = true
+	cfg.Transparent.IPv6RAEnabled = true
 	rendered, err := RenderConfig(cfg, runtime.NewPaths(cfg))
 	if err != nil {
 		t.Fatal(err)
