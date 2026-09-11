@@ -79,7 +79,15 @@ func (m Manager) Start() (int, error) {
 	if err := os.WriteFile(m.paths.MihomoLog, nil, 0o640); err != nil {
 		return 0, err
 	}
-	pid, err := process.StartDetachedWithLog(m.paths.MihomoLog, binary, "-d", configDir, "-f", m.paths.MihomoConfig)
+	env := []string{}
+	if m.cfg.Transparent.TUNIPv6 == config.TUNIPv6Always {
+		// Official Mihomo disables TUN IPv6 when it cannot see usable system IPv6.
+		// QNAP takeover intentionally provides a ULA-only downstream and therefore
+		// needs the documented force switch without changing the container-global
+		// environment or the behavior of auto mode.
+		env = append(env, "SKIP_SYSTEM_IPV6_CHECK=1")
+	}
+	pid, err := process.StartDetachedWithLogEnv(m.paths.MihomoLog, env, binary, "-d", configDir, "-f", m.paths.MihomoConfig)
 	if err != nil {
 		return 0, err
 	}
@@ -97,13 +105,19 @@ func (m Manager) Start() (int, error) {
 			return 0, err
 		}
 	}
-	if m.cfg.Transparent.TUNIPv6 != config.TUNIPv6Off {
+	if m.usesLegacyIPv6PacketListener() {
 		if err := m.waitForIPv6PacketListener(pid, tunStartupTimeout); err != nil {
 			m.stopStartedProcess(pid)
 			return 0, err
 		}
 	}
 	return pid, nil
+}
+
+func (m Manager) usesLegacyIPv6PacketListener() bool {
+	return m.cfg.Transparent.TUNIPv6 != config.TUNIPv6Off &&
+		strings.TrimSpace(m.cfg.Transparent.IPv6PacketBrokerBinary) != "" &&
+		strings.TrimSpace(m.cfg.Transparent.IPv6PacketBrokerBinary) != config.NativeLinuxIPv6Runtime
 }
 
 func (m Manager) waitForIPv6PacketListener(pid int, timeout time.Duration) error {
@@ -275,7 +289,7 @@ func (m Manager) Stop(pid int) error {
 }
 
 func (m Manager) cleanupIPv6PacketSocket() error {
-	if m.cfg.Transparent.TUNIPv6 == config.TUNIPv6Off {
+	if !m.usesLegacyIPv6PacketListener() {
 		return nil
 	}
 	info, err := os.Lstat(m.paths.IPv6PacketSocket)
