@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { t } from '../i18n'
 
 export type RemoteTokenStatus = {
   schema_version: number
@@ -63,13 +64,13 @@ export function RemoteManagementCard() {
 
   const apiBase = useMemo(() => status ? `${window.location.origin}${status.api_base}` : `${window.location.origin}/api/remote/v1`, [status])
   const capabilities = useMemo(() => status ? `${window.location.origin}${status.capabilities}` : `${window.location.origin}/api/remote/v1/capabilities`, [status])
-  const connectionBlock = useMemo(() => [
-    'OpenSurge for QNAP remote management',
-    `Base URL: ${apiBase}`,
-    'Authentication: Authorization: Bearer <TOKEN>',
-    `Capabilities: ${capabilities}`,
-    'Start with GET /capabilities, then use the listed endpoints. Preserve ETag/If-Match on configuration writes and follow operation ids for asynchronous gateway actions.',
-  ].join('\n'), [apiBase, capabilities])
+  const connectionBlock = [
+    t('OpenSurge for QNAP 远程管理'),
+    t('API 地址：{{url}}', { url: apiBase }),
+    t('认证：Authorization: Bearer <TOKEN>'),
+    t('能力清单：{{url}}', { url: capabilities }),
+    t('先读取 GET /capabilities；配置写入保留 ETag/If-Match，异步操作按 operation id 查询结果。'),
+  ].join('\n')
 
   const copy = async (label: string, value: string) => {
     try {
@@ -82,7 +83,7 @@ export function RemoteManagementCard() {
   }
 
   const rotate = async () => {
-    if (status?.enabled && !window.confirm('Rotate the remote management token? The existing token will stop working immediately.')) return
+    if (status?.enabled && !window.confirm(t('确定轮换远程管理令牌？现有令牌将立即失效。'))) return
     setBusy(true)
     setError('')
     setCopied('')
@@ -98,7 +99,7 @@ export function RemoteManagementCard() {
   }
 
   const revoke = async () => {
-    if (!status?.enabled || !window.confirm('Revoke the remote management token now? Existing AI/API clients will lose access immediately.')) return
+    if (!status?.enabled || !window.confirm(t('确定撤销远程管理令牌？现有 AI/API 客户端将立即失去访问权限。'))) return
     setBusy(true)
     setError('')
     setCopied('')
@@ -116,42 +117,42 @@ export function RemoteManagementCard() {
   return <section className="section qnap-remote-management" id="remote-management">
     <div className="section-title-row">
       <div>
-        <p className="eyebrow">REMOTE AI MANAGEMENT</p>
-        <h2>LAN management token</h2>
-        <p className="muted">Give an AI agent or automation client full access to the QNAP management API without exposing the loopback Control token.</p>
+        <p className="eyebrow">{t('远程管理')}</p>
+        <h2>{t('局域网管理令牌')}</h2>
+        <p className="muted">{t('供可信 AI 或自动化客户端调用 QNAP 管理 API；内部 Control Token 不会暴露。')}</p>
       </div>
-      <span className={`status-badge ${status?.enabled ? 'ok' : ''}`}>{status?.enabled ? 'Enabled' : 'Disabled'}</span>
+      <span className={`status-badge ${status?.enabled ? 'ok' : ''}`}>{t(status?.enabled ? '已启用' : '未启用')}</span>
     </div>
 
-    {error && <div className="notice warn" role="alert"><strong>Remote management error</strong><p>{error}</p></div>}
+    {error && <div className="notice warn" role="alert"><strong>{t('远程管理错误')}</strong><p>{error}</p></div>}
 
     <div className="inventory">
-      <span><strong>API base</strong><br /><code>{apiBase}</code></span>
-      <span><strong>Discovery</strong><br /><code>{capabilities}</code></span>
-      <span><strong>Token</strong><br />{status?.enabled ? <code>{status.token_prefix}…</code> : 'Not created'}</span>
-      <span><strong>Created</strong><br />{status?.created_at ? new Date(status.created_at).toLocaleString() : '—'}</span>
+      <span><strong>{t('API 地址')}</strong><br /><code>{apiBase}</code></span>
+      <span><strong>{t('能力清单')}</strong><br /><code>{capabilities}</code></span>
+      <span><strong>{t('令牌')}</strong><br />{status?.enabled ? <code>{status.token_prefix}…</code> : t('未创建')}</span>
+      <span><strong>{t('创建时间')}</strong><br />{status?.created_at ? new Date(status.created_at).toLocaleString() : '—'}</span>
     </div>
 
     <div className="source-actions">
-      <button type="button" onClick={() => void copy('api', apiBase)}>{copied === 'api' ? 'Copied API URL' : 'Copy API URL'}</button>
-      <button type="button" onClick={() => void copy('agent', connectionBlock)}>{copied === 'agent' ? 'Copied AI setup' : 'Copy AI setup'}</button>
-      <button className="primary" type="button" disabled={busy} onClick={() => void rotate()}>{busy ? 'Working…' : status?.enabled ? 'Rotate token' : 'Create token'}</button>
-      {status?.enabled && <button className="danger" type="button" disabled={busy} onClick={() => void revoke()}>Revoke token</button>}
+      <button type="button" onClick={() => void copy('api', apiBase)}>{copied === 'api' ? t('已复制') : t('复制 API 地址')}</button>
+      <button type="button" onClick={() => void copy('agent', connectionBlock)}>{copied === 'agent' ? t('已复制') : t('复制 AI 配置')}</button>
+      <button className="primary" type="button" disabled={busy} onClick={() => void rotate()}>{busy ? t('处理中…') : status?.enabled ? t('轮换令牌') : t('创建令牌')}</button>
+      {status?.enabled && <button className="danger" type="button" disabled={busy} onClick={() => void revoke()}>{t('撤销令牌')}</button>}
     </div>
 
     {issuedToken && <div className="notice warn" role="status">
-      <strong>Copy this token now — it will not be shown again.</strong>
-      <p>The stored record contains only a SHA-256 digest. Rotating or revoking immediately invalidates this value.</p>
+      <strong>{t('请立即复制此令牌，关闭后不再显示。')}</strong>
+      <p>{t('仅保存 SHA-256 摘要；轮换或撤销后旧令牌立即失效。')}</p>
       <div className="remote-token-row">
-        <input aria-label="Remote management token" readOnly value={issuedToken} onFocus={event => event.currentTarget.select()} />
-        <button type="button" onClick={() => void copy('token', issuedToken)}>{copied === 'token' ? 'Copied' : 'Copy token'}</button>
+        <input aria-label={t('远程管理令牌')} readOnly value={issuedToken} onFocus={event => event.currentTarget.select()} />
+        <button type="button" onClick={() => void copy('token', issuedToken)}>{copied === 'token' ? t('已复制') : t('复制令牌')}</button>
       </div>
     </div>}
 
-    <div className="notice">
-      <strong>AI/API usage</strong>
-      <p>Send <code>Authorization: Bearer &lt;TOKEN&gt;</code> to the remote API. Start with <code>GET {status?.capabilities ?? '/api/remote/v1/capabilities'}</code>. The discovery response describes configuration, lifecycle, source import/apply, devices, policies, routing, providers, diagnostics, Doctor, Tailscale and operation tracking endpoints.</p>
-      <p>Browser cookies are not accepted on the remote API prefix. QNAP-blocked macOS host-network operations remain blocked.</p>
+    <div className="notice remote-management-usage">
+      <strong>{t('AI/API 用法')}</strong>
+      <p>{t('使用 Authorization: Bearer <TOKEN> 访问远程 API，并先读取 GET /capabilities。')}</p>
+      <p>{t('仅开放 QNAP 管理面；浏览器 Cookie 和宿主网络修改接口不可用。')}</p>
     </div>
   </section>
 }

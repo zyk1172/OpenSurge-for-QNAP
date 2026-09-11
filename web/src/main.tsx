@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { activateLanguage, initialRequestedLanguage, prepareLanguage } from './i18n'
 import './i18n.profile-overlay.en'
+import './i18n.qnap.en'
 import './styles.css'
 import './qnap-enhancements.css'
 
