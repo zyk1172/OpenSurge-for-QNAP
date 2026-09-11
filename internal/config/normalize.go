@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const NativeLinuxIPv6Runtime = "native-linux-tun"
+
 // Normalize materializes derived/default-compatible values into cfg before the
 // configuration is validated or frozen for application. Only settings that
 // would make the Linux data plane unsafe are rejected here. Legacy control-plane
@@ -41,11 +43,19 @@ func Normalize(cfg *Config) error {
 	if cfg.Transparent.TUNAutoRoute {
 		return fmt.Errorf("transparent.tun_auto_route must be false on OpenSurge for QNAP; Linux policy routing is owned by OpenSurge")
 	}
-	// Downstream IPv6 takeover depended on the removed macOS BPF packet broker.
-	// Refuse rather than silently downgrade because a silent IPv6 bypass could
-	// violate the operator's routing expectations.
+
+	// The QNAP port uses Mihomo's native dual-stack TUN. Older configs still carry
+	// the upstream macOS packet-broker fields and the validator keeps accepting
+	// them for round-trip compatibility. Materialize harmless compatibility values
+	// here so an existing QNAP config can enable IPv6 without requiring hidden
+	// fields that the Web UI no longer exposes.
 	if cfg.Transparent.TUNIPv6 != "" && cfg.Transparent.TUNIPv6 != TUNIPv6Off {
-		return fmt.Errorf("downstream IPv6 takeover is not supported in OpenSurge for QNAP v1; set transparent.tun_ipv6: off")
+		if strings.TrimSpace(cfg.Transparent.IPv6PacketBrokerBinary) == "" {
+			cfg.Transparent.IPv6PacketBrokerBinary = NativeLinuxIPv6Runtime
+		}
+		if cfg.Transparent.IPv6PacketMTU == 0 {
+			cfg.Transparent.IPv6PacketMTU = 1500
+		}
 	}
 	return nil
 }

@@ -23,6 +23,7 @@ export function QNAPNetworkPage({
   const [lifecycleBusy, setLifecycleBusy] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [ipv6ClientIPv4, setIPv6ClientIPv4] = useState('')
 
   const running = overview?.status.gateway === 'running' || overview?.status.gateway === 'degraded'
   const interrupted = overview?.status.runtime_state === 'interrupted'
@@ -113,6 +114,8 @@ export function QNAPNetworkPage({
     ? `${actual.snapshot.ipv4}/${draft?.gateway.lan_prefix_len ?? 24}`
     : draft ? `${draft.gateway.lan_ip}/${draft.gateway.lan_prefix_len}` : '—'
   const router = actual?.snapshot.router || '由 Docker/QNET 创建参数确定'
+  const ipv6Enabled = draft?.transparent.tun_ipv6 !== 'off'
+  const clientIPv6 = qnapClientIPv6(ipv6ClientIPv4)
 
   return <>
     <PageHeader
@@ -150,7 +153,7 @@ export function QNAPNetworkPage({
           </label>
           <label className="sidebar-switch">
             <input type="checkbox" checked={draft.dns.ipv6} onChange={event => patch({ dns: { ...draft.dns, ipv6: event.target.checked } })} />
-            <span><strong>{t('DNS IPv6')}</strong><small>{t('仅控制 OpenSurge DNS 行为，不修改 QNAP 宿主网络。')}</small></span>
+            <span><strong>{t('DNS IPv6')}</strong><small>{t('开启 AAAA / IPv6 fake-IP；IPv6 接管时建议同时开启。')}</small></span>
           </label>
         </article>
         <article className="source-import-card">
@@ -162,16 +165,46 @@ export function QNAPNetworkPage({
             <input type="checkbox" checked={draft.transparent.strict_route} onChange={event => patch({ transparent: { ...draft.transparent, strict_route: event.target.checked } })} />
             <span><strong>TUN strict-route</strong><small>{t('仅影响容器内透明代理数据面。')}</small></span>
           </label>
-          <label>
-            <span>TUN IPv6</span>
-            <select value={draft.transparent.tun_ipv6} onChange={event => patch({ transparent: { ...draft.transparent, tun_ipv6: event.target.value as ControlConfig['transparent']['tun_ipv6'] } })}>
-              <option value="off">off</option>
-              <option value="auto">auto</option>
-              <option value="always">always</option>
-            </select>
-          </label>
         </article>
       </div>
+
+      <div className="qnap-ipv6-panel">
+        <SectionTitle title={t('IPv6 接管')} subtitle={t('QNAP 同网段模式 · 仅接管显式配置的客户端')} />
+        <div className="source-import-grid">
+          <article className="source-import-card">
+            <label>
+              <span>{t('接管模式')}</span>
+              <select value={draft.transparent.tun_ipv6} onChange={event => {
+                const mode = event.target.value as ControlConfig['transparent']['tun_ipv6']
+                patch({ transparent: { ...draft.transparent, tun_ipv6: mode, ipv6_shared_l2_ready: mode === 'off' ? false : draft.transparent.ipv6_shared_l2_ready } })
+              }}>
+                <option value="off">{t('关闭')}</option>
+                <option value="auto">{t('自动')}</option>
+                <option value="always">{t('强制')}</option>
+              </select>
+            </label>
+            <p className="muted">{t('“自动”遵循 Mihomo 的系统 IPv6 检测；“强制”用于只有 ULA 下游、没有原生 IPv6 出口的 QNAP 环境。')}</p>
+            <label className="sidebar-switch">
+              <input type="checkbox" disabled={!ipv6Enabled} checked={draft.transparent.ipv6_shared_l2_ready ?? false} onChange={event => patch({ transparent: { ...draft.transparent, ipv6_shared_l2_ready: event.target.checked } })} />
+              <span><strong>{t('已完成客户端 IPv6 配置')}</strong><small>{t('启用前确认接管客户端使用下方 ULA、网关和 DNS，且没有另一条可用的 IPv6 默认路由。')}</small></span>
+            </label>
+          </article>
+          <article className="source-import-card qnap-ipv6-values">
+            <span><strong>{t('客户端前缀')}</strong><code>fdfe:dcba:9878::/64</code></span>
+            <span><strong>{t('IPv6 网关 / DNS')}</strong><code>fdfe:dcba:9878::1</code></span>
+            <label>
+              <span>{t('按设备 IPv4 生成固定 IPv6')}</span>
+              <input value={ipv6ClientIPv4} onChange={event => setIPv6ClientIPv4(event.target.value)} placeholder="192.168.2.101" inputMode="decimal" />
+            </label>
+            <span><strong>{t('设备 IPv6')}</strong><code>{clientIPv6 || '—'}</code></span>
+          </article>
+        </div>
+        <div className="notice">
+          <strong>{t('不会修改 QTS 或主路由 IPv6')}</strong>
+          <p>{t('同网段模式不发送 RA。只有手动配置上述 ULA 的客户端会把 IPv6 交给 OpenSurge；其他局域网设备继续使用原来的 IPv6。已登记设备使用由其固定 IPv4 推导的 ULA，可继续匹配设备策略。')}</p>
+        </div>
+      </div>
+
       <div className="source-actions">
         <button type="button" onClick={() => void load()} disabled={saving || lifecycleBusy}>{t('重新读取')}</button>
         <button className="primary" type="button" onClick={() => void saveRuntime()} disabled={saving || lifecycleBusy}>{saving ? t('正在保存…') : t(running ? '保存并重启网关' : '保存运行参数')}</button>
@@ -185,4 +218,12 @@ export function QNAPNetworkPage({
       <p>{t('停止并重建容器时修改 Compose 中的 QNET 父接口、IPv4、CIDR 或主路由。保留同一个 /data 持久化目录即可保留管理员、订阅、规则、设备策略和运行配置。')}</p>
     </section>
   </>
+}
+
+function qnapClientIPv6(ipv4: string): string {
+  const parts = ipv4.trim().split('.').map(value => Number(value))
+  if (parts.length !== 4 || parts.some(value => !Number.isInteger(value) || value < 0 || value > 255)) return ''
+  const upper = ((parts[0] << 8) | parts[1]).toString(16)
+  const lower = ((parts[2] << 8) | parts[3]).toString(16)
+  return `fdfe:dcba:9878:0:1:0:${upper}:${lower}`
 }

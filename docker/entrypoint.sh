@@ -19,6 +19,7 @@ SEED_LAN_IP="${OPENSURGE_SEED_LAN_IP:-192.168.50.2}"
 SEED_LAN_CIDR="${OPENSURGE_SEED_LAN_CIDR:-192.168.50.0/24}"
 SEED_UPSTREAM_GATEWAY="${OPENSURGE_SEED_UPSTREAM_GATEWAY:-192.168.50.1}"
 CONTAINER_INTERFACE="${OPENSURGE_CONTAINER_INTERFACE:-eth0}"
+IPV6_GATEWAY_CIDR="${OPENSURGE_IPV6_GATEWAY_CIDR:-fdfe:dcba:9878::1/64}"
 # QNAP commonly assigns the first normal NAS account UID 1000 and the
 # `everyone` group GID 100, but installations differ. These values are fully
 # configurable and deploy/qnap/preflight.sh verifies them against the real bind
@@ -115,6 +116,15 @@ mkdir -p \
 
 if [ ! -f "${CONFIG_PATH}" ]; then
   seed_config
+fi
+
+# The QNAP product owns this ULA only inside its container network namespace.
+# It gives selected same-LAN clients a stable IPv6 gateway/DNS endpoint without
+# changing QTS, Virtual Switch, the NAS default route, or any other container.
+# Keep startup usable when the kernel/network has IPv6 disabled; enabling IPv6
+# takeover will then fail closed later during routing setup with a clear error.
+if ! ip -6 addr replace "${IPV6_GATEWAY_CIDR}" dev "${CONTAINER_INTERFACE}" nodad 2>/dev/null; then
+  echo "OpenSurge entrypoint: IPv6 ULA gateway could not be provisioned on ${CONTAINER_INTERFACE}; IPv4 remains available." >&2
 fi
 
 # Reconcile persistent runtime before exposing the control plane. A cleanly
