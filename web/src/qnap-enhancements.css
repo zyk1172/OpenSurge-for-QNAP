@@ -22,15 +22,15 @@ html[data-product-target="qnap"] .sidebar nav button {
 html[data-product-target="qnap"] .diagnostic-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin: -8px 0 18px;
+  gap: 10px;
+  margin: 0 0 14px;
 }
 
 html[data-product-target="qnap"] .diagnostic-summary-card {
   display: grid;
-  gap: 7px;
+  gap: 5px;
   min-width: 0;
-  padding: 18px;
+  padding: 15px 16px;
   border: 1px solid #20342d;
   border-radius: 14px;
   background: linear-gradient(145deg, #0f211b, #0b1815);
@@ -40,13 +40,13 @@ html[data-product-target="qnap"] .diagnostic-summary-card small {
   color: #78aa95;
   font-size: 9px;
   font-weight: 800;
-  letter-spacing: .14em;
+  letter-spacing: .12em;
 }
 
 html[data-product-target="qnap"] .diagnostic-summary-card strong {
   overflow: hidden;
   color: #edf7f2;
-  font-size: 22px;
+  font-size: 21px;
   line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -56,7 +56,7 @@ html[data-product-target="qnap"] .diagnostic-summary-card span {
   overflow: hidden;
   color: #71877e;
   font-size: 11px;
-  line-height: 1.45;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -71,28 +71,34 @@ html[data-product-target="qnap"] .diagnostic-summary-card.warn {
   background: linear-gradient(145deg, #2b2413, #17180f);
 }
 
-html[data-product-target="qnap"] .qnap-diagnostic-main {
-  align-items: start;
-}
-
 html[data-product-target="qnap"] .qnap-doctor-note {
-  margin: -2px 0 14px;
+  margin: 0 0 12px;
 }
 
 html[data-product-target="qnap"] .qnap-doctor-note p {
-  margin: 6px 0 0;
+  margin: 5px 0 0;
 }
 
 html[data-product-target="qnap"] .doctor-check-list {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
 html[data-product-target="qnap"] .doctor-check-list .check {
+  min-width: 0;
   margin: 0;
   border: 1px solid #1d302a;
   border-radius: 11px;
   background: #0a17138c;
+}
+
+html[data-product-target="qnap"] .doctor-check-list .check > div {
+  min-width: 0;
+}
+
+html[data-product-target="qnap"] .doctor-check-list .check small {
+  overflow-wrap: anywhere;
 }
 
 html[data-product-target="qnap"] .doctor-check-list .doctor-check-failed {
@@ -102,10 +108,12 @@ html[data-product-target="qnap"] .doctor-check-list .doctor-check-failed {
 
 html[data-product-target="qnap"] .provider-status-list {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 8px;
 }
 
 html[data-product-target="qnap"] .provider-status-list .row {
+  min-width: 0;
   margin: 0;
   border: 1px solid #1d302a;
   border-radius: 11px;
@@ -208,6 +216,10 @@ html[data-product-target="qnap"] .qnap-remote-management .inventory span {
   min-width: 0;
 }
 
+html[data-product-target="qnap"] .qnap-remote-management .remote-management-usage p {
+  margin: 5px 0 0;
+}
+
 html[data-product-target="qnap"] .remote-token-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -307,6 +319,10 @@ html[data-product-target="qnap"] .remote-token-row input {
   html[data-product-target="qnap"] .source-import-grid {
     grid-template-columns: 1fr;
   }
+
+  html[data-product-target="qnap"] .doctor-check-list {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 620px) {
@@ -316,7 +332,7 @@ html[data-product-target="qnap"] .remote-token-row input {
   }
 
   html[data-product-target="qnap"] .diagnostic-summary-card {
-    padding: 14px;
+    padding: 13px;
   }
 
   html[data-product-target="qnap"] .diagnostic-summary-card strong {
@@ -343,6 +359,7 @@ html[data-product-target="qnap"] .remote-token-row input {
     justify-self: start;
   }
 
+  html[data-product-target="qnap"] .provider-status-list,
   html[data-product-target="qnap"] .diagnostic-connection-row,
   html[data-product-target="qnap"] .remote-token-row {
     grid-template-columns: 1fr;

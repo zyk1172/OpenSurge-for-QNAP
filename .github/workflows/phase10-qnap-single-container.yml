@@ -129,18 +129,24 @@ jobs:
           grep -q "'本机 Mac': 'OpenSurge 网关'" web/src/i18n.ts
           grep -q "'Mac 本机运行路径': 'OpenSurge 网关路径'" web/src/i18n.ts
           grep -q "DNS、mihomo 与 TUN 数据面会短暂重载" web/src/i18n.ts
-      - name: Guard QNAP responsive diagnostics surface
+      - name: Guard QNAP localized diagnostics surface
         run: |
           grep -q 'data-product-target="qnap"' web/src/qnap-enhancements.css
           grep -q 'min-width: 0' web/src/qnap-enhancements.css
-          grep -q 'QNAP Environment Doctor' web/src/pages/DiagnosticsPage.tsx
-          grep -q 'diagnostic-summary-grid' web/src/pages/DiagnosticsPage.tsx
-      - name: Guard LAN remote management UI
+          grep -q "title={t('环境检查')}" web/src/pages/DiagnosticsPage.tsx
+          grep -q 'diagnostic-doctor-section' web/src/pages/DiagnosticsPage.tsx
+          grep -q 'grid-template-columns: repeat(2, minmax(0, 1fr))' web/src/qnap-enhancements.css
+          ! grep -Eq 'QNAP Environment Doctor|Proxy Providers|Live Connections|Recent logs|No active connections|No logs' web/src/pages/DiagnosticsPage.tsx
+      - name: Guard localized LAN remote management UI
         run: |
           grep -q 'RemoteManagementCard' web/src/pages/QNAPNetworkPage.tsx
           grep -q '/api/auth/remote-token' web/src/components/RemoteManagementCard.tsx
           grep -q '/api/remote/v1' web/src/components/RemoteManagementCard.tsx
+          grep -q "t('局域网管理令牌')" web/src/components/RemoteManagementCard.tsx
           grep -q 'remote-token-row' web/src/qnap-enhancements.css
+          grep -q "./i18n.qnap.en" web/src/main.tsx
+          grep -q 'i18n.qnap.en.ts' web/scripts/check-i18n.mjs
+          ! grep -Eq 'REMOTE AI MANAGEMENT|LAN management token|Remote management error|Copy API URL|Copy AI setup' web/src/components/RemoteManagementCard.tsx
           test -f docs/REMOTE_MANAGEMENT.md
       - name: Guard current QNAP docs against Mac product identity
         run: |

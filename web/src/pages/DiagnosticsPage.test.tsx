@@ -16,7 +16,7 @@ const overview = {
   recovery: { stage: 'idle', required: false },
 } as unknown as Overview
 
-describe('DiagnosticsPage Doctor', () => {
+describe('DiagnosticsPage environment check', () => {
   beforeEach(() => {
     vi.mocked(api.diagnostics).mockResolvedValue({ schema_version: 1, revision: 'revision-a', connections: { upload_total: 0, download_total: 0, connections: [] }, logs: {}, operations: [], recovery: { stage: 'idle', required: false } })
     vi.mocked(api.doctorStatus).mockResolvedValue({ schema_version: 1, state: 'idle', current: true, checks: [], healthy: false })
@@ -25,18 +25,18 @@ describe('DiagnosticsPage Doctor', () => {
 
   afterEach(() => { cleanup(); vi.clearAllMocks() })
 
-  it('loads cached state without running Doctor and starts it only after an explicit click', async () => {
+  it('loads cached state without running the check and starts it only after an explicit click', async () => {
     render(<DiagnosticsPage overview={overview} />)
 
-    expect(await screen.findByRole('button', { name: '运行 Doctor' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '运行检查' })).toBeTruthy()
     expect(api.doctorStatus).toHaveBeenCalledTimes(1)
     expect(api.runDoctor).not.toHaveBeenCalled()
-    expect(screen.getByText(/总览与菜单栏刷新不会触发/)).toBeTruthy()
+    expect(screen.getByText(/刷新页面不会自动触发/)).toBeTruthy()
 
-    await userEvent.click(screen.getByRole('button', { name: '运行 Doctor' }))
+    await userEvent.click(screen.getByRole('button', { name: '运行检查' }))
     await waitFor(() => expect(api.runDoctor).toHaveBeenCalledTimes(1))
-    expect(await screen.findByText('mihomo config validation')).toBeTruthy()
+    expect(await screen.findByText('mihomo 配置校验')).toBeTruthy()
     expect(screen.getByText('invalid')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '重新运行 Doctor' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '重新检查' })).toBeTruthy()
   })
 })
