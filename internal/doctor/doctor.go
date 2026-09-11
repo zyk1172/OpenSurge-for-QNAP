@@ -36,9 +36,9 @@ func Run(cfg config.Config) Report {
 
 	if goruntime.GOOS == "linux" {
 		// QNAP/Linux must not inherit the upstream macOS pfctl health model.
-		// same_lan uses ingress-interface policy routing and therefore requires
-		// iproute2 + TUN but not nftables. Isolated/NAT topologies additionally
-		// require nftables.
+		// same_lan uses ingress-interface policy routing for IPv4 and therefore
+		// requires iproute2 + TUN but not nftables. Isolated/NAT topologies
+		// additionally require nftables.
 		checks = append(checks,
 			checkCommand("iproute2", "ip"),
 			checkTUNDevice("/dev/net/tun"),
@@ -60,10 +60,19 @@ func Run(cfg config.Config) Report {
 	)
 
 	if goruntime.GOOS == "linux" && cfg.Transparent.TUNIPv6 != config.TUNIPv6Off {
-		checks = append(checks,
-			checkIPv6Forwarding(),
-			checkInterfaceIPv6(cfg.Gateway.Interface, config.DownstreamIPv6Gateway),
-		)
+		checks = append(checks, checkIPv6Forwarding())
+		if cfg.Gateway.Mode == config.GatewayModeSameLAN {
+			// DNS/fake-IP steering keeps the router's native IPv6 route rather
+			// than turning OpenSurge into the client's default router. Forwarding
+			// containers therefore need accept_ra=2, and the main router needs a
+			// stable link-local next hop for fdfe:dcba:9876::/64.
+			checks = append(checks,
+				checkIPv6AcceptRA(cfg.Gateway.Interface),
+				checkStableIPv6NextHop(cfg.Gateway.Interface, cfg.Gateway.LANIP),
+			)
+		} else {
+			checks = append(checks, checkInterfaceIPv6(cfg.Gateway.Interface, config.DownstreamIPv6Gateway))
+		}
 	}
 	return Report{Checks: checks}
 }
@@ -168,6 +177,58 @@ func checkIPv6Forwarding() Check {
 		return Check{Name: "IPv6 forwarding", OK: false, Message: "set net.ipv6.conf.all.forwarding=1 in the OpenSurge container namespace"}
 	}
 	return Check{Name: "IPv6 forwarding", OK: true, Message: "enabled"}
+}
+
+func checkIPv6AcceptRA(interfaceName string) Check {
+	name := "IPv6 upstream RA on " + interfaceName
+	path := filepath.Join("/proc/sys/net/ipv6/conf", interfaceName, "accept_ra")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Check{Name: name, OK: false, Message: err.Error()}
+	}
+	if strings.TrimSpace(string(data)) != "2" {
+		return Check{Name: name, OK: false, Message: "set net.ipv6.conf." + interfaceName + ".accept_ra=2 so native IPv6 remains available while forwarding is enabled"}
+	}
+	return Check{Name: name, OK: true, Message: "accept_ra=2"}
+}
+
+func stableIPv6NextHop(ipv4 string) net.IP {
+	value := net.ParseIP(strings.TrimSpace(ipv4)).To4()
+	if value == nil {
+		return nil
+	}
+	upper := uint16(value[0])<<8 | uint16(value[1])
+	lower := uint16(value[2])<<8 | uint16(value[3])
+	return net.ParseIP(fmt.Sprintf("fe80::1:0:%x:%x", upper, lower))
+}
+
+func checkStableIPv6NextHop(interfaceName, ipv4 string) Check {
+	name := "IPv6 fake-IP next hop bound to " + interfaceName
+	target := stableIPv6NextHop(ipv4)
+	if target == nil {
+		return Check{Name: name, OK: false, Message: "cannot derive link-local next hop from invalid LAN IPv4"}
+	}
+	iface, err := net.InterfaceByName(interfaceName)
+	if err != nil {
+		return Check{Name: name, OK: false, Message: err.Error()}
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return Check{Name: name, OK: false, Message: err.Error()}
+	}
+	for _, addr := range addrs {
+		switch value := addr.(type) {
+		case *net.IPNet:
+			if value.IP.Equal(target) {
+				return Check{Name: name, OK: true, Message: target.String()}
+			}
+		case *net.IPAddr:
+			if value.IP.Equal(target) {
+				return Check{Name: name, OK: true, Message: target.String()}
+			}
+		}
+	}
+	return Check{Name: name, OK: false, Message: "expected stable link-local " + target.String() + " is not configured on interface"}
 }
 
 func checkInterfaceIPv6(interfaceName, ipValue string) Check {
