@@ -43,10 +43,19 @@ func TestNormalizePreservesLegacySystemProxyFieldUntilSchemaCleanup(t *testing.T
 	}
 }
 
-func TestNormalizeRejectsDownstreamIPv6TakeoverForV1(t *testing.T) {
+func TestNormalizeEnablesNativeLinuxIPv6TakeoverCompatibility(t *testing.T) {
 	cfg := Default()
 	cfg.Transparent.TUNIPv6 = TUNIPv6Always
-	if err := Normalize(&cfg); err == nil || !strings.Contains(err.Error(), "IPv6") {
-		t.Fatalf("Normalize() error = %v, want IPv6 rejection", err)
+	cfg.Transparent.IPv6PacketBrokerBinary = ""
+	cfg.Transparent.IPv6PacketMTU = 0
+
+	if err := Normalize(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Transparent.IPv6PacketBrokerBinary != "native-linux-tun" {
+		t.Fatalf("IPv6PacketBrokerBinary = %q", cfg.Transparent.IPv6PacketBrokerBinary)
+	}
+	if cfg.Transparent.IPv6PacketMTU != 1500 {
+		t.Fatalf("IPv6PacketMTU = %d, want 1500", cfg.Transparent.IPv6PacketMTU)
 	}
 }
