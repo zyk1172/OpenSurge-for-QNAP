@@ -37,7 +37,19 @@ export function QNAPNetworkPage({
         api.config(),
         api.networkDefaults('same_lan').catch(() => null),
       ])
-      setDraft(config)
+      // Older schema-v1 config GET responses do not include ipv6_ra_enabled.
+      // Preserve the local draft during a save/reload and otherwise use the
+      // authoritative runtime status until the field is present in the GET.
+      setDraft(current => ({
+        ...config,
+        transparent: {
+          ...config.transparent,
+          ipv6_ra_enabled: config.transparent.ipv6_ra_enabled
+            ?? current?.transparent.ipv6_ra_enabled
+            ?? overview?.status.ipv6_ra_enabled
+            ?? false,
+        },
+      }))
       setActual(network)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -76,6 +88,14 @@ export function QNAPNetworkPage({
 
   const saveRuntime = async () => {
     if (!draft || saving || lifecycleBusy) return
+    const ipv6Enabled = draft.transparent.tun_ipv6 !== 'off'
+    if (ipv6Enabled && !draft.transparent.ipv6_shared_l2_ready) {
+      setError(t(draft.transparent.ipv6_ra_enabled
+        ? '开启自动 IPv6 分配前，请确认主路由不会继续向该 LAN 发布竞争 IPv6 默认路由。'
+        : '开启手动 IPv6 接管前，请确认目标客户端已使用 OpenSurge IPv6，且没有另一条可用的 IPv6 默认路由。'))
+      return
+    }
+
     setSaving(true)
     setError('')
     setMessage('')
@@ -90,7 +110,13 @@ export function QNAPNetworkPage({
       const saved = await api.saveConfig(draft)
       const reread = await api.config()
       if (saved.revision !== reread.revision) throw new Error(t('配置保存后的版本校验失败，请重新读取后再试。'))
-      setDraft(reread)
+      setDraft({
+        ...reread,
+        transparent: {
+          ...reread.transparent,
+          ipv6_ra_enabled: reread.transparent.ipv6_ra_enabled ?? draft.transparent.ipv6_ra_enabled ?? false,
+        },
+      })
 
       if (stoppedForSave) {
         const start = await api.gateway('start')
@@ -115,6 +141,7 @@ export function QNAPNetworkPage({
     : draft ? `${draft.gateway.lan_ip}/${draft.gateway.lan_prefix_len}` : '—'
   const router = actual?.snapshot.router || '由 Docker/QNET 创建参数确定'
   const ipv6Enabled = draft?.transparent.tun_ipv6 !== 'off'
+  const ipv6Automatic = ipv6Enabled && (draft?.transparent.ipv6_ra_enabled ?? false)
   const clientIPv6 = qnapClientIPv6(ipv6ClientIPv4)
 
   return <>
@@ -169,14 +196,21 @@ export function QNAPNetworkPage({
       </div>
 
       <div className="qnap-ipv6-panel">
-        <SectionTitle title={t('IPv6 接管')} subtitle={t('QNAP 同网段模式 · 仅接管显式配置的客户端')} />
+        <SectionTitle title={t('IPv6 接管')} subtitle={t('接管方式与客户端 IPv6 分配分开控制')} />
         <div className="source-import-grid">
           <article className="source-import-card">
             <label>
-              <span>{t('接管模式')}</span>
+              <span>{t('IPv6 接管模式')}</span>
               <select value={draft.transparent.tun_ipv6} onChange={event => {
                 const mode = event.target.value as ControlConfig['transparent']['tun_ipv6']
-                patch({ transparent: { ...draft.transparent, tun_ipv6: mode, ipv6_shared_l2_ready: mode === 'off' ? false : draft.transparent.ipv6_shared_l2_ready } })
+                patch({
+                  transparent: {
+                    ...draft.transparent,
+                    tun_ipv6: mode,
+                    ipv6_ra_enabled: mode === 'off' ? false : draft.transparent.ipv6_ra_enabled,
+                    ipv6_shared_l2_ready: mode === 'off' ? false : draft.transparent.ipv6_shared_l2_ready,
+                  },
+                })
               }}>
                 <option value="off">{t('关闭')}</option>
                 <option value="auto">{t('自动')}</option>
@@ -184,24 +218,81 @@ export function QNAPNetworkPage({
               </select>
             </label>
             <p className="muted">{t('“自动”遵循 Mihomo 的系统 IPv6 检测；“强制”用于只有 ULA 下游、没有原生 IPv6 出口的 QNAP 环境。')}</p>
-            <label className="sidebar-switch">
-              <input type="checkbox" disabled={!ipv6Enabled} checked={draft.transparent.ipv6_shared_l2_ready ?? false} onChange={event => patch({ transparent: { ...draft.transparent, ipv6_shared_l2_ready: event.target.checked } })} />
-              <span><strong>{t('已完成客户端 IPv6 配置')}</strong><small>{t('启用前确认接管客户端使用下方 ULA、网关和 DNS，且没有另一条可用的 IPv6 默认路由。')}</small></span>
-            </label>
           </article>
-          <article className="source-import-card qnap-ipv6-values">
-            <span><strong>{t('客户端前缀')}</strong><code>fdfe:dcba:9878::/64</code></span>
-            <span><strong>{t('IPv6 网关 / DNS')}</strong><code>fdfe:dcba:9878::1</code></span>
+
+          <article className="source-import-card">
             <label>
-              <span>{t('按设备 IPv4 生成固定 IPv6')}</span>
-              <input value={ipv6ClientIPv4} onChange={event => setIPv6ClientIPv4(event.target.value)} placeholder="192.168.2.101" inputMode="decimal" />
+              <span>{t('客户端 IPv6 分配')}</span>
+              <select disabled={!ipv6Enabled} value={ipv6Automatic ? 'automatic' : 'manual'} onChange={event => {
+                const automatic = event.target.value === 'automatic'
+                patch({
+                  dns: automatic ? { ...draft.dns, ipv6: true } : draft.dns,
+                  transparent: {
+                    ...draft.transparent,
+                    ipv6_ra_enabled: automatic,
+                    ipv6_shared_l2_ready: false,
+                  },
+                })
+              }}>
+                <option value="manual">{t('手动（固定 ULA）')}</option>
+                <option value="automatic">{t('自动（RA / SLAAC）')}</option>
+              </select>
             </label>
-            <span><strong>{t('设备 IPv6')}</strong><code>{clientIPv6 || '—'}</code></span>
+            <p className="muted">{t(ipv6Automatic
+              ? 'OpenSurge 会向同一 LAN 发布 RA/SLAAC/RDNSS，手机、电视等设备无需手动填写 IPv6。'
+              : '仅手动配置 OpenSurge ULA 的设备进入 IPv6 接管，不向整个局域网广播 RA。')}</p>
           </article>
         </div>
+
+        {ipv6Enabled && <>
+          {ipv6Automatic ? <div className="source-import-grid">
+            <article className="source-import-card qnap-ipv6-values">
+              <span><strong>{t('自动下发前缀')}</strong><code>fdfe:dcba:9878::/64</code></span>
+              <span><strong>{t('地址配置')}</strong><code>RA / SLAAC</code></span>
+              <span><strong>{t('DNS 下发')}</strong><code>RDNSS</code></span>
+              <span><strong>{t('终端设置')}</strong><code>{t('无需手动配置')}</code></span>
+            </article>
+            <article className="source-import-card">
+              <strong>{t('自动模式会影响整个同层局域网')}</strong>
+              <p>{t('连接到该 LAN 且接受 IPv6 RA 的设备都会获得 OpenSurge ULA，并把 OpenSurge 作为 IPv6 默认路由。')}</p>
+              <p className="muted">{t('开启前必须关闭主路由的 IPv6 RA / DHCPv6，或用 RA Guard 确保不存在竞争默认路由；否则设备可能绕过 OpenSurge。')}</p>
+            </article>
+          </div> : <div className="source-import-grid">
+            <article className="source-import-card qnap-ipv6-values">
+              <span><strong>{t('客户端前缀')}</strong><code>fdfe:dcba:9878::/64</code></span>
+              <span><strong>{t('IPv6 网关 / DNS')}</strong><code>fdfe:dcba:9878::1</code></span>
+              <label>
+                <span>{t('按设备 IPv4 生成固定 IPv6')}</span>
+                <input value={ipv6ClientIPv4} onChange={event => setIPv6ClientIPv4(event.target.value)} placeholder="192.168.2.101" inputMode="decimal" />
+              </label>
+              <span><strong>{t('设备 IPv6')}</strong><code>{clientIPv6 || '—'}</code></span>
+            </article>
+            <article className="source-import-card">
+              <strong>{t('手动模式只接管指定设备')}</strong>
+              <p>{t('不会发送 RA。只有手动配置固定 ULA、OpenSurge IPv6 网关和 DNS 的客户端会进入 IPv6 接管。')}</p>
+              <p className="muted">{t('固定 ULA 由设备 IPv4 推导，可继续用于 IPv6 按设备策略匹配。')}</p>
+            </article>
+          </div>}
+
+          <label className="sidebar-switch">
+            <input type="checkbox" checked={draft.transparent.ipv6_shared_l2_ready ?? false} onChange={event => patch({ transparent: { ...draft.transparent, ipv6_shared_l2_ready: event.target.checked } })} />
+            <span>
+              <strong>{t(ipv6Automatic ? '我已消除主路由的竞争 IPv6 默认路由' : '我已完成目标客户端 IPv6 配置')}</strong>
+              <small>{t(ipv6Automatic
+                ? '确认主路由不再向这个 LAN 发布可用的 IPv6 默认路由后再保存。'
+                : '确认目标客户端只使用 OpenSurge 的 IPv6 默认路由和 DNS 后再保存。')}</small>
+            </span>
+          </label>
+
+          {ipv6Automatic && <div className="notice warn">
+            <strong>{t('自动分配模式的设备策略限制')}</strong>
+            <p>{t('QNAP 原生 Linux TUN 在三层接管后无法保留客户端源 MAC，SLAAC 地址也不由固定 IPv4 推导。因此自动模式可可靠应用全局 IPv6 规则，但目前不保证命中每台设备的独立 IPv6 策略；需要精确设备策略时请选择手动固定 ULA。')}</p>
+          </div>}
+        </>}
+
         <div className="notice">
-          <strong>{t('不会修改 QTS 或主路由 IPv6')}</strong>
-          <p>{t('同网段模式不发送 RA。只有手动配置上述 ULA 的客户端会把 IPv6 交给 OpenSurge；其他局域网设备继续使用原来的 IPv6。已登记设备使用由其固定 IPv4 推导的 ULA，可继续匹配设备策略。')}</p>
+          <strong>{t('只修改 OpenSurge 容器内 IPv6')}</strong>
+          <p>{t('QNET、QTS 宿主默认路由和主路由配置不会被 OpenSurge 自动修改。切换到自动分配前，主路由 RA / DHCPv6 需要由你在路由器侧关闭。')}</p>
         </div>
       </div>
 
