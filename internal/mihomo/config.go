@@ -114,32 +114,32 @@ func RenderConfig(cfg config.Config) (string, error) {
 
 type templateData struct {
 	config.MihomoConfig
-	TUNEnabled                bool
-	TUNDevice                 string
-	TUNStack                  string
-	TUNAutoRoute              bool
-	TUNAutoDetectInterface    bool
-	TUNStrictRoute            bool
-	TUNRouteAddresses         string
-	TUNCustomRoutes           bool
-	LANProxyEnabled           bool
-	MihomoBindAddress         string
-	IPv6Enabled               bool
-	TUNIPv6Enabled            bool
-	TUNIPv6Address            string
-	UpstreamInterface         string
-	LANPrefix                 string
-	UpstreamProxy             config.UpstreamProxyConfig
-	DNSIPv6                   bool
-	FakeIPv6Range             string
-	LegacyIPv6PacketListener  bool
-	IPv6PacketListenerName    string
-	IPv6PacketSocket          string
-	IPv6PacketMTU             int
-	IPv6DeviceUsers           string
-	Hosts                     string
-	DNSResolverFields         string
-	PolicySections            string
+	TUNEnabled               bool
+	TUNDevice                string
+	TUNStack                 string
+	TUNAutoRoute             bool
+	TUNAutoDetectInterface   bool
+	TUNStrictRoute           bool
+	TUNRouteAddresses        string
+	TUNCustomRoutes          bool
+	LANProxyEnabled          bool
+	MihomoBindAddress        string
+	IPv6Enabled              bool
+	TUNIPv6Enabled           bool
+	TUNIPv6Address           string
+	UpstreamInterface        string
+	LANPrefix                string
+	UpstreamProxy            config.UpstreamProxyConfig
+	DNSIPv6                  bool
+	FakeIPv6Range            string
+	LegacyIPv6PacketListener bool
+	IPv6PacketListenerName   string
+	IPv6PacketSocket         string
+	IPv6PacketMTU            int
+	IPv6DeviceUsers          string
+	Hosts                    string
+	DNSResolverFields        string
+	PolicySections           string
 }
 
 func newTemplateData(cfg config.Config) (templateData, error) {
@@ -172,11 +172,17 @@ func newTemplateData(cfg config.Config) (templateData, error) {
 	if err != nil {
 		return templateData{}, err
 	}
-	policySections = rewriteQNAPIPv6IdentityRules(policySections, cfg)
 	transparent := cfg.Transparent
-	legacyPacketListener := transparent.TUNIPv6 != config.TUNIPv6Off &&
-		strings.TrimSpace(transparent.IPv6PacketBrokerBinary) != "" &&
-		strings.TrimSpace(transparent.IPv6PacketBrokerBinary) != config.NativeLinuxIPv6Runtime
+	// QNAP configs loaded through config.Load are normalized to the explicit
+	// native-linux-tun marker. An empty marker is kept as the historical
+	// packet-listener behavior for direct, unnormalized Config values used by
+	// upstream/macOS compatibility tests and callers.
+	nativeLinuxIPv6 := transparent.TUNIPv6 != config.TUNIPv6Off &&
+		strings.TrimSpace(transparent.IPv6PacketBrokerBinary) == config.NativeLinuxIPv6Runtime
+	if nativeLinuxIPv6 {
+		policySections = rewriteQNAPIPv6IdentityRules(policySections, cfg)
+	}
+	legacyPacketListener := transparent.TUNIPv6 != config.TUNIPv6Off && !nativeLinuxIPv6
 	packetSocket := ""
 	if legacyPacketListener {
 		packetSocket, err = filepath.Abs(cfg.RuntimePath("ipv6-packet.sock"))
@@ -231,7 +237,6 @@ func renderIPv6DeviceUsers(cfg config.Config) string {
 			if managed.MAC != "" {
 				users[managed.MAC] = DeviceInboundUser(managed.ID)
 			}
-		}
 	}
 	keys := make([]string, 0, len(users))
 	for mac := range users {
