@@ -2,6 +2,7 @@ package qnaphost
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -13,10 +14,21 @@ type fakeRunner struct {
 	output []byte
 	err    error
 	calls  []string
+	steps  []fakeRunnerStep
+}
+
+type fakeRunnerStep struct {
+	output []byte
+	err    error
 }
 
 func (f *fakeRunner) Run(_ context.Context, _ []byte, name string, args ...string) ([]byte, error) {
 	f.calls = append(f.calls, strings.Join(append([]string{name}, args...), " "))
+	if len(f.steps) > 0 {
+		step := f.steps[0]
+		f.steps = f.steps[1:]
+		return step.output, step.err
+	}
 	return f.output, f.err
 }
 
@@ -50,6 +62,24 @@ func TestIntentPersistsOptInWithoutTouchingQTSConfig(t *testing.T) {
 	}
 	if !enabled {
 		t.Fatal("expected persisted NAS host takeover intent")
+	}
+}
+
+func TestEnsurePolicySlotsFreeTreatsMissingRouteTableAsEmpty(t *testing.T) {
+	runner := &fakeRunner{steps: []fakeRunnerStep{
+		{output: []byte("0: from all lookup local\n")},
+		{
+			output: []byte("Error: ipv4: FIB table does not exist. Dump terminated\n"),
+			err:    errors.New("ip route exited with status 2"),
+		},
+	}}
+	manager := &Manager{runner: runner}
+
+	if err := manager.ensurePolicySlotsFreeLocked(context.Background()); err != nil {
+		t.Fatalf("ensurePolicySlotsFreeLocked: %v", err)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("expected rule and route-table inspections, got %d calls: %#v", len(runner.calls), runner.calls)
 	}
 }
 
