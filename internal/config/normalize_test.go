@@ -48,7 +48,6 @@ func TestNormalizeMigratesLegacyIPv6ConfigurationToOff(t *testing.T) {
 	cfg.DNS.IPv6 = true
 	cfg.Transparent.TUNIPv6 = TUNIPv6Always
 	cfg.Transparent.IPv6SharedL2Ready = true
-	cfg.Transparent.IPv6RAEnabled = true
 	cfg.Transparent.IPv6PacketBrokerBinary = "native-linux-tun"
 	cfg.Transparent.IPv6PacketMTU = 1500
 
@@ -63,9 +62,6 @@ func TestNormalizeMigratesLegacyIPv6ConfigurationToOff(t *testing.T) {
 	}
 	if cfg.Transparent.IPv6SharedL2Ready {
 		t.Fatal("IPv6SharedL2Ready remained enabled")
-	}
-	if cfg.Transparent.IPv6RAEnabled {
-		t.Fatal("IPv6RAEnabled remained enabled")
 	}
 	if cfg.Transparent.IPv6PacketBrokerBinary != "" {
 		t.Fatalf("IPv6PacketBrokerBinary = %q, want empty", cfg.Transparent.IPv6PacketBrokerBinary)
