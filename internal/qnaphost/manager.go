@@ -25,6 +25,7 @@ const (
 	stateFileName     = "qnap-host-routing.json"
 	defaultHostNetNS  = "/run/opensurge/host-netns"
 	routeTableID      = "20242"
+	routeProtocol     = "242"
 	mainRulePriority  = "24100"
 	proxyRulePriority = "24110"
 	nftTableName      = "opensurge_nas_host"
@@ -93,10 +94,9 @@ func New(configPath, storeDir string) *Manager {
 	}
 }
 
-// Run keeps the host routing state fail-open: when the OpenSurge data plane is
-// not ready, the NAS host policy is removed so QTS falls back to its ordinary
-// main-table default gateway. When the gateway becomes ready again, a persisted
-// opt-in is restored automatically.
+// Run keeps host routing fail-open: when the OpenSurge data plane is not
+// ready, the NAS host policy is removed so QTS falls back to its normal
+// main-table default. The persisted opt-in is restored when readiness returns.
 func (m *Manager) Run(ctx context.Context) {
 	m.reconcile(ctx)
 	ticker := time.NewTicker(5 * time.Second)
@@ -116,10 +116,9 @@ func (m *Manager) Run(ctx context.Context) {
 	}
 }
 
-// Release removes only OpenSurge-owned host rules and leaves the persisted
-// desired flag untouched. A clean container stop/rebuild therefore restores
-// the NAS to QTS/main-table routing, while the next healthy container can
-// re-enable the opt-in automatically.
+// Release removes only resources carrying OpenSurge's dedicated rule selectors,
+// route protocol, table name and nft table name. It never changes the persisted
+// desired flag or QTS's main-table default route.
 func (m *Manager) Release(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -130,10 +129,10 @@ func (m *Manager) SetDesired(ctx context.Context, enabled bool) (Status, error) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if err := m.writeIntentLocked(enabled); err != nil {
-		return Status{}, err
-	}
 	if !enabled {
+		if err := m.writeIntentLocked(false); err != nil {
+			return Status{}, err
+		}
 		if err := m.disableLocked(ctx); err != nil {
 			status := m.statusLocked(ctx)
 			status.Error = err.Error()
@@ -143,20 +142,23 @@ func (m *Manager) SetDesired(ctx context.Context, enabled bool) (Status, error) 
 	}
 
 	readiness, err := gateway.ReadinessConfig(ctx, m.configPath)
-	if err != nil || !readiness.Ready || !readiness.DesiredRunning {
-		_ = m.disableLocked(ctx)
+	if err != nil {
 		status := m.statusLocked(ctx)
-		if err != nil {
-			status.Error = err.Error()
-			return status, fmt.Errorf("OpenSurge gateway readiness check failed: %w", err)
-		}
-		return status, fmt.Errorf("OpenSurge gateway must be running and ready before NAS host takeover can be enabled")
+		status.Error = err.Error()
+		return status, fmt.Errorf("OpenSurge gateway readiness check failed: %w", err)
+	}
+	if !readiness.Ready || !readiness.DesiredRunning {
+		return m.statusLocked(ctx), fmt.Errorf("OpenSurge gateway must be running and ready before NAS host takeover can be enabled")
 	}
 	if err := m.enableLocked(ctx); err != nil {
 		_ = m.disableLocked(ctx)
 		status := m.statusLocked(ctx)
 		status.Error = err.Error()
 		return status, err
+	}
+	if err := m.writeIntentLocked(true); err != nil {
+		_ = m.disableLocked(ctx)
+		return m.statusLocked(ctx), fmt.Errorf("persist NAS host takeover intent: %w", err)
 	}
 	return m.statusLocked(ctx), nil
 }
@@ -200,20 +202,24 @@ func (m *Manager) statusLocked(ctx context.Context) Status {
 		status.Error = "host network namespace is not mounted; rebuild the QNAP container with the current Compose file"
 		return status
 	}
-	status.Supported = true
 	if readiness, err := gateway.ReadinessConfig(ctx, m.configPath); err == nil {
 		status.GatewayReady = readiness.Ready && readiness.DesiredRunning
 	}
-	if iface, hostIP, err := m.detectHostLocked(ctx, cfg.Gateway.LANIP); err == nil {
-		status.HostInterface = iface
-		status.HostIPv4 = hostIP
-	} else {
+	iface, hostIP, err := m.detectHostLocked(ctx, cfg.Gateway.LANIP)
+	if err != nil {
 		status.Error = err.Error()
+		return status
 	}
+	status.Supported = true
+	status.HostInterface = iface
+	status.HostIPv4 = hostIP
+
 	rules, rulesErr := m.runHost(ctx, nil, "ip", "-4", "rule", "show")
 	routes, routesErr := m.runHost(ctx, nil, "ip", "-4", "route", "show", "table", routeTableID)
 	if rulesErr == nil && routesErr == nil {
-		status.Enabled = strings.Contains(string(rules), "lookup "+routeTableID) && strings.Contains(string(routes), "default via "+cfg.Gateway.LANIP)
+		status.Enabled = strings.Contains(string(rules), "lookup "+routeTableID) &&
+			strings.Contains(string(routes), "default via "+cfg.Gateway.LANIP) &&
+			strings.Contains(string(routes), "proto "+routeProtocol)
 	}
 	if _, err := m.runHost(ctx, nil, "nft", "list", "table", "ip", nftTableName); err == nil {
 		status.DNSRedirect = true
@@ -229,10 +235,10 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 	if cfg.Gateway.Mode != config.GatewayModeSameLAN {
 		return fmt.Errorf("NAS host takeover requires QNAP same_lan mode")
 	}
-	if net.ParseIP(cfg.Gateway.LANIP) == nil || net.ParseIP(cfg.Gateway.LANIP).To4() == nil {
+	if ip := net.ParseIP(cfg.Gateway.LANIP); ip == nil || ip.To4() == nil {
 		return fmt.Errorf("OpenSurge LAN IPv4 is invalid: %q", cfg.Gateway.LANIP)
 	}
-	if net.ParseIP(cfg.Gateway.UpstreamGateway) == nil || net.ParseIP(cfg.Gateway.UpstreamGateway).To4() == nil {
+	if ip := net.ParseIP(cfg.Gateway.UpstreamGateway); ip == nil || ip.To4() == nil {
 		return fmt.Errorf("QNAP fallback gateway is invalid: %q", cfg.Gateway.UpstreamGateway)
 	}
 	if _, err := os.Stat(m.netNSPath); err != nil {
@@ -249,15 +255,21 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 		return fmt.Errorf("NAS host IPv4 %s is outside configured LAN %s", hostIP, scope.String())
 	}
 
+	// Remove a previous OpenSurge-owned instance, then prove the dedicated
+	// priorities/table are otherwise unused before installing new state.
 	_ = m.disableLocked(ctx)
-	if _, err := m.runHost(ctx, nil, "ip", "-4", "route", "replace", "default", "via", cfg.Gateway.LANIP, "dev", iface, "table", routeTableID); err != nil {
+	if err := m.ensurePolicySlotsFreeLocked(ctx); err != nil {
+		return err
+	}
+
+	if _, err := m.runHost(ctx, nil, "ip", "-4", "route", "replace", "default", "via", cfg.Gateway.LANIP, "dev", iface, "table", routeTableID, "proto", routeProtocol); err != nil {
 		return fmt.Errorf("install NAS host proxy route: %w", err)
 	}
-	if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", mainRulePriority, "iif", "lo", "lookup", "main", "suppress_prefixlength", "0"); err != nil {
+	if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", mainRulePriority, "iif", "lo", "table", "main", "suppress_prefixlength", "0"); err != nil {
 		_ = m.disableLocked(ctx)
 		return fmt.Errorf("preserve QNAP non-default routes: %w", err)
 	}
-	if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", proxyRulePriority, "iif", "lo", "lookup", routeTableID); err != nil {
+	if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", proxyRulePriority, "iif", "lo", "table", routeTableID); err != nil {
 		_ = m.disableLocked(ctx)
 		return fmt.Errorf("install NAS local-origin policy rule: %w", err)
 	}
@@ -283,17 +295,37 @@ add rule ip %s output ip daddr != %s tcp dport 53 dnat to %s
 	return nil
 }
 
+func (m *Manager) ensurePolicySlotsFreeLocked(ctx context.Context) error {
+	rules, err := m.runHost(ctx, nil, "ip", "-4", "rule", "show")
+	if err != nil {
+		return fmt.Errorf("inspect QNAP host policy rules: %w", err)
+	}
+	for _, line := range strings.Split(string(rules), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, mainRulePriority+":") || strings.HasPrefix(line, proxyRulePriority+":") {
+			return fmt.Errorf("QNAP host already uses policy-rule priority %s; OpenSurge will not overwrite it", strings.SplitN(line, ":", 2)[0])
+		}
+	}
+	routes, err := m.runHost(ctx, nil, "ip", "-4", "route", "show", "table", routeTableID)
+	if err != nil {
+		return fmt.Errorf("inspect QNAP host route table %s: %w", routeTableID, err)
+	}
+	if strings.TrimSpace(string(routes)) != "" {
+		return fmt.Errorf("QNAP host route table %s is already in use; OpenSurge will not overwrite it", routeTableID)
+	}
+	return nil
+}
+
 func (m *Manager) disableLocked(ctx context.Context) error {
 	if _, err := os.Stat(m.netNSPath); err != nil {
 		return nil
 	}
-	// Every resource is uniquely OpenSurge-owned. Deletion is intentionally
-	// idempotent because QTS, a reboot, or a previous failed attempt may already
-	// have removed part of the state.
+	// Deletes are fully scoped to OpenSurge's rule selectors, route protocol and
+	// nft table. In particular, never flush an arbitrary whole route table.
 	_, _ = m.runHost(ctx, nil, "nft", "delete", "table", "ip", nftTableName)
-	_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", proxyRulePriority)
-	_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", mainRulePriority)
-	_, _ = m.runHost(ctx, nil, "ip", "-4", "route", "flush", "table", routeTableID)
+	_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", proxyRulePriority, "iif", "lo", "table", routeTableID)
+	_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", mainRulePriority, "iif", "lo", "table", "main", "suppress_prefixlength", "0")
+	_, _ = m.runHost(ctx, nil, "ip", "-4", "route", "flush", "table", routeTableID, "proto", routeProtocol)
 	return nil
 }
 
