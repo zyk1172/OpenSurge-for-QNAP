@@ -110,6 +110,7 @@ sudo ip netns exec "$GATEWAY_NS" ip route flush table 20241 2>/dev/null || true
 sudo ip netns exec "$CLIENT_NS" ping -c 2 -W 2 203.0.113.1 >/dev/null
 
 log "proving NAS-host DNS takeover with L4 policy routing and no firewall NAT"
+set -x
 # CLIENT_NS models the QNAP host. GATEWAY_NS models the QNET OpenSurge
 # namespace. 10.77.1.254 is deliberately just another same-subnet address: a
 # normal lookup remains on-link, while a port-53 lookup must be forced through
@@ -159,6 +160,7 @@ sudo ip -n "$GATEWAY_NS" rule del pref 20239 from 10.77.1.2/32 iif os-gw-lan ipp
 sudo ip -n "$GATEWAY_NS" rule del pref 20240 from 10.77.1.2/32 iif os-gw-lan ipproto tcp dport 53 table 20243
 sudo ip -n "$GATEWAY_NS" route flush table 20243 proto 243
 sudo ip -n "$GATEWAY_NS" link del os-dns-tun
+set +x
 
 log "checking that the host namespace was never touched"
 if sudo nft list table inet opensurge >/dev/null 2>&1; then
