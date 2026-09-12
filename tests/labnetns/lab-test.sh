@@ -110,14 +110,21 @@ sudo ip netns exec "$GATEWAY_NS" ip route flush table 20241 2>/dev/null || true
 sudo ip netns exec "$CLIENT_NS" ping -c 2 -W 2 203.0.113.1 >/dev/null
 
 log "proving NAS-host DNS takeover with L4 policy routing and no firewall NAT"
-set -x
 # CLIENT_NS models the QNAP host. GATEWAY_NS models the QNET OpenSurge
-# namespace. 10.77.1.254 is deliberately just another same-subnet address: a
-# normal lookup remains on-link, while a port-53 lookup must be forced through
-# OpenSurge and then into a dedicated TUN route table.
-sudo ip -n "$GATEWAY_NS" link add os-dns-tun type dummy
+# namespace. A dedicated veth path models tun0 and terminates at a DNS server
+# in UPSTREAM_NS. 10.77.1.254 is deliberately in the client's LAN prefix: it
+# would be reached directly without the two L4 policy-routing stages.
+sudo ip link add os-dns-tun type veth peer name os-dns-sink
+sudo ip link set os-dns-tun netns "$GATEWAY_NS"
+sudo ip link set os-dns-sink netns "$UPSTREAM_NS"
+sudo ip -n "$GATEWAY_NS" addr add 10.77.3.1/30 dev os-dns-tun
+sudo ip -n "$UPSTREAM_NS" addr add 10.77.3.2/30 dev os-dns-sink
 sudo ip -n "$GATEWAY_NS" link set os-dns-tun up
-sudo ip -n "$GATEWAY_NS" route replace default dev os-dns-tun table 20243 proto 243
+sudo ip -n "$UPSTREAM_NS" link set os-dns-sink up
+sudo ip -n "$UPSTREAM_NS" addr add 10.77.1.254/32 dev lo
+sudo ip -n "$UPSTREAM_NS" route replace 10.77.1.2/32 via 10.77.3.1 dev os-dns-sink
+
+sudo ip -n "$GATEWAY_NS" route replace default via 10.77.3.2 dev os-dns-tun table 20243 proto 243
 sudo ip -n "$GATEWAY_NS" rule add pref 20239 from 10.77.1.2/32 iif os-gw-lan ipproto udp dport 53 table 20243
 sudo ip -n "$GATEWAY_NS" rule add pref 20240 from 10.77.1.2/32 iif os-gw-lan ipproto tcp dport 53 table 20243
 
@@ -127,18 +134,11 @@ sudo ip -n "$CLIENT_NS" rule add pref 24091 iif lo ipproto tcp dport 53 table 20
 sudo ip -n "$CLIENT_NS" rule add pref 24100 iif lo table main suppress_prefixlength 0
 sudo ip -n "$CLIENT_NS" rule add pref 24110 iif lo table 20242
 
-host_dns_route="$(sudo ip -n "$CLIENT_NS" -4 route get 10.77.1.254 from 10.77.1.2 iif lo ipproto udp dport 53)"
-grep -q 'via 10.77.1.1' <<<"$host_dns_route"
-grep -q 'table 20242' <<<"$host_dns_route"
-
-host_lan_route="$(sudo ip -n "$CLIENT_NS" -4 route get 10.77.1.254 from 10.77.1.2 iif lo)"
-grep -q 'dev os-client' <<<"$host_lan_route"
-if grep -q 'table 20242' <<<"$host_lan_route"; then
-  echo "non-DNS LAN traffic was incorrectly forced into NAS host table 20242" >&2
-  exit 1
-fi
-
+# The gateway-side lookup can be simulated because 10.77.1.2 is a forwarded
+# source in GATEWAY_NS. It must choose the DNS-only table, while an ordinary
+# same-LAN source must stay on the LAN route.
 gateway_dns_route="$(sudo ip -n "$GATEWAY_NS" -4 route get 10.77.1.254 from 10.77.1.2 iif os-gw-lan ipproto udp dport 53)"
+grep -q 'via 10.77.3.2' <<<"$gateway_dns_route"
 grep -q 'dev os-dns-tun' <<<"$gateway_dns_route"
 grep -q 'table 20243' <<<"$gateway_dns_route"
 
@@ -149,8 +149,38 @@ if grep -q 'table 20243' <<<"$ordinary_client_route"; then
   exit 1
 fi
 
+# Use real UDP and TCP DNS queries rather than `ip route get ... iif lo`: the
+# latter models an ingress lookup and Linux rejects a locally-owned source with
+# an explicit loopback iif. Real local sockets are exactly what `iif lo` rules
+# are intended to select.
+DNSMASQ_PIDFILE=/tmp/opensurge-lab-host-dns.pid
+rm -f "$DNSMASQ_PIDFILE"
+sudo ip netns exec "$UPSTREAM_NS" dnsmasq \
+  --conf-file=/dev/null \
+  --no-resolv \
+  --no-hosts \
+  --bind-interfaces \
+  --listen-address=10.77.1.254 \
+  --port=53 \
+  --address=/probe.opensurge.test/203.0.113.77 \
+  --pid-file="$DNSMASQ_PIDFILE"
+
+udp_answer="$(sudo ip netns exec "$CLIENT_NS" dig @10.77.1.254 probe.opensurge.test A +short +time=2 +tries=1)"
+tcp_answer="$(sudo ip netns exec "$CLIENT_NS" dig @10.77.1.254 probe.opensurge.test A +tcp +short +time=2 +tries=1)"
+test "$udp_answer" = "203.0.113.77"
+test "$tcp_answer" = "203.0.113.77"
+
+# A non-DNS same-LAN lookup remains direct; the NAS takeover must not detour
+# QTS/LAN management traffic through its proxy table.
+host_lan_route="$(sudo ip -n "$CLIENT_NS" -4 route get 10.77.1.1 from 10.77.1.2)"
+grep -q 'dev os-client' <<<"$host_lan_route"
+
 # Exact teardown mirrors product ownership: dedicated priorities plus route
 # protocol only. No global rule/route flush and no nftables mutation.
+if [[ -s "$DNSMASQ_PIDFILE" ]]; then
+  sudo kill "$(cat "$DNSMASQ_PIDFILE")" 2>/dev/null || true
+fi
+rm -f "$DNSMASQ_PIDFILE"
 sudo ip -n "$CLIENT_NS" rule del pref 24090 iif lo ipproto udp dport 53 table 20242
 sudo ip -n "$CLIENT_NS" rule del pref 24091 iif lo ipproto tcp dport 53 table 20242
 sudo ip -n "$CLIENT_NS" rule del pref 24110 iif lo table 20242
@@ -160,7 +190,6 @@ sudo ip -n "$GATEWAY_NS" rule del pref 20239 from 10.77.1.2/32 iif os-gw-lan ipp
 sudo ip -n "$GATEWAY_NS" rule del pref 20240 from 10.77.1.2/32 iif os-gw-lan ipproto tcp dport 53 table 20243
 sudo ip -n "$GATEWAY_NS" route flush table 20243 proto 243
 sudo ip -n "$GATEWAY_NS" link del os-dns-tun
-set +x
 
 log "checking that the host namespace was never touched"
 if sudo nft list table inet opensurge >/dev/null 2>&1; then
