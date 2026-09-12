@@ -190,12 +190,12 @@ export function TrafficAnalysisPage() {
 
   const copyAIInstructions = async () => {
     const text = [
-      'OpenSurge 流量与规则分析',
-      '1. GET /api/remote/v1/diagnostics：读取当前连接、域名元数据、命中规则、出口链与近期脱敏日志。',
-      '2. GET /api/remote/v1/profile-overlay：读取当前高优先级覆盖规则和 revision。',
-      '3. 分析疑似误判时先给出证据、当前命中规则和建议规则；不要直接改订阅源。',
-      '4. 用户确认后，将修正规则插入 profile-overlay.document.rules.prepend，并使用 If-Match 保存。',
-      '5. 如存在 desired/applied 来源，再应用该来源，使规则立即进入运行配置。',
+      `OpenSurge · ${t('AI 规则分析')}`,
+      `1. GET /api/remote/v1/diagnostics — ${t('当前连接、规则命中、流量元数据和脱敏日志')}`,
+      `2. GET /api/remote/v1/profile-overlay — ${t('读取或写入 rules.prepend 高优先级规则')}`,
+      `3. ${t('不会修改订阅原规则')}；先给出 evidence → current match → suggested override.`,
+      `4. ${t('高优先级覆盖规则')} → profile-overlay.document.rules.prepend; save with If-Match after user confirmation.`,
+      `5. ${t('读取来源；规则确认后可重新应用当前来源')}`,
     ].join('\n')
     try {
       await copyText(text)
