@@ -31,6 +31,13 @@ const (
 )
 
 func New(cfg config.Config, paths runtime.Paths) Manager {
+	// QNAP supports no IPv6 data plane. Keep dns.ipv6 parse/persistence
+	// compatibility for older configs and API clients, but suppress it in every
+	// valid QNAP runtime. TUN IPv6 auto/always is rejected by config validation,
+	// so off is the only state that can reach the running gateway.
+	if cfg.Transparent.TUNIPv6 == config.TUNIPv6Off {
+		cfg.DNS.IPv6 = false
+	}
 	return Manager{cfg: cfg, paths: paths}
 }
 
