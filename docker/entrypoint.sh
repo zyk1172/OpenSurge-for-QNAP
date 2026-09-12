@@ -19,10 +19,6 @@ SEED_LAN_IP="${OPENSURGE_SEED_LAN_IP:-192.168.50.2}"
 SEED_LAN_CIDR="${OPENSURGE_SEED_LAN_CIDR:-192.168.50.0/24}"
 SEED_UPSTREAM_GATEWAY="${OPENSURGE_SEED_UPSTREAM_GATEWAY:-192.168.50.1}"
 CONTAINER_INTERFACE="${OPENSURGE_CONTAINER_INTERFACE:-eth0}"
-# Retained for older/manual IPv6 configurations. QNAP same-LAN DNS/fake-IP
-# steering no longer asks clients to use this ULA as their default gateway.
-IPV6_GATEWAY_CIDR="${OPENSURGE_IPV6_GATEWAY_CIDR:-fdfe:dcba:9878::1/64}"
-IPV6_LINK_LOCAL_CIDR="${OPENSURGE_IPV6_LINK_LOCAL_CIDR:-}"
 # QNAP commonly assigns the first normal NAS account UID 1000 and the
 # `everyone` group GID 100, but installations differ. These values are fully
 # configurable and deploy/qnap/preflight.sh verifies them against the real bind
@@ -119,73 +115,6 @@ mkdir -p \
 
 if [ ! -f "${CONFIG_PATH}" ]; then
   seed_config
-fi
-
-write_ipv6_sysctl() {
-  knob="$1"
-  value="$2"
-  if [ -e "$knob" ]; then
-    printf '%s\n' "$value" > "$knob" || {
-      echo "OpenSurge entrypoint: warning: cannot set ${knob}=${value}" >&2
-    }
-  fi
-}
-
-enable_container_ipv6() {
-  iface="$1"
-  write_ipv6_sysctl /proc/sys/net/ipv6/conf/all/disable_ipv6 0
-  write_ipv6_sysctl /proc/sys/net/ipv6/conf/default/disable_ipv6 0
-  write_ipv6_sysctl "/proc/sys/net/ipv6/conf/${iface}/disable_ipv6" 0
-
-  # Forwarding remains enabled for the fake-IP path, but accept_ra=2 tells
-  # Linux to keep accepting the main router's RA even while acting as a router.
-  # That preserves the ordinary/public IPv6 route used outside the synthetic
-  # fake-IP prefix and for return traffic to LAN clients.
-  write_ipv6_sysctl /proc/sys/net/ipv6/conf/default/accept_ra 2
-  write_ipv6_sysctl "/proc/sys/net/ipv6/conf/${iface}/accept_ra" 2
-  write_ipv6_sysctl /proc/sys/net/ipv6/conf/default/autoconf 1
-  write_ipv6_sysctl "/proc/sys/net/ipv6/conf/${iface}/autoconf" 1
-}
-
-derive_ipv6_link_local_cidr() {
-  iface="$1"
-  ipv4="$(ip -4 -o addr show dev "$iface" scope global 2>/dev/null | awk 'NR == 1 { sub(/\/.*/, "", $4); print $4 }')"
-  [ -n "$ipv4" ] || return 1
-  old_ifs="$IFS"
-  IFS=.
-  set -- $ipv4
-  IFS="$old_ifs"
-  [ "$#" -eq 4 ] || return 1
-  upper=$(( $1 * 256 + $2 ))
-  lower=$(( $3 * 256 + $4 ))
-  printf 'fe80::1:0:%x:%x/64\n' "$upper" "$lower"
-}
-
-# Compose enables these values at container creation time. The runtime pass
-# also covers older Compose definitions and custom interface names.
-enable_container_ipv6 "${CONTAINER_INTERFACE}"
-
-# Keep the historical ULA available for config compatibility, but do not
-# advertise it and do not require clients to use it as an IPv6 gateway.
-if ! ip -6 addr replace "${IPV6_GATEWAY_CIDR}" dev "${CONTAINER_INTERFACE}" nodad 2>/dev/null; then
-  echo "OpenSurge entrypoint: legacy IPv6 ULA could not be provisioned on ${CONTAINER_INTERFACE}; IPv4 remains available." >&2
-fi
-
-# Main-router static routes need a stable IPv6 next hop. Kernel-generated
-# link-local addresses can change when the container is recreated, so derive a
-# deterministic link-local address from the container's stable IPv4. The Web UI
-# uses the same derivation when showing the router configuration values.
-if [ -z "$IPV6_LINK_LOCAL_CIDR" ]; then
-  IPV6_LINK_LOCAL_CIDR="$(derive_ipv6_link_local_cidr "${CONTAINER_INTERFACE}" || true)"
-fi
-if [ -n "$IPV6_LINK_LOCAL_CIDR" ]; then
-  if ip -6 addr replace "$IPV6_LINK_LOCAL_CIDR" dev "${CONTAINER_INTERFACE}" nodad 2>/dev/null; then
-    echo "OpenSurge entrypoint: IPv6 fake-IP next hop is ${IPV6_LINK_LOCAL_CIDR%/*}%${CONTAINER_INTERFACE}." >&2
-  else
-    echo "OpenSurge entrypoint: warning: stable IPv6 link-local next hop could not be provisioned on ${CONTAINER_INTERFACE}." >&2
-  fi
-else
-  echo "OpenSurge entrypoint: warning: could not derive a stable IPv6 link-local next hop from ${CONTAINER_INTERFACE}." >&2
 fi
 
 # Reconcile persistent runtime before exposing the control plane. A cleanly
