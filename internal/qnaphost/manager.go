@@ -21,14 +21,21 @@ import (
 )
 
 const (
-	Endpoint          = "/api/v1/qnap-host-routing"
-	stateFileName     = "qnap-host-routing.json"
-	defaultHostNetNS  = "/run/opensurge/host-netns"
-	routeTableID      = "20242"
-	routeProtocol     = "242"
-	mainRulePriority  = "24100"
-	proxyRulePriority = "24110"
-	nftTableName      = "opensurge_nas_host"
+	Endpoint                     = "/api/v1/qnap-host-routing"
+	stateFileName                = "qnap-host-routing.json"
+	defaultHostNetNS             = "/run/opensurge/host-netns"
+	routeTableID                 = "20242"
+	routeProtocol                = "242"
+	hostDNSUDPRulePriority       = "24090"
+	hostDNSTCPRulePriority       = "24091"
+	mainRulePriority             = "24100"
+	proxyRulePriority            = "24110"
+	containerDNSRouteTableID     = "20243"
+	containerDNSRouteProtocol    = "243"
+	containerDNSUDPRulePriority  = "20239"
+	containerDNSTCPRulePriority  = "20240"
+	policyCapabilityProbeHost    = "42990"
+	policyCapabilityProbeGateway = "42991"
 )
 
 type Status struct {
@@ -42,6 +49,7 @@ type Status struct {
 	GatewayIPv4     string    `json:"gateway_ipv4,omitempty"`
 	FallbackGateway string    `json:"fallback_gateway,omitempty"`
 	DNSRedirect     bool      `json:"dns_redirect"`
+	DNSMode         string    `json:"dns_mode,omitempty"`
 	Error           string    `json:"error,omitempty"`
 	CheckedAt       time.Time `json:"checked_at"`
 }
@@ -116,9 +124,8 @@ func (m *Manager) Run(ctx context.Context) {
 	}
 }
 
-// Release removes only resources carrying OpenSurge's dedicated rule selectors,
-// route protocol, table name and nft table name. It never changes the persisted
-// desired flag or QTS's main-table default route.
+// Release removes only OpenSurge's dedicated policy-rule priorities and route
+// protocols. It never changes QTS's main-table default route or global firewall.
 func (m *Manager) Release(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -214,17 +221,49 @@ func (m *Manager) statusLocked(ctx context.Context) Status {
 	status.HostInterface = iface
 	status.HostIPv4 = hostIP
 
-	rules, rulesErr := m.runHost(ctx, nil, "ip", "-4", "rule", "show")
-	routes, routesErr := m.runHost(ctx, nil, "ip", "-4", "route", "show", "table", routeTableID)
-	if rulesErr == nil && routesErr == nil {
-		status.Enabled = strings.Contains(string(rules), "lookup "+routeTableID) &&
-			strings.Contains(string(routes), "default via "+cfg.Gateway.LANIP) &&
-			strings.Contains(string(routes), "proto "+routeProtocol)
+	hostRules, hostRulesErr := m.runHost(ctx, nil, "ip", "-4", "rule", "show")
+	hostRoutes, hostRoutesErr := m.runHost(ctx, nil, "ip", "-4", "route", "show", "table", routeTableID)
+	if hostRulesErr == nil && hostRoutesErr == nil {
+		status.Enabled = ruleLineContains(hostRules, mainRulePriority, "lookup main", "suppress_prefixlength 0") &&
+			ruleLineContains(hostRules, proxyRulePriority, "lookup "+routeTableID) &&
+			strings.Contains(string(hostRoutes), "default via "+cfg.Gateway.LANIP) &&
+			strings.Contains(string(hostRoutes), "proto "+routeProtocol)
 	}
-	if _, err := m.runHost(ctx, nil, "nft", "list", "table", "ip", nftTableName); err == nil {
-		status.DNSRedirect = true
+
+	containerRules, containerRulesErr := m.runContainer(ctx, nil, "ip", "-4", "rule", "show")
+	containerRoutes, containerRoutesErr := m.runContainer(ctx, nil, "ip", "-4", "route", "show", "table", containerDNSRouteTableID)
+	if hostRulesErr == nil && containerRulesErr == nil && containerRoutesErr == nil {
+		status.DNSRedirect = ruleLineContains(hostRules, hostDNSUDPRulePriority, "ipproto udp", "dport 53", "lookup "+routeTableID) &&
+			ruleLineContains(hostRules, hostDNSTCPRulePriority, "ipproto tcp", "dport 53", "lookup "+routeTableID) &&
+			ruleLineContains(containerRules, containerDNSUDPRulePriority, hostIP, "ipproto udp", "dport 53", "lookup "+containerDNSRouteTableID) &&
+			ruleLineContains(containerRules, containerDNSTCPRulePriority, hostIP, "ipproto tcp", "dport 53", "lookup "+containerDNSRouteTableID) &&
+			strings.Contains(string(containerRoutes), "default dev "+cfg.Transparent.TUNDevice) &&
+			strings.Contains(string(containerRoutes), "proto "+containerDNSRouteProtocol)
+		if status.DNSRedirect {
+			status.DNSMode = "policy-routing"
+		}
 	}
 	return status
+}
+
+func ruleLineContains(output []byte, priority string, fragments ...string) bool {
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, priority+":") {
+			continue
+		}
+		matched := true
+		for _, fragment := range fragments {
+			if !strings.Contains(line, fragment) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) enableLocked(ctx context.Context) error {
@@ -254,15 +293,39 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 	if scope, err := cfg.LANScope(); err == nil && !scope.Contains(net.ParseIP(hostIP)) {
 		return fmt.Errorf("NAS host IPv4 %s is outside configured LAN %s", hostIP, scope.String())
 	}
+	if strings.TrimSpace(cfg.Gateway.Interface) == "" {
+		return fmt.Errorf("OpenSurge LAN interface is empty")
+	}
+	if strings.TrimSpace(cfg.Transparent.TUNDevice) == "" {
+		return fmt.Errorf("OpenSurge TUN device is empty")
+	}
 
-	// Remove a previous OpenSurge-owned instance, then prove the dedicated
-	// priorities/table are otherwise unused before installing new state.
+	// Remove a previous OpenSurge-owned instance first. Before installing any
+	// persistent route or rule, prove both reserved tables/priorities are free
+	// and that the QNAP kernel accepts L4 RPDB selectors (ipproto + dport).
 	_ = m.disableLocked(ctx)
 	if err := m.ensurePolicySlotsFreeLocked(ctx); err != nil {
 		return err
 	}
+	if err := m.preflightL4PolicyRoutingLocked(ctx); err != nil {
+		return err
+	}
+	if _, err := m.runContainer(ctx, nil, "ip", "link", "show", "dev", cfg.Transparent.TUNDevice); err != nil {
+		return fmt.Errorf("OpenSurge TUN device %s is unavailable: %w", cfg.Transparent.TUNDevice, err)
+	}
+
+	// Prepare the receiving side first. DNS from the NAS may target the main
+	// router or another LAN resolver; the normal same-LAN table 20241 would keep
+	// such traffic on eth0. These more-specific L4 rules send only NAS DNS into a
+	// dedicated table whose default is tun0, where Mihomo's dns-hijack any:53
+	// takes over. Ordinary QNET clients remain on the existing 20241 path.
+	if err := m.installContainerDNSPolicyLocked(ctx, cfg, hostIP); err != nil {
+		_ = m.disableLocked(ctx)
+		return err
+	}
 
 	if _, err := m.runHost(ctx, nil, "ip", "-4", "route", "replace", "default", "via", cfg.Gateway.LANIP, "dev", iface, "table", routeTableID, "proto", routeProtocol); err != nil {
+		_ = m.disableLocked(ctx)
 		return fmt.Errorf("install NAS host proxy route: %w", err)
 	}
 	if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", mainRulePriority, "iif", "lo", "table", "main", "suppress_prefixlength", "0"); err != nil {
@@ -273,15 +336,9 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 		_ = m.disableLocked(ctx)
 		return fmt.Errorf("install NAS local-origin policy rule: %w", err)
 	}
-
-	nftScript := fmt.Sprintf(`add table ip %s
-add chain ip %s output { type nat hook output priority -100; policy accept; }
-add rule ip %s output ip daddr != %s udp dport 53 dnat to %s
-add rule ip %s output ip daddr != %s tcp dport 53 dnat to %s
-`, nftTableName, nftTableName, nftTableName, cfg.Gateway.LANIP, cfg.Gateway.LANIP, nftTableName, cfg.Gateway.LANIP, cfg.Gateway.LANIP)
-	if _, err := m.runHost(ctx, []byte(nftScript), "nft", "-f", "-"); err != nil {
+	if err := m.installHostDNSPolicyLocked(ctx); err != nil {
 		_ = m.disableLocked(ctx)
-		return fmt.Errorf("redirect NAS IPv4 DNS to OpenSurge: %w", err)
+		return err
 	}
 
 	probe, err := m.runHost(ctx, nil, "ip", "-4", "route", "get", "1.1.1.1", "from", hostIP, "iif", "lo")
@@ -292,33 +349,126 @@ add rule ip %s output ip daddr != %s tcp dport 53 dnat to %s
 		}
 		return fmt.Errorf("NAS host route verification did not select OpenSurge: %s", strings.TrimSpace(string(probe)))
 	}
+
+	dnsProbe, err := m.runHost(ctx, nil, "ip", "-4", "route", "get", cfg.Gateway.UpstreamGateway, "from", hostIP, "iif", "lo", "ipproto", "udp", "dport", "53")
+	if err != nil || !strings.Contains(string(dnsProbe), "via "+cfg.Gateway.LANIP) {
+		_ = m.disableLocked(ctx)
+		if err != nil {
+			return fmt.Errorf("verify NAS DNS policy route: %w", err)
+		}
+		return fmt.Errorf("NAS DNS route verification did not select OpenSurge: %s", strings.TrimSpace(string(dnsProbe)))
+	}
+
+	gatewayDNSProbe, err := m.runContainer(ctx, nil, "ip", "-4", "route", "get", cfg.Gateway.UpstreamGateway, "from", hostIP, "iif", cfg.Gateway.Interface, "ipproto", "udp", "dport", "53")
+	if err != nil || !strings.Contains(string(gatewayDNSProbe), "dev "+cfg.Transparent.TUNDevice) {
+		_ = m.disableLocked(ctx)
+		if err != nil {
+			return fmt.Errorf("verify OpenSurge DNS TUN route: %w", err)
+		}
+		return fmt.Errorf("OpenSurge DNS route verification did not select %s: %s", cfg.Transparent.TUNDevice, strings.TrimSpace(string(gatewayDNSProbe)))
+	}
+	return nil
+}
+
+func (m *Manager) installHostDNSPolicyLocked(ctx context.Context) error {
+	for _, rule := range []struct {
+		priority string
+		proto    string
+	}{
+		{priority: hostDNSUDPRulePriority, proto: "udp"},
+		{priority: hostDNSTCPRulePriority, proto: "tcp"},
+	} {
+		if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", rule.priority, "iif", "lo", "ipproto", rule.proto, "dport", "53", "table", routeTableID); err != nil {
+			return fmt.Errorf("install NAS %s DNS policy rule: %w", strings.ToUpper(rule.proto), err)
+		}
+	}
+	return nil
+}
+
+func (m *Manager) installContainerDNSPolicyLocked(ctx context.Context, cfg config.Config, hostIP string) error {
+	if _, err := m.runContainer(ctx, nil, "ip", "-4", "route", "replace", "default", "dev", cfg.Transparent.TUNDevice, "table", containerDNSRouteTableID, "proto", containerDNSRouteProtocol); err != nil {
+		return fmt.Errorf("install OpenSurge NAS-DNS TUN route: %w", err)
+	}
+	for _, rule := range []struct {
+		priority string
+		proto    string
+	}{
+		{priority: containerDNSUDPRulePriority, proto: "udp"},
+		{priority: containerDNSTCPRulePriority, proto: "tcp"},
+	} {
+		if _, err := m.runContainer(ctx, nil, "ip", "-4", "rule", "add", "pref", rule.priority, "from", hostIP+"/32", "iif", cfg.Gateway.Interface, "ipproto", rule.proto, "dport", "53", "table", containerDNSRouteTableID); err != nil {
+			return fmt.Errorf("install OpenSurge NAS %s DNS TUN rule: %w", strings.ToUpper(rule.proto), err)
+		}
+	}
+	return nil
+}
+
+func (m *Manager) preflightL4PolicyRoutingLocked(ctx context.Context) error {
+	probe := []string{"-4", "rule", "add", "pref", policyCapabilityProbeHost, "from", "192.0.2.1/32", "iif", "lo", "ipproto", "udp", "dport", "65535", "table", "main"}
+	if _, err := m.runHost(ctx, nil, "ip", probe...); err != nil {
+		return fmt.Errorf("QNAP host kernel does not support L4 policy routing required for NAS DNS takeover: %w", err)
+	}
+	deleteProbe := []string{"-4", "rule", "del", "pref", policyCapabilityProbeHost, "from", "192.0.2.1/32", "iif", "lo", "ipproto", "udp", "dport", "65535", "table", "main"}
+	if _, err := m.runHost(ctx, nil, "ip", deleteProbe...); err != nil {
+		return fmt.Errorf("clean QNAP host L4 policy-routing probe: %w", err)
+	}
+
+	probe[4] = policyCapabilityProbeGateway
+	if _, err := m.runContainer(ctx, nil, "ip", probe...); err != nil {
+		return fmt.Errorf("OpenSurge container namespace does not support L4 policy routing required for NAS DNS takeover: %w", err)
+	}
+	deleteProbe[4] = policyCapabilityProbeGateway
+	if _, err := m.runContainer(ctx, nil, "ip", deleteProbe...); err != nil {
+		return fmt.Errorf("clean OpenSurge L4 policy-routing probe: %w", err)
+	}
 	return nil
 }
 
 func (m *Manager) ensurePolicySlotsFreeLocked(ctx context.Context) error {
-	rules, err := m.runHost(ctx, nil, "ip", "-4", "rule", "show")
+	hostRules, err := m.runHost(ctx, nil, "ip", "-4", "rule", "show")
 	if err != nil {
 		return fmt.Errorf("inspect QNAP host policy rules: %w", err)
 	}
-	for _, line := range strings.Split(string(rules), "\n") {
+	for _, line := range strings.Split(string(hostRules), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, mainRulePriority+":") || strings.HasPrefix(line, proxyRulePriority+":") {
-			return fmt.Errorf("QNAP host already uses policy-rule priority %s; OpenSurge will not overwrite it", strings.SplitN(line, ":", 2)[0])
+		for _, priority := range []string{hostDNSUDPRulePriority, hostDNSTCPRulePriority, mainRulePriority, proxyRulePriority} {
+			if strings.HasPrefix(line, priority+":") {
+				return fmt.Errorf("QNAP host already uses policy-rule priority %s; OpenSurge will not overwrite it", priority)
+			}
 		}
 	}
-	routes, err := m.runHost(ctx, nil, "ip", "-4", "route", "show", "table", routeTableID)
+	hostRoutes, err := m.runHost(ctx, nil, "ip", "-4", "route", "show", "table", routeTableID)
 	if err != nil {
-		// On a fresh QNAP host the dedicated table has not been created yet.
-		// iproute2 reports that normal empty-table state as a command error;
-		// treat it as an unused table and let enableLocked create the first
-		// OpenSurge-owned route. Other inspection errors still fail closed.
-		if !isMissingRouteTableError(routes) {
+		if !isMissingRouteTableError(hostRoutes) {
 			return fmt.Errorf("inspect QNAP host route table %s: %w", routeTableID, err)
 		}
-		routes = nil
+		hostRoutes = nil
 	}
-	if strings.TrimSpace(string(routes)) != "" {
+	if strings.TrimSpace(string(hostRoutes)) != "" {
 		return fmt.Errorf("QNAP host route table %s is already in use; OpenSurge will not overwrite it", routeTableID)
+	}
+
+	containerRules, err := m.runContainer(ctx, nil, "ip", "-4", "rule", "show")
+	if err != nil {
+		return fmt.Errorf("inspect OpenSurge container policy rules: %w", err)
+	}
+	for _, line := range strings.Split(string(containerRules), "\n") {
+		line = strings.TrimSpace(line)
+		for _, priority := range []string{containerDNSUDPRulePriority, containerDNSTCPRulePriority} {
+			if strings.HasPrefix(line, priority+":") {
+				return fmt.Errorf("OpenSurge container already uses policy-rule priority %s; NAS DNS takeover will not overwrite it", priority)
+			}
+	}
+	}
+	containerRoutes, err := m.runContainer(ctx, nil, "ip", "-4", "route", "show", "table", containerDNSRouteTableID)
+	if err != nil {
+		if !isMissingRouteTableError(containerRoutes) {
+			return fmt.Errorf("inspect OpenSurge NAS-DNS route table %s: %w", containerDNSRouteTableID, err)
+		}
+		containerRoutes = nil
+	}
+	if strings.TrimSpace(string(containerRoutes)) != "" {
+		return fmt.Errorf("OpenSurge route table %s is already in use; NAS DNS takeover will not overwrite it", containerDNSRouteTableID)
 	}
 	return nil
 }
@@ -331,12 +481,18 @@ func (m *Manager) disableLocked(ctx context.Context) error {
 	if _, err := os.Stat(m.netNSPath); err != nil {
 		return nil
 	}
-	// Deletes are fully scoped to OpenSurge's rule selectors, route protocol and
-	// nft table. In particular, never flush an arbitrary whole route table.
-	_, _ = m.runHost(ctx, nil, "nft", "delete", "table", "ip", nftTableName)
+	// Remove host selectors first so a degraded/stopping OpenSurge immediately
+	// falls back to QTS's untouched main table. Every delete is scoped to the
+	// dedicated priority plus selectors/table; no global rule/route flush occurs.
+	_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", hostDNSUDPRulePriority, "iif", "lo", "ipproto", "udp", "dport", "53", "table", routeTableID)
+	_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", hostDNSTCPRulePriority, "iif", "lo", "ipproto", "tcp", "dport", "53", "table", routeTableID)
 	_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", proxyRulePriority, "iif", "lo", "table", routeTableID)
 	_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", mainRulePriority, "iif", "lo", "table", "main", "suppress_prefixlength", "0")
 	_, _ = m.runHost(ctx, nil, "ip", "-4", "route", "flush", "table", routeTableID, "proto", routeProtocol)
+
+	_, _ = m.runContainer(ctx, nil, "ip", "-4", "rule", "del", "pref", containerDNSUDPRulePriority, "ipproto", "udp", "dport", "53", "table", containerDNSRouteTableID)
+	_, _ = m.runContainer(ctx, nil, "ip", "-4", "rule", "del", "pref", containerDNSTCPRulePriority, "ipproto", "tcp", "dport", "53", "table", containerDNSRouteTableID)
+	_, _ = m.runContainer(ctx, nil, "ip", "-4", "route", "flush", "table", containerDNSRouteTableID, "proto", containerDNSRouteProtocol)
 	return nil
 }
 
@@ -368,6 +524,10 @@ func (m *Manager) runHost(ctx context.Context, input []byte, command string, arg
 	nsArgs := []string{"--net=" + m.netNSPath, "--", command}
 	nsArgs = append(nsArgs, args...)
 	return m.runner.Run(ctx, input, "nsenter", nsArgs...)
+}
+
+func (m *Manager) runContainer(ctx context.Context, input []byte, command string, args ...string) ([]byte, error) {
+	return m.runner.Run(ctx, input, command, args...)
 }
 
 func (m *Manager) readIntentLocked() (bool, error) {
