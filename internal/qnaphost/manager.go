@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,10 +27,13 @@ const (
 	defaultHostNetNS             = "/run/opensurge/host-netns"
 	routeTableID                 = "20242"
 	routeProtocol                = "242"
-	hostDNSUDPRulePriority       = "24090"
-	hostDNSTCPRulePriority       = "24091"
-	mainRulePriority             = "24100"
-	proxyRulePriority            = "24110"
+	hostDNSUDPRulePriority       = "19996"
+	hostDNSTCPRulePriority       = "19997"
+	mainRulePriority             = "19998"
+	proxyRulePriority            = "19999"
+	preferredHostPriorityMax     = 19999
+	minimumHostPriority          = 1000
+	publicRouteProbeIPv4         = "1.1.1.1"
 	containerDNSRouteTableID     = "20243"
 	containerDNSRouteProtocol    = "243"
 	containerDNSUDPRulePriority  = "20239"
@@ -39,24 +43,49 @@ const (
 )
 
 type Status struct {
-	SchemaVersion   int       `json:"schema_version"`
-	Supported       bool      `json:"supported"`
-	Desired         bool      `json:"desired"`
-	Enabled         bool      `json:"enabled"`
-	GatewayReady    bool      `json:"gateway_ready"`
-	HostIPv4        string    `json:"host_ipv4,omitempty"`
-	HostInterface   string    `json:"host_interface,omitempty"`
-	GatewayIPv4     string    `json:"gateway_ipv4,omitempty"`
-	FallbackGateway string    `json:"fallback_gateway,omitempty"`
-	DNSRedirect     bool      `json:"dns_redirect"`
-	DNSMode         string    `json:"dns_mode,omitempty"`
-	Error           string    `json:"error,omitempty"`
-	CheckedAt       time.Time `json:"checked_at"`
+	SchemaVersion      int                   `json:"schema_version"`
+	Supported          bool                  `json:"supported"`
+	Desired            bool                  `json:"desired"`
+	Enabled            bool                  `json:"enabled"`
+	GatewayReady       bool                  `json:"gateway_ready"`
+	HostIPv4           string                `json:"host_ipv4,omitempty"`
+	HostInterface      string                `json:"host_interface,omitempty"`
+	GatewayIPv4        string                `json:"gateway_ipv4,omitempty"`
+	FallbackGateway    string                `json:"fallback_gateway,omitempty"`
+	DNSRedirect        bool                  `json:"dns_redirect"`
+	DNSMode            string                `json:"dns_mode,omitempty"`
+	HostRulePriorities *hostPolicyPriorities `json:"host_rule_priorities,omitempty"`
+	Error              string                `json:"error,omitempty"`
+	CheckedAt          time.Time             `json:"checked_at"`
+}
+
+type hostPolicyPriorities struct {
+	DNSUDP int `json:"dns_udp"`
+	DNSTCP int `json:"dns_tcp"`
+	Main   int `json:"main"`
+	Proxy  int `json:"proxy"`
+}
+
+func (p hostPolicyPriorities) valid() bool {
+	return p.DNSUDP >= minimumHostPriority && p.DNSUDP < p.DNSTCP && p.DNSTCP < p.Main && p.Main < p.Proxy
+}
+
+func (p hostPolicyPriorities) strings() (string, string, string, string) {
+	return strconv.Itoa(p.DNSUDP), strconv.Itoa(p.DNSTCP), strconv.Itoa(p.Main), strconv.Itoa(p.Proxy)
+}
+
+func defaultHostPriorities() hostPolicyPriorities {
+	return hostPolicyPriorities{DNSUDP: 19996, DNSTCP: 19997, Main: 19998, Proxy: 19999}
+}
+
+func legacyHostPriorities() hostPolicyPriorities {
+	return hostPolicyPriorities{DNSUDP: 24090, DNSTCP: 24091, Main: 24100, Proxy: 24110}
 }
 
 type intent struct {
-	SchemaVersion int  `json:"schema_version"`
-	Enabled       bool `json:"enabled"`
+	SchemaVersion  int                   `json:"schema_version"`
+	Enabled        bool                  `json:"enabled"`
+	HostPriorities *hostPolicyPriorities `json:"host_priorities,omitempty"`
 }
 
 type commandRunner interface {
@@ -221,29 +250,105 @@ func (m *Manager) statusLocked(ctx context.Context) Status {
 	status.HostInterface = iface
 	status.HostIPv4 = hostIP
 
+	priorities := m.hostPrioritiesLocked()
+	status.HostRulePriorities = &priorities
+	dnsUDP, dnsTCP, mainPriority, proxyPriority := priorities.strings()
 	hostRules, hostRulesErr := m.runHost(ctx, nil, "ip", "-4", "rule", "show")
 	hostRoutes, hostRoutesErr := m.runHost(ctx, nil, "ip", "-4", "route", "show", "table", routeTableID)
-	if hostRulesErr == nil && hostRoutesErr == nil {
-		status.Enabled = ruleLineContains(hostRules, mainRulePriority, "lookup main", "suppress_prefixlength 0") &&
-			ruleLineContains(hostRules, proxyRulePriority, "lookup "+routeTableID) &&
-			strings.Contains(string(hostRoutes), "default via "+cfg.Gateway.LANIP) &&
-			strings.Contains(string(hostRoutes), "proto "+routeProtocol)
+	rulesInstalled := hostRulesErr == nil && hostRoutesErr == nil &&
+		ruleLineContains(hostRules, mainPriority, "lookup main", "suppress_prefixlength 0") &&
+		ruleLineContains(hostRules, proxyPriority, "lookup "+routeTableID) &&
+		strings.Contains(string(hostRoutes), "default via "+cfg.Gateway.LANIP) &&
+		strings.Contains(string(hostRoutes), "proto "+routeProtocol)
+	if rulesInstalled {
+		publicRoute, routeErr := m.runHost(ctx, nil, "ip", "-4", "route", "get", publicRouteProbeIPv4, "from", hostIP)
+		status.Enabled = routeErr == nil && routeUsesGatewayTable(publicRoute, cfg.Gateway.LANIP, routeTableID)
+		if !status.Enabled && routeErr == nil {
+			status.Error = "NAS host policy is installed but an earlier QNAP policy rule still wins: " + strings.TrimSpace(string(publicRoute))
+		}
 	}
 
 	containerRules, containerRulesErr := m.runContainer(ctx, nil, "ip", "-4", "rule", "show")
 	containerRoutes, containerRoutesErr := m.runContainer(ctx, nil, "ip", "-4", "route", "show", "table", containerDNSRouteTableID)
-	if hostRulesErr == nil && containerRulesErr == nil && containerRoutesErr == nil {
-		status.DNSRedirect = ruleLineContains(hostRules, hostDNSUDPRulePriority, "ipproto udp", "dport 53", "lookup "+routeTableID) &&
-			ruleLineContains(hostRules, hostDNSTCPRulePriority, "ipproto tcp", "dport 53", "lookup "+routeTableID) &&
-			ruleLineContains(containerRules, containerDNSUDPRulePriority, hostIP, "ipproto udp", "dport 53", "lookup "+containerDNSRouteTableID) &&
-			ruleLineContains(containerRules, containerDNSTCPRulePriority, hostIP, "ipproto tcp", "dport 53", "lookup "+containerDNSRouteTableID) &&
-			strings.Contains(string(containerRoutes), "default dev "+cfg.Transparent.TUNDevice) &&
-			strings.Contains(string(containerRoutes), "proto "+containerDNSRouteProtocol)
+	hostDNSRules := hostRulesErr == nil &&
+		ruleLineContains(hostRules, dnsUDP, "ipproto udp", "dport 53", "lookup "+routeTableID) &&
+		ruleLineContains(hostRules, dnsTCP, "ipproto tcp", "dport 53", "lookup "+routeTableID)
+	containerDNSRules := containerRulesErr == nil && containerRoutesErr == nil &&
+		ruleLineContains(containerRules, containerDNSUDPRulePriority, hostIP, "ipproto udp", "dport 53", "lookup "+containerDNSRouteTableID) &&
+		ruleLineContains(containerRules, containerDNSTCPRulePriority, hostIP, "ipproto tcp", "dport 53", "lookup "+containerDNSRouteTableID) &&
+		strings.Contains(string(containerRoutes), "default dev "+cfg.Transparent.TUNDevice) &&
+		strings.Contains(string(containerRoutes), "proto "+containerDNSRouteProtocol)
+	if hostDNSRules && containerDNSRules {
+		udpRoute, udpErr := m.runHost(ctx, nil, "ip", "-4", "route", "get", cfg.Gateway.UpstreamGateway, "from", hostIP, "ipproto", "udp", "dport", "53")
+		tcpRoute, tcpErr := m.runHost(ctx, nil, "ip", "-4", "route", "get", cfg.Gateway.UpstreamGateway, "from", hostIP, "ipproto", "tcp", "dport", "53")
+		status.DNSRedirect = udpErr == nil && tcpErr == nil &&
+			routeUsesGatewayTable(udpRoute, cfg.Gateway.LANIP, routeTableID) &&
+			routeUsesGatewayTable(tcpRoute, cfg.Gateway.LANIP, routeTableID)
 		if status.DNSRedirect {
 			status.DNSMode = "policy-routing"
+		} else if status.Enabled && status.Error == "" {
+			status.Error = "NAS DNS policy is installed but is shadowed by an earlier QNAP policy rule"
 		}
 	}
 	return status
+}
+
+func routeUsesGatewayTable(output []byte, gateway, table string) bool {
+	text := string(output)
+	return strings.Contains(text, "via "+gateway) && strings.Contains(text, "table "+table)
+}
+
+func parseRulePriority(line string) (int, bool) {
+	line = strings.TrimSpace(line)
+	index := strings.IndexByte(line, ':')
+	if index <= 0 {
+		return 0, false
+	}
+	value, err := strconv.Atoi(strings.TrimSpace(line[:index]))
+	return value, err == nil
+}
+
+func ruleMatchesHostSource(line, hostIP string) bool {
+	fields := strings.Fields(line)
+	for index := 0; index+1 < len(fields); index++ {
+		if fields[index] != "from" {
+			continue
+		}
+		value := strings.TrimSuffix(fields[index+1], "/32")
+		return value == hostIP
+	}
+	return false
+}
+
+func chooseHostPriorities(hostRules []byte, hostIP string) (hostPolicyPriorities, error) {
+	used := make(map[int]bool)
+	anchor := 0
+	for _, line := range strings.Split(string(hostRules), "\n") {
+		priority, ok := parseRulePriority(line)
+		if !ok {
+			continue
+		}
+		used[priority] = true
+		if priority > 0 && ruleMatchesHostSource(line, hostIP) && (anchor == 0 || priority < anchor) {
+			anchor = priority
+		}
+	}
+
+	maxPriority := preferredHostPriorityMax
+	if anchor > 0 && anchor-1 < maxPriority {
+		maxPriority = anchor - 1
+	}
+	for proxy := maxPriority; proxy-3 >= minimumHostPriority; proxy-- {
+		candidate := hostPolicyPriorities{DNSUDP: proxy - 3, DNSTCP: proxy - 2, Main: proxy - 1, Proxy: proxy}
+		if used[candidate.DNSUDP] || used[candidate.DNSTCP] || used[candidate.Main] || used[candidate.Proxy] {
+			continue
+		}
+		return candidate, nil
+	}
+	if anchor > 0 {
+		return hostPolicyPriorities{}, fmt.Errorf("cannot allocate OpenSurge policy priorities before QNAP host-source rule %d without entering protected low-priority space", anchor)
+	}
+	return hostPolicyPriorities{}, fmt.Errorf("cannot allocate a free OpenSurge host policy priority block")
 }
 
 func ruleLineContains(output []byte, priority string, fragments ...string) bool {
@@ -300,10 +405,23 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 		return fmt.Errorf("OpenSurge TUN device is empty")
 	}
 
-	// Remove a previous OpenSurge-owned instance first. Before installing any
-	// persistent route or rule, prove both reserved tables/priorities are free
-	// and that the QNAP kernel accepts L4 RPDB selectors (ipproto + dport).
+	// Remove a previous OpenSurge-owned instance first, then inspect QNAP's
+	// source-address policy rules. QTS commonly installs rules such as priority
+	// 20010 for the NAS address; OpenSurge must run before those rules while
+	// staying after the kernel's protected low-priority rules.
+	desired, _ := m.readIntentLocked()
 	_ = m.disableLocked(ctx)
+	hostRules, err := m.runHost(ctx, nil, "ip", "-4", "rule", "show")
+	if err != nil {
+		return fmt.Errorf("inspect QNAP host policy rules: %w", err)
+	}
+	priorities, err := chooseHostPriorities(hostRules, hostIP)
+	if err != nil {
+		return err
+	}
+	if err := m.writeIntentWithPrioritiesLocked(desired, priorities); err != nil {
+		return fmt.Errorf("persist selected NAS host policy priorities: %w", err)
+	}
 	if err := m.ensurePolicySlotsFreeLocked(ctx); err != nil {
 		return err
 	}
@@ -328,11 +446,12 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 		_ = m.disableLocked(ctx)
 		return fmt.Errorf("install NAS host proxy route: %w", err)
 	}
-	if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", mainRulePriority, "iif", "lo", "table", "main", "suppress_prefixlength", "0"); err != nil {
+	_, _, mainPriority, proxyPriority := priorities.strings()
+	if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", mainPriority, "iif", "lo", "table", "main", "suppress_prefixlength", "0"); err != nil {
 		_ = m.disableLocked(ctx)
 		return fmt.Errorf("preserve QNAP non-default routes: %w", err)
 	}
-	if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", proxyRulePriority, "iif", "lo", "table", routeTableID); err != nil {
+	if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", proxyPriority, "iif", "lo", "table", routeTableID); err != nil {
 		_ = m.disableLocked(ctx)
 		return fmt.Errorf("install NAS local-origin policy rule: %w", err)
 	}
@@ -367,12 +486,14 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 }
 
 func (m *Manager) installHostDNSPolicyLocked(ctx context.Context) error {
+	priorities := m.hostPrioritiesLocked()
+	dnsUDP, dnsTCP, _, _ := priorities.strings()
 	for _, rule := range []struct {
 		priority string
 		proto    string
 	}{
-		{priority: hostDNSUDPRulePriority, proto: "udp"},
-		{priority: hostDNSTCPRulePriority, proto: "tcp"},
+		{priority: dnsUDP, proto: "udp"},
+		{priority: dnsTCP, proto: "tcp"},
 	} {
 		if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", rule.priority, "iif", "lo", "ipproto", rule.proto, "dport", "53", "table", routeTableID); err != nil {
 			return fmt.Errorf("install NAS %s DNS policy rule: %w", strings.ToUpper(rule.proto), err)
@@ -425,9 +546,11 @@ func (m *Manager) ensurePolicySlotsFreeLocked(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("inspect QNAP host policy rules: %w", err)
 	}
+	priorities := m.hostPrioritiesLocked()
+	dnsUDP, dnsTCP, mainPriority, proxyPriority := priorities.strings()
 	for _, line := range strings.Split(string(hostRules), "\n") {
 		line = strings.TrimSpace(line)
-		for _, priority := range []string{hostDNSUDPRulePriority, hostDNSTCPRulePriority, mainRulePriority, proxyRulePriority} {
+		for _, priority := range []string{dnsUDP, dnsTCP, mainPriority, proxyPriority} {
 			if strings.HasPrefix(line, priority+":") {
 				return fmt.Errorf("QNAP host already uses policy-rule priority %s; OpenSurge will not overwrite it", priority)
 			}
@@ -478,12 +601,23 @@ func (m *Manager) disableLocked(ctx context.Context) error {
 		return nil
 	}
 	// Remove host selectors first so a degraded/stopping OpenSurge immediately
-	// falls back to QTS's untouched main table. Every delete is scoped to the
-	// dedicated priority plus selectors/table; no global rule/route flush occurs.
-	_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", hostDNSUDPRulePriority, "iif", "lo", "ipproto", "udp", "dport", "53", "table", routeTableID)
-	_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", hostDNSTCPRulePriority, "iif", "lo", "ipproto", "tcp", "dport", "53", "table", routeTableID)
-	_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", proxyRulePriority, "iif", "lo", "table", routeTableID)
-	_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", mainRulePriority, "iif", "lo", "table", "main", "suppress_prefixlength", "0")
+	// falls back to QTS's untouched main table. Dynamic priorities are persisted
+	// before installation, so crash/restart cleanup can still target the exact
+	// OpenSurge selectors. The legacy fixed priorities are also removed during
+	// migration from older builds.
+	sets := []hostPolicyPriorities{m.hostPrioritiesLocked(), legacyHostPriorities()}
+	seen := make(map[hostPolicyPriorities]bool)
+	for _, priorities := range sets {
+		if seen[priorities] {
+			continue
+		}
+		seen[priorities] = true
+		dnsUDP, dnsTCP, mainPriority, proxyPriority := priorities.strings()
+		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", dnsUDP, "iif", "lo", "ipproto", "udp", "dport", "53", "table", routeTableID)
+		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", dnsTCP, "iif", "lo", "ipproto", "tcp", "dport", "53", "table", routeTableID)
+		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", proxyPriority, "iif", "lo", "table", routeTableID)
+		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", mainPriority, "iif", "lo", "table", "main", "suppress_prefixlength", "0")
+	}
 	_, _ = m.runHost(ctx, nil, "ip", "-4", "route", "flush", "table", routeTableID, "proto", routeProtocol)
 
 	_, _ = m.runContainer(ctx, nil, "ip", "-4", "rule", "del", "pref", containerDNSUDPRulePriority, "ipproto", "udp", "dport", "53", "table", containerDNSRouteTableID)
@@ -526,29 +660,66 @@ func (m *Manager) runContainer(ctx context.Context, input []byte, command string
 	return m.runner.Run(ctx, input, command, args...)
 }
 
-func (m *Manager) readIntentLocked() (bool, error) {
+func (m *Manager) readStateLocked() (intent, error) {
 	data, err := os.ReadFile(m.statePath)
 	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
+		return intent{SchemaVersion: 2}, nil
 	}
 	if err != nil {
-		return false, err
+		return intent{}, err
 	}
 	var state intent
 	if err := json.Unmarshal(data, &state); err != nil {
-		return false, err
+		return intent{}, err
 	}
-	if state.SchemaVersion != 1 {
-		return false, fmt.Errorf("unsupported QNAP host routing state version %d", state.SchemaVersion)
+	switch state.SchemaVersion {
+	case 1:
+		legacy := legacyHostPriorities()
+		state.SchemaVersion = 2
+		state.HostPriorities = &legacy
+	case 2:
+		if state.HostPriorities != nil && !state.HostPriorities.valid() {
+			return intent{}, fmt.Errorf("invalid persisted QNAP host policy priorities: %+v", *state.HostPriorities)
+		}
+	default:
+		return intent{}, fmt.Errorf("unsupported QNAP host routing state version %d", state.SchemaVersion)
 	}
-	return state.Enabled, nil
+	return state, nil
+}
+
+func (m *Manager) readIntentLocked() (bool, error) {
+	state, err := m.readStateLocked()
+	return state.Enabled, err
+}
+
+func (m *Manager) hostPrioritiesLocked() hostPolicyPriorities {
+	state, err := m.readStateLocked()
+	if err == nil && state.HostPriorities != nil && state.HostPriorities.valid() {
+		return *state.HostPriorities
+	}
+	return defaultHostPriorities()
 }
 
 func (m *Manager) writeIntentLocked(enabled bool) error {
+	state, err := m.readStateLocked()
+	if err != nil {
+		return err
+	}
+	priorities := defaultHostPriorities()
+	if state.HostPriorities != nil && state.HostPriorities.valid() {
+		priorities = *state.HostPriorities
+	}
+	return m.writeIntentWithPrioritiesLocked(enabled, priorities)
+}
+
+func (m *Manager) writeIntentWithPrioritiesLocked(enabled bool, priorities hostPolicyPriorities) error {
+	if !priorities.valid() {
+		return fmt.Errorf("invalid QNAP host policy priorities: %+v", priorities)
+	}
 	if err := os.MkdirAll(filepath.Dir(m.statePath), 0o700); err != nil {
 		return err
 	}
-	payload, err := json.MarshalIndent(intent{SchemaVersion: 1, Enabled: enabled}, "", "  ")
+	payload, err := json.MarshalIndent(intent{SchemaVersion: 2, Enabled: enabled, HostPriorities: &priorities}, "", "  ")
 	if err != nil {
 		return err
 	}
