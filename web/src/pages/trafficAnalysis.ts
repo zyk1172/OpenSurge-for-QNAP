@@ -142,7 +142,7 @@ export function aggregateDomains(records: TrafficRecord[]): DomainSummary[] {
       chains,
       last_seen: group.lastSeen,
       needs_review: needsReview,
-      review_reason: needsReview ? '同一目标在观察窗口内命中过多个规则或出口，建议检查是否符合预期。' : '',
+      review_reason: needsReview ? 'Observed multiple rules or route chains for the same target during the analysis window.' : '',
     }
   }).sort((left, right) => (right.upload + right.download) - (left.upload + left.download) || right.connections - left.connections)
 }
