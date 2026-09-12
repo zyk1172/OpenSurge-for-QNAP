@@ -95,7 +95,6 @@ export function QNAPNetworkPage({
           ...draft.transparent,
           tun_ipv6: 'off',
           ipv6_shared_l2_ready: false,
-          ipv6_ra_enabled: false,
         },
       }
       const saved = await api.saveConfig(ipv4OnlyDraft)
