@@ -44,12 +44,11 @@ func Normalize(cfg *Config) error {
 
 	// QNAP IPv6 support is deliberately disabled. Keep accepting the historical
 	// schema so installations upgraded from the former IPv6 experiments do not
-	// become unreadable, then normalize every related switch back to OFF. A
-	// subsequent Web/API save persists this migration to disk.
+	// become unreadable, then normalize every persisted runtime switch back to
+	// OFF. A subsequent Web/API save persists this migration to disk.
 	cfg.DNS.IPv6 = false
 	cfg.Transparent.TUNIPv6 = TUNIPv6Off
 	cfg.Transparent.IPv6SharedL2Ready = false
-	cfg.Transparent.IPv6RAEnabled = false
 	cfg.Transparent.IPv6PacketBrokerBinary = ""
 	cfg.Transparent.IPv6PacketMTU = 0
 
