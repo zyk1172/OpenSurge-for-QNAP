@@ -309,13 +309,24 @@ func parseRulePriority(line string) (int, bool) {
 }
 
 func ruleMatchesHostSource(line, hostIP string) bool {
+	host := net.ParseIP(hostIP)
+	if host == nil || host.To4() == nil {
+		return false
+	}
 	fields := strings.Fields(line)
 	for index := 0; index+1 < len(fields); index++ {
 		if fields[index] != "from" {
 			continue
 		}
-		value := strings.TrimSuffix(fields[index+1], "/32")
-		return value == hostIP
+		value := strings.TrimSpace(fields[index+1])
+		if value == "all" {
+			return true
+		}
+		if parsed := net.ParseIP(strings.TrimSuffix(value, "/32")); parsed != nil {
+			return parsed.Equal(host)
+		}
+		_, network, err := net.ParseCIDR(value)
+		return err == nil && network.Contains(host)
 	}
 	return false
 }
@@ -386,7 +397,7 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 		return fmt.Errorf("QNAP fallback gateway is invalid: %q", cfg.Gateway.UpstreamGateway)
 	}
 	if _, err := os.Stat(m.netNSPath); err != nil {
-		return fmt.Errorf("host network namespace is unavailable at %s; rebuild the container with the current QNAP Compose file", m.netNSPath)
+		return fmt.Errorf("host network namespace is unavailable at %s; rebuild the container with the QNAP host-takeover Compose override", m.netNSPath)
 	}
 	iface, hostIP, err := m.detectHostLocked(ctx, cfg.Gateway.LANIP)
 	if err != nil {
@@ -406,9 +417,9 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 	}
 
 	// Remove a previous OpenSurge-owned instance first, then inspect QNAP's
-	// source-address policy rules. QTS commonly installs rules such as priority
-	// 20010 for the NAS address; OpenSurge must run before those rules while
-	// staying after the kernel's protected low-priority rules.
+	// host-matching policy rules. QTS commonly installs exact-source, subnet or
+	// from-all rules; OpenSurge must run before rules that can match this NAS
+	// while staying after the kernel's protected low-priority rules.
 	desired, _ := m.readIntentLocked()
 	_ = m.disableLocked(ctx)
 	hostRules, err := m.runHost(ctx, nil, "ip", "-4", "rule", "show")
