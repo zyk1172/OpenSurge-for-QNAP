@@ -1,0 +1,12 @@
+services:
+  opensurge:
+    # Optional high-privilege extension for the Web UI feature that routes the
+    # QNAP host itself through OpenSurge. Keep this file out of deployments
+    # that only use OpenSurge as a LAN gateway.
+    cap_add:
+      - SYS_ADMIN
+    environment:
+      OPENSURGE_HOST_NETNS_PATH: /run/opensurge/host-netns
+    volumes:
+      # Namespace handle only; this does not mount the QNAP host filesystem.
+      - /proc/1/ns/net:/run/opensurge/host-netns:ro
