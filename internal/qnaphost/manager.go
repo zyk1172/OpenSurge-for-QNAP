@@ -432,6 +432,7 @@ func (m *Manager) ensurePolicySlotsFreeLocked(ctx context.Context) error {
 				return fmt.Errorf("QNAP host already uses policy-rule priority %s; OpenSurge will not overwrite it", priority)
 			}
 		}
+	}
 	hostRoutes, err := m.runHost(ctx, nil, "ip", "-4", "route", "show", "table", routeTableID)
 	if err != nil {
 		if !isMissingRouteTableError(hostRoutes) {
@@ -453,7 +454,6 @@ func (m *Manager) ensurePolicySlotsFreeLocked(ctx context.Context) error {
 			if strings.HasPrefix(line, priority+":") {
 				return fmt.Errorf("OpenSurge container already uses policy-rule priority %s; NAS DNS takeover will not overwrite it", priority)
 			}
-		}
 	}
 	containerRoutes, err := m.runContainer(ctx, nil, "ip", "-4", "route", "show", "table", containerDNSRouteTableID)
 	if err != nil {
