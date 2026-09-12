@@ -3,13 +3,7 @@ name: Publish QNAP stable release
 on:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing vX.Y.Z tag to publish
-        required: true
-        type: string
+      - 'v*.*.*'
 
 permissions:
   contents: read
@@ -34,6 +28,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Validate stable tag
+        run: |
+          printf '%s\n' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || {
+            echo "stable releases require an exact vX.Y.Z tag" >&2
+            exit 2
+          }
       - name: Go vulnerability scan
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
@@ -42,7 +42,7 @@ jobs:
         run: |
           docker build \
             --file docker/Dockerfile \
-            --build-arg OPENSURGE_VERSION="security-scan-${GITHUB_SHA::12}" \
+            --build-arg OPENSURGE_VERSION="${GITHUB_REF_NAME#v}" \
             --build-arg VCS_REF="$GITHUB_SHA" \
             --tag opensurge-for-qnap:release-scan \
             .
@@ -78,19 +78,8 @@ jobs:
 
       - name: Resolve release version
         id: version
-        env:
-          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          tag="${GITHUB_REF_NAME}"
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            tag="${INPUT_TAG}"
-          fi
-          case "$tag" in
-            v[0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "invalid stable tag: $tag" >&2; exit 2 ;;
-          esac
-          version="${tag#v}"
-          printf 'tag=%s\nversion=%s\n' "$tag" "$version" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\nversion=%s\n' "$GITHUB_REF_NAME" "${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Build Docker archive
         run: |
@@ -150,17 +139,9 @@ jobs:
           pattern: qnap-release-*
           path: artifacts
           merge-multiple: true
-      - name: Resolve release tag
+      - name: Resolve release version
         id: version
-        env:
-          INPUT_TAG: ${{ inputs.tag }}
-        run: |
-          tag="${GITHUB_REF_NAME}"
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            tag="${INPUT_TAG}"
-          fi
-          version="${tag#v}"
-          printf 'tag=%s\nversion=%s\n' "$tag" "$version" >> "$GITHUB_OUTPUT"
+        run: printf 'tag=%s\nversion=%s\n' "$GITHUB_REF_NAME" "${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
       - name: Create release checksums
         run: |
           cd artifacts
@@ -204,7 +185,7 @@ jobs:
 
   publish-ghcr:
     name: Publish multi-arch image to GHCR
-    needs: security
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -215,12 +196,7 @@ jobs:
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Resolve release version
         id: version
-        env:
-          INPUT_TAG: ${{ inputs.tag }}
-        run: |
-          tag="${GITHUB_REF_NAME}"
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then tag="${INPUT_TAG}"; fi
-          printf 'tag=%s\nversion=%s\n' "$tag" "${tag#v}" >> "$GITHUB_OUTPUT"
+        run: printf 'tag=%s\nversion=%s\n' "$GITHUB_REF_NAME" "${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
       - name: Log in to GHCR
         env:
           GH_TOKEN: ${{ github.token }}
@@ -242,7 +218,7 @@ jobs:
 
   publish-dockerhub:
     name: Publish multi-arch image to Docker Hub
-    needs: security
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -252,12 +228,7 @@ jobs:
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Resolve release version
         id: version
-        env:
-          INPUT_TAG: ${{ inputs.tag }}
-        run: |
-          tag="${GITHUB_REF_NAME}"
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then tag="${INPUT_TAG}"; fi
-          printf 'tag=%s\nversion=%s\n' "$tag" "${tag#v}" >> "$GITHUB_OUTPUT"
+        run: printf 'tag=%s\nversion=%s\n' "$GITHUB_REF_NAME" "${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
       - name: Require Docker Hub credentials
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
