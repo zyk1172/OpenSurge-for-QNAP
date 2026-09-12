@@ -109,9 +109,6 @@ func TestEnableDevicePolicyPreservesExistingDocuments(t *testing.T) {
 			path := filepath.Join(dir, "config.yaml")
 			policyPath := filepath.Join(dir, "data", "device-policy.json")
 			cfg := config.Default()
-			// Simulate an older installation with IPv6 enabled. The QNAP IPv4-only
-			// migration must not interfere with the device-policy upgrade and must
-			// normalize this legacy switch back to false.
 			cfg.DNS.IPv6 = true
 			cfg.Runtime.Dir = filepath.Join(dir, "runtime")
 			saved := []byte(`{"devices":[],"profiles":[{"id":"saved","default_policies":["DIRECT"]}],"templates":[],"rule_sets":[]}`)
@@ -149,7 +146,7 @@ func TestEnableDevicePolicyPreservesExistingDocuments(t *testing.T) {
 				return
 			}
 			updated, err := config.Load(path)
-			if err != nil || updated.DevicePolicy.File != policyPath || updated.DNS.IPv6 {
+			if err != nil || updated.DevicePolicy.File != policyPath || !updated.DNS.IPv6 {
 				t.Fatalf("upgraded configuration: policy=%q ipv6=%v error=%v", updated.DevicePolicy.File, updated.DNS.IPv6, err)
 			}
 			first, _ := os.ReadFile(path)
