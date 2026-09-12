@@ -59,7 +59,7 @@ RUN set -eux; \
     git checkout --detach FETCH_HEAD; \
     test "$(git rev-parse HEAD)" = "${MIHOMO_COMMIT}"; \
     go mod edit -go=1.25.14; \
-    go get golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.56.0 golang.org/x/text@v0.39.0; \
+    go get golang.org/x/crypto@v0.55.0; \
     go mod tidy; \
     case "${TARGETARCH}" in \
       amd64) export GOAMD64=v1 ;; \
