@@ -104,8 +104,61 @@ log "proving the lab namespace still routes after integration and crash recovery
 # continuity check; destroying the namespace remains the final isolation wall.
 sudo ip netns exec "$GATEWAY_NS" nft delete table inet opensurge 2>/dev/null || true
 sudo ip netns exec "$GATEWAY_NS" ip rule del fwmark 0x29 table 20241 2>/dev/null || true
+sudo ip -n "$GATEWAY_NS" rule del pref 20241 iif os-gw-lan table 20241 2>/dev/null || true
+sudo ip -n "$GATEWAY_NS" rule del pref 20242 iif os-gw-lan prohibit 2>/dev/null || true
 sudo ip netns exec "$GATEWAY_NS" ip route flush table 20241 2>/dev/null || true
 sudo ip netns exec "$CLIENT_NS" ping -c 2 -W 2 203.0.113.1 >/dev/null
+
+log "proving NAS-host DNS takeover with L4 policy routing and no firewall NAT"
+# CLIENT_NS models the QNAP host. GATEWAY_NS models the QNET OpenSurge
+# namespace. 10.77.1.254 is deliberately just another same-subnet address: a
+# normal lookup remains on-link, while a port-53 lookup must be forced through
+# OpenSurge and then into a dedicated TUN route table.
+sudo ip -n "$GATEWAY_NS" link add os-dns-tun type dummy
+sudo ip -n "$GATEWAY_NS" link set os-dns-tun up
+sudo ip -n "$GATEWAY_NS" route replace default dev os-dns-tun table 20243 proto 243
+sudo ip -n "$GATEWAY_NS" rule add pref 20239 from 10.77.1.2/32 iif os-gw-lan ipproto udp dport 53 table 20243
+sudo ip -n "$GATEWAY_NS" rule add pref 20240 from 10.77.1.2/32 iif os-gw-lan ipproto tcp dport 53 table 20243
+
+sudo ip -n "$CLIENT_NS" route replace default via 10.77.1.1 dev os-client table 20242 proto 242
+sudo ip -n "$CLIENT_NS" rule add pref 24090 iif lo ipproto udp dport 53 table 20242
+sudo ip -n "$CLIENT_NS" rule add pref 24091 iif lo ipproto tcp dport 53 table 20242
+sudo ip -n "$CLIENT_NS" rule add pref 24100 iif lo table main suppress_prefixlength 0
+sudo ip -n "$CLIENT_NS" rule add pref 24110 iif lo table 20242
+
+host_dns_route="$(sudo ip -n "$CLIENT_NS" -4 route get 10.77.1.254 from 10.77.1.2 iif lo ipproto udp dport 53)"
+grep -q 'via 10.77.1.1' <<<"$host_dns_route"
+grep -q 'table 20242' <<<"$host_dns_route"
+
+host_lan_route="$(sudo ip -n "$CLIENT_NS" -4 route get 10.77.1.254 from 10.77.1.2 iif lo)"
+grep -q 'dev os-client' <<<"$host_lan_route"
+if grep -q 'table 20242' <<<"$host_lan_route"; then
+  echo "non-DNS LAN traffic was incorrectly forced into NAS host table 20242" >&2
+  exit 1
+fi
+
+gateway_dns_route="$(sudo ip -n "$GATEWAY_NS" -4 route get 10.77.1.254 from 10.77.1.2 iif os-gw-lan ipproto udp dport 53)"
+grep -q 'dev os-dns-tun' <<<"$gateway_dns_route"
+grep -q 'table 20243' <<<"$gateway_dns_route"
+
+ordinary_client_route="$(sudo ip -n "$GATEWAY_NS" -4 route get 10.77.1.254 from 10.77.1.3 iif os-gw-lan ipproto udp dport 53)"
+grep -q 'dev os-gw-lan' <<<"$ordinary_client_route"
+if grep -q 'table 20243' <<<"$ordinary_client_route"; then
+  echo "NAS DNS policy leaked onto an ordinary same-LAN client" >&2
+  exit 1
+fi
+
+# Exact teardown mirrors product ownership: dedicated priorities plus route
+# protocol only. No global rule/route flush and no nftables mutation.
+sudo ip -n "$CLIENT_NS" rule del pref 24090 iif lo ipproto udp dport 53 table 20242
+sudo ip -n "$CLIENT_NS" rule del pref 24091 iif lo ipproto tcp dport 53 table 20242
+sudo ip -n "$CLIENT_NS" rule del pref 24110 iif lo table 20242
+sudo ip -n "$CLIENT_NS" rule del pref 24100 iif lo table main suppress_prefixlength 0
+sudo ip -n "$CLIENT_NS" route flush table 20242 proto 242
+sudo ip -n "$GATEWAY_NS" rule del pref 20239 from 10.77.1.2/32 iif os-gw-lan ipproto udp dport 53 table 20243
+sudo ip -n "$GATEWAY_NS" rule del pref 20240 from 10.77.1.2/32 iif os-gw-lan ipproto tcp dport 53 table 20243
+sudo ip -n "$GATEWAY_NS" route flush table 20243 proto 243
+sudo ip -n "$GATEWAY_NS" link del os-dns-tun
 
 log "checking that the host namespace was never touched"
 if sudo nft list table inet opensurge >/dev/null 2>&1; then
