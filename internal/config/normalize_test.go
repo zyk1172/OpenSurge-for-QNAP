@@ -59,3 +59,41 @@ func TestNormalizeEnablesNativeLinuxIPv6TakeoverCompatibility(t *testing.T) {
 		t.Fatalf("IPv6PacketMTU = %d, want 1500", cfg.Transparent.IPv6PacketMTU)
 	}
 }
+
+func qnapSameLANDNSIPv6Config() Config {
+	cfg := Default()
+	cfg.Gateway.Mode = GatewayModeSameLAN
+	cfg.Gateway.UpstreamInterface = cfg.Gateway.Interface
+	cfg.DHCP.Enabled = false
+	cfg.Transparent.Mode = TransparentModeTUN
+	cfg.Transparent.TUNIPv6 = TUNIPv6Always
+	return cfg
+}
+
+func TestNormalizeQNAPSameLANIPv6RequiresFakeIPDNS(t *testing.T) {
+	cfg := qnapSameLANDNSIPv6Config()
+	cfg.Transparent.IPv6SharedL2Ready = true
+	if err := Normalize(&cfg); err == nil || !strings.Contains(err.Error(), "dns.ipv6") {
+		t.Fatalf("Normalize() error = %v, want dns.ipv6 prerequisite", err)
+	}
+}
+
+func TestNormalizeQNAPSameLANIPv6RequiresRouterDNSAndStaticRouteAcknowledgement(t *testing.T) {
+	cfg := qnapSameLANDNSIPv6Config()
+	cfg.DNS.IPv6 = true
+	if err := Normalize(&cfg); err == nil || !strings.Contains(err.Error(), MihomoFakeIPv6Range) {
+		t.Fatalf("Normalize() error = %v, want fake-IP route prerequisite", err)
+	}
+}
+
+func TestNormalizeQNAPSameLANIPv6DNSFakeIPReady(t *testing.T) {
+	cfg := qnapSameLANDNSIPv6Config()
+	cfg.DNS.IPv6 = true
+	cfg.Transparent.IPv6SharedL2Ready = true
+	if err := Normalize(&cfg); err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if cfg.Transparent.IPv6PacketBrokerBinary != NativeLinuxIPv6Runtime {
+		t.Fatalf("IPv6PacketBrokerBinary = %q", cfg.Transparent.IPv6PacketBrokerBinary)
+	}
+}

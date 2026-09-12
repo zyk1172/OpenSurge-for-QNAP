@@ -21,6 +21,13 @@ services:
       net.ipv6.conf.eth0.disable_ipv6: "0"
       net.ipv6.conf.all.forwarding: "1"
       net.ipv6.conf.default.forwarding: "1"
+      # Linux normally stops accepting Router Advertisements when forwarding is
+      # enabled. QNAP DNS/fake-IP steering deliberately keeps the upstream
+      # router's native/public IPv6 path, so eth0 must continue learning RA.
+      net.ipv6.conf.default.accept_ra: "2"
+      net.ipv6.conf.eth0.accept_ra: "2"
+      net.ipv6.conf.default.autoconf: "1"
+      net.ipv6.conf.eth0.autoconf: "1"
 
     security_opt:
       - no-new-privileges:true

@@ -27,6 +27,10 @@ type ip6RouteEntry struct {
 	Type string `json:"type"`
 }
 
+// tunIPv6TakeoverEnabled reports whether mihomo actually created the IPv6 side
+// of the TUN. QNAP keeps IPv6 policy state absent when the core did not expose
+// the configured TUN address, so enabling DNS IPv6 cannot silently create a
+// black-hole route before mihomo is ready.
 func (b *Backend) tunIPv6TakeoverEnabled(ctx context.Context, device string) (bool, error) {
 	if strings.TrimSpace(device) == "" {
 		return false, nil
@@ -69,26 +73,52 @@ func (b *Backend) ipv6PolicyRules(ctx context.Context) ([]ipRule, error) {
 	return rules, nil
 }
 
-func (b *Backend) ipv6RulePresent(ctx context.Context, cfg platform.RoutingConfig) (bool, error) {
+func ipv6FakeRuleMatches(rule ipRule, cfg platform.RoutingConfig) bool {
+	priority, priorityOK := ruleField(rule, "priority")
+	table, tableOK := ruleField(rule, "table")
+	if !priorityOK || !tableOK || priority != cfg.RulePriority || table != cfg.TableID {
+		return false
+	}
+	destination, ok := ruleStringField(rule, "dst", "to")
+	return ok && destination == config.MihomoFakeIPv6Range
+}
+
+func ipv6FakeGuardMatches(rule ipRule, cfg platform.RoutingConfig) bool {
+	if cfg.RulePriority == ^uint32(0) {
+		return false
+	}
+	priority, ok := ruleField(rule, "priority")
+	if !ok || priority != cfg.RulePriority+1 {
+		return false
+	}
+	destination, ok := ruleStringField(rule, "dst", "to")
+	if !ok || destination != config.MihomoFakeIPv6Range {
+		return false
+	}
+	action, ok := ruleStringField(rule, "action", "type")
+	return ok && strings.EqualFold(action, "prohibit")
+}
+
+func (b *Backend) ipv6FakeRulePresent(ctx context.Context, cfg platform.RoutingConfig) (bool, error) {
 	rules, err := b.ipv6PolicyRules(ctx)
 	if err != nil {
 		return false, err
 	}
 	for _, rule := range rules {
-		if ruleMatchesConfig(rule, cfg) {
+		if ipv6FakeRuleMatches(rule, cfg) {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
-func (b *Backend) ipv6GuardPresent(ctx context.Context, cfg platform.RoutingConfig) (bool, error) {
+func (b *Backend) ipv6FakeGuardPresent(ctx context.Context, cfg platform.RoutingConfig) (bool, error) {
 	rules, err := b.ipv6PolicyRules(ctx)
 	if err != nil {
 		return false, err
 	}
 	for _, rule := range rules {
-		if guardRuleMatchesConfig(rule, cfg) {
+		if ipv6FakeGuardMatches(rule, cfg) {
 			return true, nil
 		}
 	}
@@ -110,68 +140,29 @@ func (b *Backend) ipv6RoutingTableMatches(ctx context.Context, cfg platform.Rout
 	if err := json.Unmarshal(out, &routes); err != nil {
 		return false, platform.NewError(platform.CodeCommandFailed, "parse IPv6 policy routing table").Wrap(err)
 	}
-	lanRoute := false
-	defaultRoute := false
-	for _, route := range routes {
-		destination := strings.TrimSpace(route.Dst)
-		if destination == "" {
-			destination = "default"
-		}
-		switch destination {
-		case config.DownstreamIPv6Prefix:
-			if lanRoute || route.Dev != cfg.LANInterface {
-				return false, nil
-			}
-			lanRoute = true
-		case "default":
-			if defaultRoute {
-				return false, nil
-			}
-			if cfg.DirectFallback {
-				if route.Type != "prohibit" && route.Type != "unreachable" {
-					return false, nil
-				}
-			} else if route.Dev != cfg.TUNDevice {
-				return false, nil
-			}
-			defaultRoute = true
-		default:
-			return false, nil
-		}
+	if len(routes) != 1 {
+		return false, nil
 	}
-	return len(routes) == 2 && lanRoute && defaultRoute, nil
+	destination := strings.TrimSpace(routes[0].Dst)
+	return destination == config.MihomoFakeIPv6Range && routes[0].Dev == cfg.TUNDevice && routes[0].Type != "prohibit" && routes[0].Type != "unreachable", nil
 }
 
+// applyIPv6PolicyRouting deliberately does not install an ingress-interface
+// default route. Clients keep the main router's ordinary IPv6 RA/default route
+// and public IPv6 address. Only Mihomo's synthetic IPv6 range is routed to the
+// TUN after the main router (or another upstream router) forwards that prefix to
+// OpenSurge. This keeps normal IPv6 traffic out of the QNAP data plane.
 func (b *Backend) applyIPv6PolicyRouting(ctx context.Context, cfg platform.RoutingConfig) (err error) {
-	if effectiveRuleMode(cfg) != platform.RoutingRuleIngressInterface {
-		return platform.NewError(platform.CodeInvalidArgument, "QNAP IPv6 takeover requires same-LAN ingress-interface routing")
-	}
-	if err := validateInterfaceName(cfg.LANInterface); err != nil {
-		return err
-	}
 	if err := validateInterfaceName(cfg.TUNDevice); err != nil {
 		return err
 	}
 	if cfg.TableID == 0 || cfg.RulePriority == 0 {
 		return platform.NewError(platform.CodeInvalidArgument, "IPv6 routing table id and rule priority must be set")
 	}
-
-	// The container gets this stable ULA during entrypoint setup. Requiring it
-	// here turns a QNET/kernel IPv6 problem into a failed gateway start instead of
-	// a silent client-side bypass.
-	gatewayReady, err := b.interfaceHasIPv6(ctx, cfg.LANInterface, config.DownstreamIPv6Gateway)
-	if err != nil {
-		return err
-	}
-	if !gatewayReady {
-		return platform.NewError(platform.CodePolicyRoutingConflict,
-			"QNAP IPv6 gateway ULA is missing from the LAN interface").
-			WithDetail("expected", config.DownstreamIPv6Gateway).
-			WithDetail("interface", cfg.LANInterface)
+	if cfg.RulePriority == ^uint32(0) {
+		return platform.NewError(platform.CodeInvalidArgument, "IPv6 rule priority leaves no room for the fake-IP fail-closed guard")
 	}
 
-	// Any partial failure is cleaned up locally. Gateway rollback will repeat the
-	// exact cleanup, so setup remains idempotent and fail closed.
 	success := false
 	defer func() {
 		if !success {
@@ -180,38 +171,25 @@ func (b *Backend) applyIPv6PolicyRouting(ctx context.Context, cfg platform.Routi
 	}()
 
 	table := strconv.FormatUint(uint64(cfg.TableID), 10)
-	guardPriority, err := guardRulePriority(cfg)
-	if err != nil {
-		return err
-	}
-	guard, err := b.ipv6GuardPresent(ctx, cfg)
+	guardPriority := strconv.FormatUint(uint64(cfg.RulePriority+1), 10)
+	guard, err := b.ipv6FakeGuardPresent(ctx, cfg)
 	if err != nil {
 		return err
 	}
 	if !guard {
-		if err := b.runner.run(ctx, b.runner.ipPath, "-6", "rule", "add", "pref", strconv.FormatUint(uint64(guardPriority), 10), "iif", cfg.LANInterface, "prohibit"); err != nil {
+		if err := b.runner.run(ctx, b.runner.ipPath, "-6", "rule", "add", "pref", guardPriority, "to", config.MihomoFakeIPv6Range, "prohibit"); err != nil {
 			return err
 		}
 	}
-	if err := b.runner.run(ctx, b.runner.ipPath, "-6", "route", "replace", config.DownstreamIPv6Prefix, "dev", cfg.LANInterface, "table", table); err != nil {
+	if err := b.runner.run(ctx, b.runner.ipPath, "-6", "route", "replace", config.MihomoFakeIPv6Range, "dev", cfg.TUNDevice, "table", table); err != nil {
 		return err
 	}
-	if cfg.DirectFallback {
-		// The QNAP config has an IPv4 upstream gateway but no authoritative IPv6
-		// next hop. Direct fallback therefore blocks IPv6 instead of leaking it to
-		// the main table/router outside OpenSurge policy.
-		if err := b.runner.run(ctx, b.runner.ipPath, "-6", "route", "replace", "prohibit", "default", "table", table); err != nil {
-			return err
-		}
-	} else if err := b.runner.run(ctx, b.runner.ipPath, "-6", "route", "replace", "default", "dev", cfg.TUNDevice, "table", table); err != nil {
-		return err
-	}
-	present, err := b.ipv6RulePresent(ctx, cfg)
+	present, err := b.ipv6FakeRulePresent(ctx, cfg)
 	if err != nil {
 		return err
 	}
 	if !present {
-		if err := b.runner.run(ctx, b.runner.ipPath, "-6", "rule", "add", "pref", strconv.FormatUint(uint64(cfg.RulePriority), 10), "iif", cfg.LANInterface, "table", table); err != nil {
+		if err := b.runner.run(ctx, b.runner.ipPath, "-6", "rule", "add", "pref", strconv.FormatUint(uint64(cfg.RulePriority), 10), "to", config.MihomoFakeIPv6Range, "table", table); err != nil {
 			return err
 		}
 	}
@@ -220,75 +198,44 @@ func (b *Backend) applyIPv6PolicyRouting(ctx context.Context, cfg platform.Routi
 }
 
 func (b *Backend) removeIPv6PolicyRouting(ctx context.Context, cfg platform.RoutingConfig) error {
-	if cfg.TableID == 0 || cfg.RulePriority == 0 || strings.TrimSpace(cfg.LANInterface) == "" {
+	if cfg.TableID == 0 || cfg.RulePriority == 0 {
 		return nil
 	}
 	table := strconv.FormatUint(uint64(cfg.TableID), 10)
 	var failures []string
-	if present, err := b.ipv6RulePresent(ctx, cfg); err != nil {
-		failures = append(failures, "check IPv6 rule: "+err.Error())
+	if present, err := b.ipv6FakeRulePresent(ctx, cfg); err != nil {
+		failures = append(failures, "check IPv6 fake-IP rule: "+err.Error())
 	} else if present {
-		if err := b.runner.run(ctx, b.runner.ipPath, "-6", "rule", "del", "pref", strconv.FormatUint(uint64(cfg.RulePriority), 10), "iif", cfg.LANInterface, "table", table); err != nil && !isNotExist(err) {
-			failures = append(failures, "delete IPv6 rule: "+err.Error())
+		if err := b.runner.run(ctx, b.runner.ipPath, "-6", "rule", "del", "pref", strconv.FormatUint(uint64(cfg.RulePriority), 10), "to", config.MihomoFakeIPv6Range, "table", table); err != nil && !isNotExist(err) {
+			failures = append(failures, "delete IPv6 fake-IP rule: "+err.Error())
 		}
 	}
-	if err := b.runner.run(ctx, b.runner.ipPath, "-6", "route", "del", config.DownstreamIPv6Prefix, "dev", cfg.LANInterface, "table", table); err != nil && !isNotExist(err) {
-		failures = append(failures, "delete IPv6 LAN route: "+err.Error())
+	if err := b.runner.run(ctx, b.runner.ipPath, "-6", "route", "del", config.MihomoFakeIPv6Range, "dev", cfg.TUNDevice, "table", table); err != nil && !isNotExist(err) {
+		failures = append(failures, "delete IPv6 fake-IP route: "+err.Error())
 	}
-	// Do not depend on the TUN device still existing during crash recovery.
-	if err := b.runner.run(ctx, b.runner.ipPath, "-6", "route", "del", "default", "table", table); err != nil && !isNotExist(err) {
-		failures = append(failures, "delete IPv6 default route: "+err.Error())
-	}
-	if guard, err := b.ipv6GuardPresent(ctx, cfg); err != nil {
-		failures = append(failures, "check IPv6 guard: "+err.Error())
+	if guard, err := b.ipv6FakeGuardPresent(ctx, cfg); err != nil {
+		failures = append(failures, "check IPv6 fake-IP guard: "+err.Error())
 	} else if guard {
-		priority, priorityErr := guardRulePriority(cfg)
-		if priorityErr != nil {
-			failures = append(failures, "IPv6 guard priority: "+priorityErr.Error())
-		} else if err := b.runner.run(ctx, b.runner.ipPath, "-6", "rule", "del", "pref", strconv.FormatUint(uint64(priority), 10), "iif", cfg.LANInterface, "prohibit"); err != nil && !isNotExist(err) {
-			failures = append(failures, "delete IPv6 guard: "+err.Error())
+		if err := b.runner.run(ctx, b.runner.ipPath, "-6", "rule", "del", "pref", strconv.FormatUint(uint64(cfg.RulePriority+1), 10), "to", config.MihomoFakeIPv6Range, "prohibit"); err != nil && !isNotExist(err) {
+			failures = append(failures, "delete IPv6 fake-IP guard: "+err.Error())
 		}
 	}
 	if len(failures) > 0 {
-		return platform.NewError(platform.CodeCommandFailed, "remove IPv6 policy routing: "+strings.Join(failures, "; "))
+		return platform.NewError(platform.CodeCommandFailed, "remove IPv6 fake-IP routing: "+strings.Join(failures, "; "))
 	}
 	return nil
 }
 
 func (b *Backend) ipv6PolicyRoutingPresent(ctx context.Context, cfg platform.RoutingConfig) (bool, error) {
-	primary, err := b.ipv6RulePresent(ctx, cfg)
+	primary, err := b.ipv6FakeRulePresent(ctx, cfg)
 	if err != nil || !primary {
 		return primary, err
 	}
-	guard, err := b.ipv6GuardPresent(ctx, cfg)
+	guard, err := b.ipv6FakeGuardPresent(ctx, cfg)
 	if err != nil || !guard {
 		return guard, err
 	}
 	return b.ipv6RoutingTableMatches(ctx, cfg)
-}
-
-func (b *Backend) interfaceHasIPv6(ctx context.Context, device, expected string) (bool, error) {
-	out, err := b.runner.output(ctx, b.runner.ipPath, "-6", "-j", "addr", "show", "dev", device)
-	if err != nil {
-		return false, err
-	}
-	var interfaces []ipAddressInfo
-	if err := json.Unmarshal(out, &interfaces); err != nil {
-		return false, platform.NewError(platform.CodeCommandFailed, "parse LAN IPv6 address state").Wrap(err)
-	}
-	want, err := netip.ParseAddr(expected)
-	if err != nil {
-		return false, err
-	}
-	for _, iface := range interfaces {
-		for _, address := range iface.AddrInfo {
-			actual, parseErr := netip.ParseAddr(address.Local)
-			if parseErr == nil && actual == want {
-				return true, nil
-			}
-		}
-	}
-	return false, nil
 }
 
 func (b *Backend) applyPolicyRoutingWithIPv6(ctx context.Context, cfg platform.RoutingConfig) error {
@@ -302,10 +249,7 @@ func (b *Backend) applyPolicyRoutingWithIPv6(ctx context.Context, cfg platform.R
 	if !enabled {
 		return nil
 	}
-	if err := b.applyIPv6PolicyRouting(ctx, cfg); err != nil {
-		return err
-	}
-	return nil
+	return b.applyIPv6PolicyRouting(ctx, cfg)
 }
 
 func (b *Backend) policyRoutingWithIPv6Present(ctx context.Context, cfg platform.RoutingConfig) (bool, error) {

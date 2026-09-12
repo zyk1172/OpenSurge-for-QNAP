@@ -218,7 +218,6 @@ function doctorCheckMessage(message: string): string {
   if (message === 'invalid IPv4 address') return t('IPv4 地址无效')
   if (message === 'not configured on interface') return t('接口上未配置该地址')
   if (message === 'isolated_lan requires separate downstream and upstream interfaces') return t('isolated_lan 要求下游与上游使用不同接口')
-  if (message === 'requested but unsupported in OpenSurge for QNAP v1; clients with IPv6 may bypass the gateway') return t('QNAP v1 暂不支持下游 IPv6 接管；客户端 IPv6 流量可能绕过网关')
   if (message.endsWith(' requires gateway and upstream interfaces to match')) return t('当前模式要求网关接口与上游接口一致')
   if (message.endsWith(' uses one LAN interface')) return t('当前模式使用同一 LAN 接口')
   if (message.endsWith(' is not a character device')) return t('{{path}} 不是字符设备', { path: message.slice(0, -' is not a character device'.length) })

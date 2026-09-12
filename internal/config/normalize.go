@@ -57,5 +57,18 @@ func Normalize(cfg *Config) error {
 			cfg.Transparent.IPv6PacketMTU = 1500
 		}
 	}
+
+	// QNAP same-LAN IPv6 no longer replaces the client's default router. Mihomo
+	// DNS must synthesize IPv6 fake-IP answers, and the main router must forward
+	// only that fake prefix to OpenSurge. Reuse the existing persisted readiness
+	// acknowledgement so older schema-v1 clients continue to round-trip safely.
+	if cfg.Gateway.Mode == GatewayModeSameLAN && cfg.Transparent.TUNIPv6 != "" && cfg.Transparent.TUNIPv6 != TUNIPv6Off {
+		if !cfg.DNS.IPv6 {
+			return fmt.Errorf("QNAP same-LAN IPv6 DNS steering requires dns.ipv6: true so Mihomo can return fake IPv6 answers")
+		}
+		if !cfg.Transparent.IPv6SharedL2Ready {
+			return fmt.Errorf("QNAP same-LAN IPv6 DNS steering requires transparent.ipv6_shared_l2_ready: true after the main router uses OpenSurge DNS and routes %s to OpenSurge", MihomoFakeIPv6Range)
+		}
+	}
 	return nil
 }

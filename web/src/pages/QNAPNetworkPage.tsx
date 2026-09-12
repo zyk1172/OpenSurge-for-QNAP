@@ -23,7 +23,6 @@ export function QNAPNetworkPage({
   const [lifecycleBusy, setLifecycleBusy] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
-  const [ipv6ClientIPv4, setIPv6ClientIPv4] = useState('')
 
   const running = overview?.status.gateway === 'running' || overview?.status.gateway === 'degraded'
   const interrupted = overview?.status.runtime_state === 'interrupted'
@@ -76,6 +75,12 @@ export function QNAPNetworkPage({
 
   const saveRuntime = async () => {
     if (!draft || saving || lifecycleBusy) return
+    const ipv6DNSFakeIPEnabled = draft.transparent.tun_ipv6 !== 'off' && draft.dns.ipv6
+    if (ipv6DNSFakeIPEnabled && !draft.transparent.ipv6_shared_l2_ready) {
+      setError(t('开启 IPv6 DNS 定向接管前，请先完成主路由 DNS 与 fake-IP IPv6 静态路由，并勾选确认。'))
+      return
+    }
+
     setSaving(true)
     setError('')
     setMessage('')
@@ -114,8 +119,8 @@ export function QNAPNetworkPage({
     ? `${actual.snapshot.ipv4}/${draft?.gateway.lan_prefix_len ?? 24}`
     : draft ? `${draft.gateway.lan_ip}/${draft.gateway.lan_prefix_len}` : '—'
   const router = actual?.snapshot.router || '由 Docker/QNET 创建参数确定'
-  const ipv6Enabled = draft?.transparent.tun_ipv6 !== 'off'
-  const clientIPv6 = qnapClientIPv6(ipv6ClientIPv4)
+  const ipv6DNSFakeIPEnabled = Boolean(draft && draft.transparent.tun_ipv6 !== 'off' && draft.dns.ipv6)
+  const ipv6NextHop = qnapLinkLocalIPv6(networkIPv4)
 
   return <>
     <PageHeader
@@ -151,10 +156,7 @@ export function QNAPNetworkPage({
             <span>{t('DNS 上游')}</span>
             <input value={draft.dns.upstream} onChange={event => patch({ dns: { ...draft.dns, upstream: event.target.value } })} placeholder="127.0.0.1#1053" />
           </label>
-          <label className="sidebar-switch">
-            <input type="checkbox" checked={draft.dns.ipv6} onChange={event => patch({ dns: { ...draft.dns, ipv6: event.target.checked } })} />
-            <span><strong>{t('DNS IPv6')}</strong><small>{t('开启 AAAA / IPv6 fake-IP；IPv6 接管时建议同时开启。')}</small></span>
-          </label>
+          <p className="muted">{t('这里是 OpenSurge 内部 dnsmasq 到 Mihomo DNS 的上游，不是主路由要填写的 DNS 地址。')}</p>
         </article>
         <article className="source-import-card">
           <label className="sidebar-switch">
@@ -169,40 +171,70 @@ export function QNAPNetworkPage({
       </div>
 
       <div className="qnap-ipv6-panel">
-        <SectionTitle title={t('IPv6 接管')} subtitle={t('QNAP 同网段模式 · 仅接管显式配置的客户端')} />
-        <div className="source-import-grid">
-          <article className="source-import-card">
-            <label>
-              <span>{t('接管模式')}</span>
-              <select value={draft.transparent.tun_ipv6} onChange={event => {
-                const mode = event.target.value as ControlConfig['transparent']['tun_ipv6']
-                patch({ transparent: { ...draft.transparent, tun_ipv6: mode, ipv6_shared_l2_ready: mode === 'off' ? false : draft.transparent.ipv6_shared_l2_ready } })
-              }}>
-                <option value="off">{t('关闭')}</option>
-                <option value="auto">{t('自动')}</option>
-                <option value="always">{t('强制')}</option>
-              </select>
-            </label>
-            <p className="muted">{t('“自动”遵循 Mihomo 的系统 IPv6 检测；“强制”用于只有 ULA 下游、没有原生 IPv6 出口的 QNAP 环境。')}</p>
-            <label className="sidebar-switch">
-              <input type="checkbox" disabled={!ipv6Enabled} checked={draft.transparent.ipv6_shared_l2_ready ?? false} onChange={event => patch({ transparent: { ...draft.transparent, ipv6_shared_l2_ready: event.target.checked } })} />
-              <span><strong>{t('已完成客户端 IPv6 配置')}</strong><small>{t('启用前确认接管客户端使用下方 ULA、网关和 DNS，且没有另一条可用的 IPv6 默认路由。')}</small></span>
-            </label>
-          </article>
-          <article className="source-import-card qnap-ipv6-values">
-            <span><strong>{t('客户端前缀')}</strong><code>fdfe:dcba:9878::/64</code></span>
-            <span><strong>{t('IPv6 网关 / DNS')}</strong><code>fdfe:dcba:9878::1</code></span>
-            <label>
-              <span>{t('按设备 IPv4 生成固定 IPv6')}</span>
-              <input value={ipv6ClientIPv4} onChange={event => setIPv6ClientIPv4(event.target.value)} placeholder="192.168.2.101" inputMode="decimal" />
-            </label>
-            <span><strong>{t('设备 IPv6')}</strong><code>{clientIPv6 || '—'}</code></span>
-          </article>
-        </div>
-        <div className="notice">
-          <strong>{t('不会修改 QTS 或主路由 IPv6')}</strong>
-          <p>{t('同网段模式不发送 RA。只有手动配置上述 ULA 的客户端会把 IPv6 交给 OpenSurge；其他局域网设备继续使用原来的 IPv6。已登记设备使用由其固定 IPv4 推导的 ULA，可继续匹配设备策略。')}</p>
-        </div>
+        <SectionTitle title={t('IPv6 DNS 定向接管')} subtitle={t('保留主路由 IPv6、公网地址和默认路由，只把 fake-IP IPv6 送入 OpenSurge')} />
+
+        <label className="sidebar-switch">
+          <input type="checkbox" checked={ipv6DNSFakeIPEnabled} onChange={event => {
+            const enabled = event.target.checked
+            patch({
+              dns: { ...draft.dns, ipv6: enabled },
+              transparent: {
+                ...draft.transparent,
+                tun_ipv6: enabled ? 'always' : 'off',
+                ipv6_shared_l2_ready: false,
+              },
+            })
+          }} />
+          <span>
+            <strong>{t('启用 IPv6 DNS / fake-IP 定向接管')}</strong>
+            <small>{t('不开 RA，不修改客户端 IPv6 网关；普通 IPv6 继续直接走主路由。')}</small>
+          </span>
+        </label>
+
+        {ipv6DNSFakeIPEnabled && <>
+          <div className="source-import-grid">
+            <article className="source-import-card qnap-ipv6-values">
+              <span><strong>{t('主路由 DNS 上游')}</strong><code>{networkIPv4}</code></span>
+              <span><strong>{t('IPv6 fake-IP 网段')}</strong><code>fdfe:dcba:9876::/64</code></span>
+              <span><strong>{t('IPv6 静态路由下一跳')}</strong><code>{ipv6NextHop || '—'}</code></span>
+              <span><strong>{t('静态路由出口')}</strong><code>{networkInterface}</code></span>
+            </article>
+            <article className="source-import-card">
+              <strong>{t('主路由需要两项设置')}</strong>
+              <p>{t('1. 将主路由使用的 DNS 上游指向 OpenSurge IPv4。')}</p>
+              <p>{t('2. 添加 IPv6 静态路由：fdfe:dcba:9876::/64 → 上方 OpenSurge link-local 下一跳，并选择 LAN/桥接口。')}</p>
+              <p className="muted">{t('主路由原有 IPv6 RA、DHCPv6、IPv6 Bridge/Passthrough 和公网 IPv6 分配保持不变。')}</p>
+            </article>
+          </div>
+
+          <label className="sidebar-switch">
+            <input type="checkbox" checked={draft.transparent.ipv6_shared_l2_ready ?? false} onChange={event => patch({ transparent: { ...draft.transparent, ipv6_shared_l2_ready: event.target.checked } })} />
+            <span>
+              <strong>{t('主路由 DNS 和 IPv6 静态路由已配置')}</strong>
+              <small>{t('确认 fake-IP IPv6 网段会被送到 OpenSurge，普通公网 IPv6 仍使用主路由。')}</small>
+            </span>
+          </label>
+
+          <div className="notice">
+            <strong>{t('客户端无需设置 IPv6')}</strong>
+            <p>{t('手机、电视和电脑继续从主路由获得原来的公网 IPv6 与默认路由。只有 OpenSurge DNS 返回的 fake IPv6 会经主路由静态路由进入 TUN，并按照全局 Mihomo 规则决定 DIRECT / PROXY / REJECT。')}</p>
+          </div>
+
+          <div className="notice warn">
+            <strong>{t('IPv6 不再承诺逐设备策略')}</strong>
+            <p>{t('这条路径在 Linux TUN 三层入口看不到原始客户端 MAC，因此按设备 IPv6 策略不作为保证目标；IPv4 设备策略保持原有实现不变。')}</p>
+          </div>
+
+          <div className="notice warn">
+            <strong>{t('注意统一 fake-IP DNS 对 IPv4 A 查询的影响')}</strong>
+            <p>{t('本功能不新增或修改 IPv4 路由，但 Mihomo 的统一 fake-IP DNS 仍可能给 A 查询返回 IPv4 fake-ip。若把 OpenSurge DNS 全局提供给未走 OpenSurge IPv4 数据面的设备，请确认现有 IPv4 fake-ip 路径可达，或在主路由侧使用合适的 DNS 策略。')}</p>
+          </div>
+        </>}
+
+        {!ipv6DNSFakeIPEnabled && <div className="notice">
+          <strong>{t('IPv6 保持原网络行为')}</strong>
+          <p>{t('关闭后 OpenSurge 不建立 IPv6 fake-IP TUN 路由。客户端继续完全使用主路由提供的 IPv6。')}</p>
+        </div>}
       </div>
 
       <div className="source-actions">
@@ -220,10 +252,10 @@ export function QNAPNetworkPage({
   </>
 }
 
-function qnapClientIPv6(ipv4: string): string {
+function qnapLinkLocalIPv6(ipv4: string): string {
   const parts = ipv4.trim().split('.').map(value => Number(value))
   if (parts.length !== 4 || parts.some(value => !Number.isInteger(value) || value < 0 || value > 255)) return ''
   const upper = ((parts[0] << 8) | parts[1]).toString(16)
   const lower = ((parts[2] << 8) | parts[3]).toString(16)
-  return `fdfe:dcba:9878:0:1:0:${upper}:${lower}`
+  return `fe80::1:0:${upper}:${lower}`
 }

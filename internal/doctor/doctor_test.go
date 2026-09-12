@@ -61,6 +61,16 @@ func TestCheckInterfaceIPv4RejectsInvalidIP(t *testing.T) {
 	}
 }
 
+func TestStableIPv6NextHop(t *testing.T) {
+	got := stableIPv6NextHop("192.168.2.241")
+	if got == nil || got.String() != "fe80::1:0:c0a8:2f1" {
+		t.Fatalf("stableIPv6NextHop() = %v", got)
+	}
+	if got := stableIPv6NextHop("not-an-ip"); got != nil {
+		t.Fatalf("stableIPv6NextHop(invalid) = %v", got)
+	}
+}
+
 func TestCheckWritableDirectoryExercisesDurableOperations(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "runtime")
 	check := checkWritableDirectory("persistent runtime storage", dir)
