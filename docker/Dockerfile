@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 ARG NODE_IMAGE=node:24-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e
-ARG GO_IMAGE=golang:1.25-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437
+ARG GO_IMAGE=golang:1.25.14-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437
 ARG DEBIAN_IMAGE=debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 
 FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS web-builder
@@ -39,36 +39,48 @@ RUN curl --fail --show-error --location --proto '=https' \
  && make -C /tmp/dnsmasq -j"$(nproc)" \
  && install -Dm0755 /tmp/dnsmasq/src/dnsmasq /out/dnsmasq
 
-FROM --platform=$BUILDPLATFORM ${DEBIAN_IMAGE} AS mihomo-fetcher
+# Upstream v1.19.30 is the latest stable Mihomo release, but its published
+# binaries were built before several Go dependency security fixes. Rebuild the
+# exact stable source commit with the patched module versions instead of
+# switching a stable OpenSurge release to an upstream alpha binary.
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS mihomo-builder
+ARG TARGETOS=linux
 ARG TARGETARCH
 ARG MIHOMO_VERSION=1.19.30
-ARG MIHOMO_AMD64_SHA256=db214c7a2517e63c150d123178d16d102e03a241ccdae4e5e07ffbe9cf56c6f9
-ARG MIHOMO_ARM64_SHA256=58896873736d28628f66de3677c8654fa0f180662523148e136cff4f6e890069
+ARG MIHOMO_COMMIT=ac017cdd246ce8bd547653d927e7bf77d7ee73d5
+WORKDIR /src/mihomo
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl gzip \
+ && apt-get install -y --no-install-recommends ca-certificates git \
  && rm -rf /var/lib/apt/lists/*
 RUN set -eux; \
-    arch="${TARGETARCH}"; \
-    case "$arch" in \
-      amd64) asset="mihomo-linux-amd64-compatible-v${MIHOMO_VERSION}.gz"; sha="${MIHOMO_AMD64_SHA256}" ;; \
-      arm64) asset="mihomo-linux-arm64-v${MIHOMO_VERSION}.gz"; sha="${MIHOMO_ARM64_SHA256}" ;; \
-      *) echo "unsupported target architecture: $arch" >&2; exit 1 ;; \
+    git init; \
+    git remote add origin https://github.com/MetaCubeX/mihomo.git; \
+    git fetch --depth=1 origin "refs/tags/v${MIHOMO_VERSION}"; \
+    git checkout --detach FETCH_HEAD; \
+    test "$(git rev-parse HEAD)" = "${MIHOMO_COMMIT}"; \
+    go mod edit -go=1.25.14; \
+    go get golang.org/x/crypto@v0.55.0; \
+    go mod tidy; \
+    case "${TARGETARCH}" in \
+      amd64) export GOAMD64=v1 ;; \
+      arm64) : ;; \
+      *) echo "unsupported target architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    curl --fail --show-error --location --proto '=https' \
-      "https://github.com/MetaCubeX/mihomo/releases/download/v${MIHOMO_VERSION}/${asset}" \
-      -o /tmp/mihomo.gz; \
-    echo "${sha}  /tmp/mihomo.gz" | sha256sum -c -; \
-    gunzip -c /tmp/mihomo.gz > /out-mihomo; \
-    chmod 0755 /out-mihomo
+    CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
+      go build -tags with_gvisor -trimpath \
+      -ldflags="-X github.com/metacubex/mihomo/constant.Version=v${MIHOMO_VERSION}+opensurge-security -X github.com/metacubex/mihomo/constant.BuildTime=OpenSurge-security-rebuild -w -s -buildid=" \
+      -o /out-mihomo .
 
 FROM ${DEBIAN_IMAGE} AS runtime
 ARG OPENSURGE_VERSION=dev
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 ARG MIHOMO_VERSION=1.19.30
+ARG MIHOMO_COMMIT=ac017cdd246ce8bd547653d927e7bf77d7ee73d5
 ARG DNSMASQ_VERSION=2.93
 
 RUN apt-get update \
+ && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends \
       ca-certificates curl iproute2 netbase nftables tini tzdata util-linux \
  && grep -Eq '^udp[[:space:]]+17([[:space:]]|$)' /etc/protocols \
@@ -78,7 +90,7 @@ RUN apt-get update \
 COPY --from=go-builder /out/opensurge-container /usr/local/bin/opensurge-container
 COPY --from=go-builder /out/omg /usr/local/bin/omg
 COPY --from=dnsmasq-builder /out/dnsmasq /usr/local/bin/dnsmasq
-COPY --from=mihomo-fetcher /out-mihomo /usr/local/bin/mihomo
+COPY --from=mihomo-builder /out-mihomo /usr/local/bin/mihomo
 COPY docker/entrypoint.sh /usr/local/bin/opensurge-entrypoint
 COPY deploy/qnap/config.qnap-docker.yaml /usr/share/opensurge/config.qnap-docker.yaml
 COPY LICENSE THIRD_PARTY_NOTICES.md NOTICE.md /usr/share/opensurge/licenses/
@@ -95,6 +107,7 @@ LABEL org.opencontainers.image.title="OpenSurge for QNAP" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opensurge.mihomo.version="${MIHOMO_VERSION}" \
+      org.opensurge.mihomo.source-revision="${MIHOMO_COMMIT}" \
       org.opensurge.dnsmasq.version="${DNSMASQ_VERSION}"
 
 VOLUME ["/data"]
