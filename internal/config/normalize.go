@@ -8,9 +8,10 @@ import (
 
 // Normalize materializes derived/default-compatible values into cfg before the
 // configuration is validated or frozen for application. OpenSurge for QNAP is
-// intentionally IPv4-only: legacy IPv6 fields are still parsed so existing
-// persistent configurations continue to load, but they are migrated to the
-// supported OFF state before validation and runtime rendering.
+// intentionally IPv4-only. Historical IPv6 schema fields remain parseable for
+// upgrade/API compatibility, while the retired QNAP runtime markers are
+// discarded. A requested IPv6 TUN remains visible to validation so it is
+// rejected explicitly instead of being silently treated as supported.
 func Normalize(cfg *Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
@@ -42,12 +43,13 @@ func Normalize(cfg *Config) error {
 		return fmt.Errorf("transparent.tun_auto_route must be false on OpenSurge for QNAP; Linux policy routing is owned by OpenSurge")
 	}
 
-	// QNAP IPv6 support is deliberately disabled. Keep accepting the historical
-	// schema so installations upgraded from the former IPv6 experiments do not
-	// become unreadable, then normalize every persisted runtime switch back to
-	// OFF. A subsequent Web/API save persists this migration to disk.
-	cfg.DNS.IPv6 = false
-	cfg.Transparent.TUNIPv6 = TUNIPv6Off
+	// QNAP IPv6 data-plane support is retired. Remove the old native-runtime
+	// marker and readiness acknowledgement so no historical configuration can
+	// resurrect the experimental Linux IPv6 path. TUNIPv6 itself is deliberately
+	// left untouched here: validateTransparent rejects auto/always with the
+	// normal unsupported-QNAP error. DNS.IPv6 is retained only as a legacy
+	// schema value; the QNAP mihomo Manager suppresses it whenever TUN IPv6 is
+	// off, which is the only valid QNAP runtime state.
 	cfg.Transparent.IPv6SharedL2Ready = false
 	cfg.Transparent.IPv6PacketBrokerBinary = ""
 	cfg.Transparent.IPv6PacketMTU = 0
