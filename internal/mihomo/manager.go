@@ -31,6 +31,13 @@ const (
 )
 
 func New(cfg config.Config, paths runtime.Paths) Manager {
+	// QNAP supports no IPv6 data plane. Keep dns.ipv6 parse/persistence
+	// compatibility for older configs and API clients, but suppress it in every
+	// valid QNAP runtime. TUN IPv6 auto/always is rejected by config validation,
+	// so off is the only state that can reach the running gateway.
+	if cfg.Transparent.TUNIPv6 == config.TUNIPv6Off {
+		cfg.DNS.IPv6 = false
+	}
 	return Manager{cfg: cfg, paths: paths}
 }
 
@@ -79,15 +86,7 @@ func (m Manager) Start() (int, error) {
 	if err := os.WriteFile(m.paths.MihomoLog, nil, 0o640); err != nil {
 		return 0, err
 	}
-	env := []string{}
-	if m.cfg.Transparent.TUNIPv6 == config.TUNIPv6Always {
-		// Official Mihomo disables TUN IPv6 when it cannot see usable system IPv6.
-		// QNAP takeover intentionally provides a ULA-only downstream and therefore
-		// needs the documented force switch without changing the container-global
-		// environment or the behavior of auto mode.
-		env = append(env, "SKIP_SYSTEM_IPV6_CHECK=1")
-	}
-	pid, err := process.StartDetachedWithLogEnv(m.paths.MihomoLog, env, binary, "-d", configDir, "-f", m.paths.MihomoConfig)
+	pid, err := process.StartDetachedWithLog(m.paths.MihomoLog, binary, "-d", configDir, "-f", m.paths.MihomoConfig)
 	if err != nil {
 		return 0, err
 	}
@@ -105,18 +104,13 @@ func (m Manager) Start() (int, error) {
 			return 0, err
 		}
 	}
-	if m.usesLegacyIPv6PacketListener() {
+	if m.cfg.Transparent.TUNIPv6 != config.TUNIPv6Off {
 		if err := m.waitForIPv6PacketListener(pid, tunStartupTimeout); err != nil {
 			m.stopStartedProcess(pid)
 			return 0, err
 		}
 	}
 	return pid, nil
-}
-
-func (m Manager) usesLegacyIPv6PacketListener() bool {
-	return m.cfg.Transparent.TUNIPv6 != config.TUNIPv6Off &&
-		strings.TrimSpace(m.cfg.Transparent.IPv6PacketBrokerBinary) != config.NativeLinuxIPv6Runtime
 }
 
 func (m Manager) waitForIPv6PacketListener(pid int, timeout time.Duration) error {
@@ -219,18 +213,7 @@ func (m Manager) waitForTUN(pid int, timeout time.Duration) error {
 		state, err := FetchTUNRuntimeState(ctx, m.cfg)
 		cancel()
 		if err == nil && state.Enabled {
-			if m.cfg.Transparent.TUNIPv6 == config.TUNIPv6Off {
-				return nil
-			}
-			ready, addressErr := nativeTUNIPv6Ready(m.cfg.Transparent.TUNDevice)
-			if addressErr == nil && ready {
-				return nil
-			}
-			if addressErr != nil {
-				lastErr = addressErr
-			} else {
-				lastErr = fmt.Errorf("TUN %s is enabled but %s is not assigned", m.cfg.Transparent.TUNDevice, config.MihomoTUNIPv6)
-			}
+			return nil
 		}
 		if err != nil {
 			lastErr = err
@@ -245,34 +228,6 @@ func (m Manager) waitForTUN(pid int, timeout time.Duration) error {
 		return fmt.Errorf("mihomo TUN not ready after %s: %w", timeout, lastErr)
 	}
 	return fmt.Errorf("mihomo TUN not ready after %s: runtime config still reports disabled", timeout)
-}
-
-func nativeTUNIPv6Ready(device string) (bool, error) {
-	iface, err := net.InterfaceByName(device)
-	if err != nil {
-		return false, err
-	}
-	addresses, err := iface.Addrs()
-	if err != nil {
-		return false, err
-	}
-	expected, _, err := net.ParseCIDR(config.MihomoTUNIPv6)
-	if err != nil {
-		return false, err
-	}
-	for _, address := range addresses {
-		var actual net.IP
-		switch value := address.(type) {
-		case *net.IPNet:
-			actual = value.IP
-		case *net.IPAddr:
-			actual = value.IP
-		}
-		if actual != nil && actual.Equal(expected) {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 func enrichTUNRouteError(detail string) string {
@@ -327,7 +282,7 @@ func (m Manager) Stop(pid int) error {
 }
 
 func (m Manager) cleanupIPv6PacketSocket() error {
-	if !m.usesLegacyIPv6PacketListener() {
+	if m.cfg.Transparent.TUNIPv6 == config.TUNIPv6Off {
 		return nil
 	}
 	info, err := os.Lstat(m.paths.IPv6PacketSocket)

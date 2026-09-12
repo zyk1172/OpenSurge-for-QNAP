@@ -83,7 +83,7 @@ tun:
 {{- end }}
 
 {{ end }}
-{{ if .LegacyIPv6PacketListener }}
+{{ if .TUNIPv6Enabled }}
 listeners:
   - name: {{ .IPv6PacketListenerName }}
     type: opensurge-packet
@@ -114,32 +114,31 @@ func RenderConfig(cfg config.Config) (string, error) {
 
 type templateData struct {
 	config.MihomoConfig
-	TUNEnabled               bool
-	TUNDevice                string
-	TUNStack                 string
-	TUNAutoRoute             bool
-	TUNAutoDetectInterface   bool
-	TUNStrictRoute           bool
-	TUNRouteAddresses        string
-	TUNCustomRoutes          bool
-	LANProxyEnabled          bool
-	MihomoBindAddress        string
-	IPv6Enabled              bool
-	TUNIPv6Enabled           bool
-	TUNIPv6Address           string
-	UpstreamInterface        string
-	LANPrefix                string
-	UpstreamProxy            config.UpstreamProxyConfig
-	DNSIPv6                  bool
-	FakeIPv6Range            string
-	LegacyIPv6PacketListener bool
-	IPv6PacketListenerName   string
-	IPv6PacketSocket         string
-	IPv6PacketMTU            int
-	IPv6DeviceUsers          string
-	Hosts                    string
-	DNSResolverFields        string
-	PolicySections           string
+	TUNEnabled             bool
+	TUNDevice              string
+	TUNStack               string
+	TUNAutoRoute           bool
+	TUNAutoDetectInterface bool
+	TUNStrictRoute         bool
+	TUNRouteAddresses      string
+	TUNCustomRoutes        bool
+	LANProxyEnabled        bool
+	MihomoBindAddress      string
+	IPv6Enabled            bool
+	TUNIPv6Enabled         bool
+	TUNIPv6Address         string
+	UpstreamInterface      string
+	LANPrefix              string
+	UpstreamProxy          config.UpstreamProxyConfig
+	DNSIPv6                bool
+	FakeIPv6Range          string
+	IPv6PacketListenerName string
+	IPv6PacketSocket       string
+	IPv6PacketMTU          int
+	IPv6DeviceUsers        string
+	Hosts                   string
+	DNSResolverFields      string
+	PolicySections         string
 }
 
 func newTemplateData(cfg config.Config) (templateData, error) {
@@ -173,21 +172,9 @@ func newTemplateData(cfg config.Config) (templateData, error) {
 		return templateData{}, err
 	}
 	transparent := cfg.Transparent
-	// QNAP configs loaded through config.Load are normalized to the explicit
-	// native-linux-tun marker. Native same-LAN IPv6 now keeps client public IPv6
-	// and the main router's default route; only fake IPv6 destinations are sent
-	// into the TUN. Therefore there is no fixed client ULA to rewrite into
-	// SRC-IP-CIDR6 device rules. The historical packet listener path is retained
-	// only for direct, unnormalized upstream/macOS compatibility callers.
-	nativeLinuxIPv6 := transparent.TUNIPv6 != config.TUNIPv6Off &&
-		strings.TrimSpace(transparent.IPv6PacketBrokerBinary) == config.NativeLinuxIPv6Runtime
-	legacyPacketListener := transparent.TUNIPv6 != config.TUNIPv6Off && !nativeLinuxIPv6
-	packetSocket := ""
-	if legacyPacketListener {
-		packetSocket, err = filepath.Abs(cfg.RuntimePath("ipv6-packet.sock"))
-		if err != nil {
-			return templateData{}, fmt.Errorf("resolve IPv6 packet socket: %w", err)
-		}
+	packetSocket, err := filepath.Abs(cfg.RuntimePath("ipv6-packet.sock"))
+	if err != nil {
+		return templateData{}, fmt.Errorf("resolve IPv6 packet socket: %w", err)
 	}
 	tunRouteAddresses := renderTailscaleRouteAddresses(cfg, lanPrefix)
 	lanProxyEnabled := !transparent.TUNEnabled()
@@ -199,33 +186,32 @@ func newTemplateData(cfg config.Config) (templateData, error) {
 		hostsYAML = indentYAMLBlock(hostsYAML, "  ")
 	}
 	return templateData{
-		MihomoConfig:              cfg.Mihomo,
-		TUNEnabled:                transparent.TUNEnabled(),
-		TUNDevice:                 transparent.TUNDevice,
-		TUNStack:                  transparent.TUNStack,
-		TUNAutoRoute:              transparent.TUNAutoRoute,
-		TUNAutoDetectInterface:    transparent.TUNAutoDetectInterface,
-		TUNStrictRoute:            transparent.TUNStrictRoute,
-		TUNRouteAddresses:         tunRouteAddresses,
-		TUNCustomRoutes:           tunRouteAddresses != "",
-		LANProxyEnabled:           lanProxyEnabled,
-		MihomoBindAddress:         mihomoBindAddress,
-		IPv6Enabled:               cfg.DNS.IPv6 || transparent.TUNIPv6 != config.TUNIPv6Off,
-		TUNIPv6Enabled:            transparent.TUNIPv6 != config.TUNIPv6Off,
-		TUNIPv6Address:            config.MihomoTUNIPv6,
-		UpstreamInterface:         cfg.Gateway.UpstreamInterface,
-		LANPrefix:                 lanPrefix,
-		UpstreamProxy:             cfg.UpstreamProxy,
-		DNSIPv6:                   cfg.DNS.IPv6,
-		FakeIPv6Range:             config.MihomoFakeIPv6Range,
-		LegacyIPv6PacketListener:  legacyPacketListener,
-		IPv6PacketListenerName:    config.IPv6PacketListenerName,
-		IPv6PacketSocket:          yamlQuote(packetSocket),
-		IPv6PacketMTU:             transparent.IPv6PacketMTU,
-		IPv6DeviceUsers:           renderIPv6DeviceUsers(cfg),
-		Hosts:                     hostsYAML,
-		DNSResolverFields:         indentYAMLBlock(dnsResolverFields, "  "),
-		PolicySections:            policySections,
+		MihomoConfig:           cfg.Mihomo,
+		TUNEnabled:             transparent.TUNEnabled(),
+		TUNDevice:              transparent.TUNDevice,
+		TUNStack:               transparent.TUNStack,
+		TUNAutoRoute:           transparent.TUNAutoRoute,
+		TUNAutoDetectInterface: transparent.TUNAutoDetectInterface,
+		TUNStrictRoute:         transparent.TUNStrictRoute,
+		TUNRouteAddresses:      tunRouteAddresses,
+		TUNCustomRoutes:        tunRouteAddresses != "",
+		LANProxyEnabled:        lanProxyEnabled,
+		MihomoBindAddress:      mihomoBindAddress,
+		IPv6Enabled:            cfg.DNS.IPv6 || transparent.TUNIPv6 != config.TUNIPv6Off,
+		TUNIPv6Enabled:         transparent.TUNIPv6 != config.TUNIPv6Off,
+		TUNIPv6Address:         config.MihomoTUNIPv6,
+		UpstreamInterface:      cfg.Gateway.UpstreamInterface,
+		LANPrefix:              lanPrefix,
+		UpstreamProxy:          cfg.UpstreamProxy,
+		DNSIPv6:                cfg.DNS.IPv6,
+		FakeIPv6Range:          config.MihomoFakeIPv6Range,
+		IPv6PacketListenerName: config.IPv6PacketListenerName,
+		IPv6PacketSocket:       yamlQuote(packetSocket),
+		IPv6PacketMTU:          transparent.IPv6PacketMTU,
+		IPv6DeviceUsers:        renderIPv6DeviceUsers(cfg),
+		Hosts:                   hostsYAML,
+		DNSResolverFields:      indentYAMLBlock(dnsResolverFields, "  "),
+		PolicySections:         policySections,
 	}, nil
 }
 

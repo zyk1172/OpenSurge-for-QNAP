@@ -2073,8 +2073,18 @@ func TestControlConfigRoundTripsIPv6Controls(t *testing.T) {
 	}
 	input := controlConfigFrom(cfg, fileDigest(path))
 	input.DNS.IPv6 = true
+	// Downstream IPv6 takeover is rejected by validation on the QNAP fork;
+	// only the DNS toggle may persist.
 	input.Transparent.TUNIPv6 = config.TUNIPv6Always
 	payload, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := applyControlConfig(path, input.Revision, payload); err == nil {
+		t.Fatal("applying downstream IPv6 takeover should be rejected on QNAP")
+	}
+	input.Transparent.TUNIPv6 = config.TUNIPv6Off
+	payload, err = json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2085,11 +2095,8 @@ func TestControlConfigRoundTripsIPv6Controls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !updated.DNS.IPv6 || updated.Transparent.TUNIPv6 != config.TUNIPv6Always {
+	if !updated.DNS.IPv6 || updated.Transparent.TUNIPv6 != config.TUNIPv6Off {
 		t.Fatalf("DNS toggle was not persisted: DNS=%v takeover=%q", updated.DNS.IPv6, updated.Transparent.TUNIPv6)
-	}
-	if updated.Transparent.IPv6PacketBrokerBinary != config.NativeLinuxIPv6Runtime || updated.Transparent.IPv6PacketMTU != 1500 {
-		t.Fatalf("QNAP IPv6 runtime defaults were not materialized: broker=%q mtu=%d", updated.Transparent.IPv6PacketBrokerBinary, updated.Transparent.IPv6PacketMTU)
 	}
 }
 

@@ -2,7 +2,7 @@
 
 OpenSurge for QNAP 是面向 QNAP NAS 的单容器透明代理网关。它把 Web 管理、mihomo、DNS、TUN、策略路由和持久化恢复集中在一个 Docker 容器中，通过 QNAP QNET 获得独立局域网 IPv4。
 
-当前项目处于 **QNAP 真机稳定化 / 测试版阶段**。默认目标仍是 IPv4 Same-LAN Manual Gateway：主路由 DHCP 保持不变，只让需要代理的客户端把 IPv4 网关和 DNS 指向 OpenSurge。QNAP same-LAN 另提供可选的 **IPv6 DNS / fake-IP 定向接管**：客户端继续使用主路由的公网 IPv6 和默认路由，只把 Mihomo fake IPv6 网段静态路由到 OpenSurge。
+当前项目处于 **QNAP 真机稳定化 / 测试版阶段**。默认目标是 IPv4 Same-LAN Manual Gateway：主路由 DHCP 保持不变，只让需要代理的客户端把 IPv4 网关和 DNS 指向 OpenSurge。
 
 > 当前测试镜像仅用于验证，不是 stable release。
 
@@ -10,7 +10,7 @@ OpenSurge for QNAP 是面向 QNAP NAS 的单容器透明代理网关。它把 We
 
 ```text
 局域网客户端
- Gateway / DNS = OpenSurge IP（IPv4 manual gateway）
+ Gateway / DNS = OpenSurge IP
         │
         ▼
 QNAP QNET 独立 LAN IP
@@ -38,7 +38,7 @@ opensurge
 
 不需要 Manager / Orchestrator，也不把 Docker Socket 暴露给 Web。
 
-### QNAP same-LAN IPv4 数据面
+### QNAP same-LAN 数据面
 
 在支持 TUN 和 Linux policy routing、但缺少 `nf_tables` 的 QNAP 内核上，OpenSurge 使用 ingress-interface 路由：
 
@@ -54,36 +54,9 @@ tun0
 mihomo
 ```
 
-因此当前 same-LAN QNET 的 IPv4 manual-gateway 模式 **不要求 nftables**。TCP 和 UDP 都通过 TUN 数据面处理。
+因此当前 same-LAN QNET 模式 **不要求 nftables**。TCP 和 UDP 都通过 TUN 数据面处理。
 
 对需要 NAT 的隔离下游网络，仍保留 nftables/fwmark 后端及严格能力检查。
-
-### 可选 IPv6 DNS / fake-IP 定向接管
-
-QNAP same-LAN 的 IPv6 不再要求客户端手工使用 OpenSurge ULA，也不让 OpenSurge 与主路由竞争 RA/default route。
-
-```text
-普通 IPv6：客户端 ──► 主路由 ──► Internet
-
-DNS：客户端 ──► 主路由 DNS ──► OpenSurge DNS
-                               │
-                               └─ fake AAAA = fdfe:dcba:9876::/64
-                                              │
-                                    主路由 IPv6 静态路由
-                                              ▼
-                                          OpenSurge
-                                              ▼
-                                             TUN
-```
-
-主路由继续提供原来的 RA、DHCPv6/Bridge/Passthrough、公网 IPv6 和默认 IPv6 路由。只需要把 `fdfe:dcba:9876::/64` 静态路由到 Web 显示的 OpenSurge 稳定 link-local 下一跳。
-
-OpenSurge Linux policy routing 也只匹配 fake IPv6 前缀，不再安装 `iif eth0 → IPv6 default dev tun0` 的全量接管规则。该路径以全局 Mihomo 规则为保证目标，不承诺逐设备 IPv6 策略；原有 IPv4 设备策略保持不变。
-
-详见：
-
-- [QNAP IPv6 DNS / fake-IP 定向接管](docs/QNAP_IPV6_DNS_FAKEIP.zh-CN.md)
-- [QNAP IPv6 DNS / fake-IP steering (English)](docs/QNAP_IPV6_DNS_FAKEIP.md)
 
 ## 测试镜像
 
@@ -117,7 +90,6 @@ opensurge-for-qnap:test
 
 - [中文部署指南](deploy/qnap/README.zh-CN.md)
 - [English deployment guide](deploy/qnap/README.md)
-- [IPv6 DNS / fake-IP 指南](docs/QNAP_IPV6_DNS_FAKEIP.zh-CN.md)
 - [持久化说明](deploy/qnap/PERSISTENCE.md)
 - [默认 Compose](deploy/qnap/docker-compose.yml)
 
@@ -149,7 +121,6 @@ QNAP Web 当前提供：
 - 网关启动、停止和异常状态恢复；
 - 容器实际网络状态；
 - DNS / TUN 可变运行参数；
-- IPv6 DNS / fake-IP 定向接管配置与主路由静态路由参数提示；
 - HTTPS 订阅和本地 YAML 导入；
 - 高级全局附加配置中的 Hosts 文件导入、顶层 `hosts:` 映射，以及 `dns.use-hosts` / `dns.use-system-hosts` 控制；
 - 草稿、当前运行版本和下次启动版本持久化；
@@ -192,10 +163,9 @@ QNAP build 只呈现 NAS 相关功能，不把桌面系统专属控制项作为 
 - `NET_ADMIN` / `NET_RAW` 可用；
 - `iproute2` 可用；
 - 该内核缺少 `nf_tables` netlink 支持；
-- 手动 mihomo HTTP / SOCKS5 / DNS 路径可用；
-- QNET IPv6 IPAM 不接受 IPv6 address pool，但容器 network namespace 可以显式启用 IPv6 并绑定 IPv6 地址。
+- 手动 mihomo HTTP / SOCKS5 / DNS 路径可用。
 
-针对缺少 `nf_tables` 的 same-LAN QNAP，项目已经加入 nft-free TUN policy routing。IPv6 fake-IP 路径还额外要求容器在 forwarding 开启时保持 `accept_ra=2`，以继续学习主路由的原生 IPv6 路由。
+针对缺少 `nf_tables` 的 same-LAN QNAP，项目已经加入 nft-free TUN ingress-interface policy routing，并有独立 TCP/UDP namespace CI。
 
 仍需继续完成真实客户端、重启和长期运行验证。
 
@@ -211,7 +181,6 @@ OpenSurge 的 QNAP 部署遵守以下约束：
 6. 网络对象必须通过 ownership / snapshot / journal 精确恢复。
 7. 容器重建后的新 network namespace 不直接重放旧 namespace 的内核状态。
 8. 正常 QNAP Web 操作不修改 QTS 默认网关、DNS、DHCP 或 Virtual Switch。
-9. IPv6 DNS/fake-IP 模式只安装 `fdfe:dcba:9876::/64` 的容器内 IPv6 TUN 路由，不接管 LAN 的 `::/0` 默认路由。
 
 ## 当前范围
 
@@ -225,17 +194,10 @@ OpenSurge 的 QNAP 部署遵守以下约束：
 - 订阅 / Provider / 策略 / 设备管理；
 - 持久化和容器重建恢复。
 
-实验性/继续验证：
-
-- QNAP same-LAN IPv6 DNS / fake-IP 定向接管；
-- 主路由 DNS + `fdfe:dcba:9876::/64` 静态路由；
-- 保留客户端原生公网 IPv6 与主路由默认 IPv6 路由。
-
 暂不作为第一稳定版目标：
 
 - 自动接管主路由 DHCP；
-- OpenSurge 发送 RA/SLAAC 或成为整个 LAN 的 IPv6 默认路由；
-- 精确逐设备 IPv6 策略；
+- 下游 IPv6 takeover；
 - 自动修改 QNAP Network & Virtual Switch；
 - QPKG；
 - 全自动家庭网络迁移。
@@ -243,7 +205,6 @@ OpenSurge 的 QNAP 部署遵守以下约束：
 ## Stable 前仍需完成
 
 - 一台真实客户端的 TCP / UDP / QUIC 端到端验证；
-- IPv6 fake-IP 静态路由、DIRECT/PROXY/REJECT 与公网 IPv6 保留验证；
 - QNAP reboot 后恢复；
 - 24h / 72h soak；
 - 长时间 CPU、内存、FD、日志容量观察；

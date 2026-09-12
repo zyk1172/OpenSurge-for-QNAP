@@ -75,12 +75,6 @@ export function QNAPNetworkPage({
 
   const saveRuntime = async () => {
     if (!draft || saving || lifecycleBusy) return
-    const ipv6DNSFakeIPEnabled = draft.transparent.tun_ipv6 !== 'off' && draft.dns.ipv6
-    if (ipv6DNSFakeIPEnabled && !draft.transparent.ipv6_shared_l2_ready) {
-      setError(t('开启 IPv6 DNS 定向接管前，请先完成主路由 DNS 与 fake-IP IPv6 静态路由，并勾选确认。'))
-      return
-    }
-
     setSaving(true)
     setError('')
     setMessage('')
@@ -92,7 +86,18 @@ export function QNAPNetworkPage({
         stoppedForSave = true
       }
 
-      const saved = await api.saveConfig(draft)
+      // QNAP is deliberately IPv4-only. Keep the schema fields for older API
+      // clients, but never allow this page to persist an old IPv6 experiment.
+      const ipv4OnlyDraft: ControlConfig = {
+        ...draft,
+        dns: { ...draft.dns, ipv6: false },
+        transparent: {
+          ...draft.transparent,
+          tun_ipv6: 'off',
+          ipv6_shared_l2_ready: false,
+        },
+      }
+      const saved = await api.saveConfig(ipv4OnlyDraft)
       const reread = await api.config()
       if (saved.revision !== reread.revision) throw new Error(t('配置保存后的版本校验失败，请重新读取后再试。'))
       setDraft(reread)
@@ -119,8 +124,6 @@ export function QNAPNetworkPage({
     ? `${actual.snapshot.ipv4}/${draft?.gateway.lan_prefix_len ?? 24}`
     : draft ? `${draft.gateway.lan_ip}/${draft.gateway.lan_prefix_len}` : '—'
   const router = actual?.snapshot.router || '由 Docker/QNET 创建参数确定'
-  const ipv6DNSFakeIPEnabled = Boolean(draft && draft.transparent.tun_ipv6 !== 'off' && draft.dns.ipv6)
-  const ipv6NextHop = qnapLinkLocalIPv6(networkIPv4)
 
   return <>
     <PageHeader
@@ -170,71 +173,9 @@ export function QNAPNetworkPage({
         </article>
       </div>
 
-      <div className="qnap-ipv6-panel">
-        <SectionTitle title={t('IPv6 DNS 定向接管')} subtitle={t('保留主路由 IPv6、公网地址和默认路由，只把 fake-IP IPv6 送入 OpenSurge')} />
-
-        <label className="sidebar-switch">
-          <input type="checkbox" checked={ipv6DNSFakeIPEnabled} onChange={event => {
-            const enabled = event.target.checked
-            patch({
-              dns: { ...draft.dns, ipv6: enabled },
-              transparent: {
-                ...draft.transparent,
-                tun_ipv6: enabled ? 'always' : 'off',
-                ipv6_shared_l2_ready: false,
-              },
-            })
-          }} />
-          <span>
-            <strong>{t('启用 IPv6 DNS / fake-IP 定向接管')}</strong>
-            <small>{t('不开 RA，不修改客户端 IPv6 网关；普通 IPv6 继续直接走主路由。')}</small>
-          </span>
-        </label>
-
-        {ipv6DNSFakeIPEnabled && <>
-          <div className="source-import-grid">
-            <article className="source-import-card qnap-ipv6-values">
-              <span><strong>{t('主路由 DNS 上游')}</strong><code>{networkIPv4}</code></span>
-              <span><strong>{t('IPv6 fake-IP 网段')}</strong><code>fdfe:dcba:9876::/64</code></span>
-              <span><strong>{t('IPv6 静态路由下一跳')}</strong><code>{ipv6NextHop || '—'}</code></span>
-              <span><strong>{t('静态路由出口')}</strong><code>{networkInterface}</code></span>
-            </article>
-            <article className="source-import-card">
-              <strong>{t('主路由需要两项设置')}</strong>
-              <p>{t('1. 将主路由使用的 DNS 上游指向 OpenSurge IPv4。')}</p>
-              <p>{t('2. 添加 IPv6 静态路由：fdfe:dcba:9876::/64 → 上方 OpenSurge link-local 下一跳，并选择 LAN/桥接口。')}</p>
-              <p className="muted">{t('主路由原有 IPv6 RA、DHCPv6、IPv6 Bridge/Passthrough 和公网 IPv6 分配保持不变。')}</p>
-            </article>
-          </div>
-
-          <label className="sidebar-switch">
-            <input type="checkbox" checked={draft.transparent.ipv6_shared_l2_ready ?? false} onChange={event => patch({ transparent: { ...draft.transparent, ipv6_shared_l2_ready: event.target.checked } })} />
-            <span>
-              <strong>{t('主路由 DNS 和 IPv6 静态路由已配置')}</strong>
-              <small>{t('确认 fake-IP IPv6 网段会被送到 OpenSurge，普通公网 IPv6 仍使用主路由。')}</small>
-            </span>
-          </label>
-
-          <div className="notice">
-            <strong>{t('客户端无需设置 IPv6')}</strong>
-            <p>{t('手机、电视和电脑继续从主路由获得原来的公网 IPv6 与默认路由。只有 OpenSurge DNS 返回的 fake IPv6 会经主路由静态路由进入 TUN，并按照全局 Mihomo 规则决定 DIRECT / PROXY / REJECT。')}</p>
-          </div>
-
-          <div className="notice warn">
-            <strong>{t('IPv6 不再承诺逐设备策略')}</strong>
-            <p>{t('这条路径在 Linux TUN 三层入口看不到原始客户端 MAC，因此按设备 IPv6 策略不作为保证目标；IPv4 设备策略保持原有实现不变。')}</p>
-          </div>
-
-          <div className="notice warn">
-            <strong>{t('注意统一 fake-IP DNS 对 IPv4 A 查询的影响')}</strong>
-            <p>{t('本功能不新增或修改 IPv4 路由，但 Mihomo 的统一 fake-IP DNS 仍可能给 A 查询返回 IPv4 fake-ip。若把 OpenSurge DNS 全局提供给未走 OpenSurge IPv4 数据面的设备，请确认现有 IPv4 fake-ip 路径可达，或在主路由侧使用合适的 DNS 策略。')}</p>
-          </div>
-        </>}
-
-        {!ipv6DNSFakeIPEnabled && <div className="notice">
-          <strong>{t('IPv6 保持原网络行为')}</strong>
-          <p>{t('关闭后 OpenSurge 不建立 IPv6 fake-IP TUN 路由。客户端继续完全使用主路由提供的 IPv6。')}</p>
-        </div>}
+      <div className="notice warn">
+        <strong>IPv6：OFF / 不支持</strong>
+        <p>OpenSurge for QNAP 当前仅支持 IPv4 数据面。容器不会接管、分配、代理或管理 IPv6；IPv6 继续完全由光猫、主路由和运营商处理。旧配置中的 IPv6 开关会在加载时自动迁移为 OFF。</p>
       </div>
 
       <div className="source-actions">
@@ -250,12 +191,4 @@ export function QNAPNetworkPage({
       <p>{t('停止并重建容器时修改 Compose 中的 QNET 父接口、IPv4、CIDR 或主路由。保留同一个 /data 持久化目录即可保留管理员、订阅、规则、设备策略和运行配置。')}</p>
     </section>
   </>
-}
-
-function qnapLinkLocalIPv6(ipv4: string): string {
-  const parts = ipv4.trim().split('.').map(value => Number(value))
-  if (parts.length !== 4 || parts.some(value => !Number.isInteger(value) || value < 0 || value > 255)) return ''
-  const upper = ((parts[0] << 8) | parts[1]).toString(16)
-  const lower = ((parts[2] << 8) | parts[3]).toString(16)
-  return `fe80::1:0:${upper}:${lower}`
 }

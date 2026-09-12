@@ -59,7 +59,7 @@ jobs:
           ! grep -q 'opensurge-orchestrator' /tmp/opensurge-qnap-compose.yaml
           ! grep -q '/var/run/docker.sock' /tmp/opensurge-qnap-compose.yaml
           ! grep -qE '^[[:space:]]+build:' /tmp/opensurge-qnap-compose.yaml
-      - name: Verify QNET, persistence, and QNAP Web identity
+      - name: Verify QNET, persistence, QNAP Web identity, and IPv4-only network
         run: |
           grep -q 'iface: eth1' /tmp/opensurge-qnap-compose.yaml
           grep -q 'ipv4_address: 192.168.50.2' /tmp/opensurge-qnap-compose.yaml
@@ -73,9 +73,12 @@ jobs:
           grep -q 'NET_ADMIN' /tmp/opensurge-qnap-compose.yaml
           grep -q 'NET_RAW' /tmp/opensurge-qnap-compose.yaml
           grep -q '/dev/net/tun' /tmp/opensurge-qnap-compose.yaml
-          grep -q 'net.ipv6.conf.all.disable_ipv6: "0"' /tmp/opensurge-qnap-compose.yaml
-          grep -q 'net.ipv6.conf.default.disable_ipv6: "0"' /tmp/opensurge-qnap-compose.yaml
-          grep -q 'net.ipv6.conf.eth0.disable_ipv6: "0"' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'net.ipv6.conf.all.disable_ipv6: "1"' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'net.ipv6.conf.default.disable_ipv6: "1"' /tmp/opensurge-qnap-compose.yaml
+          grep -q 'net.ipv6.conf.eth0.disable_ipv6: "1"' /tmp/opensurge-qnap-compose.yaml
+          ! grep -q 'net.ipv6.conf.all.forwarding' /tmp/opensurge-qnap-compose.yaml
+          ! grep -q 'net.ipv6.conf.default.forwarding' /tmp/opensurge-qnap-compose.yaml
+          ! grep -q 'net.ipv6.conf.eth0.accept_ra' /tmp/opensurge-qnap-compose.yaml
       - name: Guard QNAP permission model
         run: |
           grep -q 'OPENSURGE_WEB_UID:-1000' docker/entrypoint.sh
@@ -94,10 +97,8 @@ jobs:
           grep -q -- '--component control' docker/entrypoint.sh
           grep -q -- '--bounding-set=-all' docker/entrypoint.sh
           grep -q -- '--require-bootstrap-token' docker/entrypoint.sh
-          grep -q 'enable_container_ipv6' docker/entrypoint.sh
-          grep -q 'net/ipv6/conf/all/disable_ipv6' docker/entrypoint.sh
-          grep -q 'net/ipv6/conf/default/disable_ipv6' docker/entrypoint.sh
-          grep -q 'net/ipv6/conf/.*disable_ipv6' docker/entrypoint.sh
+          ! grep -q 'enable_container_ipv6' docker/entrypoint.sh
+          ! grep -q 'net/ipv6/conf/' docker/entrypoint.sh
 
   qnap-web:
     runs-on: ubuntu-latest
@@ -132,6 +133,7 @@ jobs:
           grep -q '!qnapBuild && <ServiceState label="PF Anchor"' web/src/components/GatewayHealthCard.tsx
           grep -q 'OpenSurge 负责网关生命周期；mihomo 是当前代理引擎。' web/src/pages/DashboardPage.tsx
           grep -q '修改以下任一项需要重建 OpenSurge 容器' web/src/pages/QNAPNetworkPage.tsx
+          grep -q 'IPv6：OFF / 不支持' web/src/pages/QNAPNetworkPage.tsx
           grep -q 'desired/运行版本' web/src/pages/QNAPSourcesPage.tsx
           grep -q "'本机 Mac': 'OpenSurge 网关'" web/src/i18n.ts
           grep -q "'Mac 本机运行路径': 'OpenSurge 网关路径'" web/src/i18n.ts

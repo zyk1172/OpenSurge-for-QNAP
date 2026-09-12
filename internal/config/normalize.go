@@ -6,13 +6,12 @@ import (
 	"strings"
 )
 
-const NativeLinuxIPv6Runtime = "native-linux-tun"
-
 // Normalize materializes derived/default-compatible values into cfg before the
-// configuration is validated or frozen for application. Only settings that
-// would make the Linux data plane unsafe are rejected here. Legacy control-plane
-// fields that no longer have a Linux runtime effect are preserved until the Web
-// schema cleanup phase so imported/upstream configuration can still round-trip.
+// configuration is validated or frozen for application. OpenSurge for QNAP is
+// intentionally IPv4-only. Historical IPv6 schema fields remain parseable for
+// upgrade/API compatibility, while the retired QNAP runtime markers are
+// discarded. A requested IPv6 TUN remains visible to validation so it is
+// rejected explicitly instead of being silently treated as supported.
 func Normalize(cfg *Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
@@ -44,31 +43,16 @@ func Normalize(cfg *Config) error {
 		return fmt.Errorf("transparent.tun_auto_route must be false on OpenSurge for QNAP; Linux policy routing is owned by OpenSurge")
 	}
 
-	// The QNAP port uses Mihomo's native dual-stack TUN. Older configs still carry
-	// the upstream macOS packet-broker fields and the validator keeps accepting
-	// them for round-trip compatibility. Materialize harmless compatibility values
-	// here so an existing QNAP config can enable IPv6 without requiring hidden
-	// fields that the Web UI no longer exposes.
-	if cfg.Transparent.TUNIPv6 != "" && cfg.Transparent.TUNIPv6 != TUNIPv6Off {
-		if strings.TrimSpace(cfg.Transparent.IPv6PacketBrokerBinary) == "" {
-			cfg.Transparent.IPv6PacketBrokerBinary = NativeLinuxIPv6Runtime
-		}
-		if cfg.Transparent.IPv6PacketMTU == 0 {
-			cfg.Transparent.IPv6PacketMTU = 1500
-		}
-	}
+	// QNAP IPv6 data-plane support is retired. Remove the old native-runtime
+	// marker and readiness acknowledgement so no historical configuration can
+	// resurrect the experimental Linux IPv6 path. TUNIPv6 itself is deliberately
+	// left untouched here: validateTransparent rejects auto/always with the
+	// normal unsupported-QNAP error. DNS.IPv6 is retained only as a legacy
+	// schema value; the QNAP mihomo Manager suppresses it whenever TUN IPv6 is
+	// off, which is the only valid QNAP runtime state.
+	cfg.Transparent.IPv6SharedL2Ready = false
+	cfg.Transparent.IPv6PacketBrokerBinary = ""
+	cfg.Transparent.IPv6PacketMTU = 0
 
-	// QNAP same-LAN IPv6 no longer replaces the client's default router. Mihomo
-	// DNS must synthesize IPv6 fake-IP answers, and the main router must forward
-	// only that fake prefix to OpenSurge. Reuse the existing persisted readiness
-	// acknowledgement so older schema-v1 clients continue to round-trip safely.
-	if cfg.Gateway.Mode == GatewayModeSameLAN && cfg.Transparent.TUNIPv6 != "" && cfg.Transparent.TUNIPv6 != TUNIPv6Off {
-		if !cfg.DNS.IPv6 {
-			return fmt.Errorf("QNAP same-LAN IPv6 DNS steering requires dns.ipv6: true so Mihomo can return fake IPv6 answers")
-		}
-		if !cfg.Transparent.IPv6SharedL2Ready {
-			return fmt.Errorf("QNAP same-LAN IPv6 DNS steering requires transparent.ipv6_shared_l2_ready: true after the main router uses OpenSurge DNS and routes %s to OpenSurge", MihomoFakeIPv6Range)
-		}
-	}
 	return nil
 }

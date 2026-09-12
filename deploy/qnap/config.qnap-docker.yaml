@@ -5,11 +5,9 @@
 # assumption about the user's LAN. Open the Web UI and replace them before
 # starting the gateway.
 #
-# QNAP same-LAN IPv6 is opt-in. When enabled from Web, dns.ipv6 and tun_ipv6
-# are enabled together and ipv6_shared_l2_ready acknowledges that the main
-# router already uses OpenSurge DNS and routes fdfe:dcba:9876::/64 to the
-# OpenSurge link-local next hop. OpenSurge does not replace the LAN IPv6
-# default router or advertise RA/SLAAC in this topology.
+# OpenSurge for QNAP is intentionally IPv4-only. Legacy IPv6 keys remain in the
+# schema for upgrade/API compatibility, but TUN IPv6 is unsupported, the Web
+# persists IPv6 OFF, and the container namespace disables IPv6.
 
 gateway:
   mode: "same_lan"
@@ -61,6 +59,8 @@ transparent:
   tun_auto_route: false
   tun_auto_detect_interface: false
   tun_strict_route: false
+  # Compatibility keys only. auto/always is rejected on QNAP; off is the only
+  # supported runtime state.
   tun_ipv6: "off"
   ipv6_shared_l2_ready: false
 

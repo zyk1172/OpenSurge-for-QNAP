@@ -16,18 +16,12 @@ services:
       net.ipv4.ip_forward: "1"
       net.ipv4.conf.all.rp_filter: "0"
       net.ipv4.conf.default.rp_filter: "0"
-      net.ipv6.conf.all.disable_ipv6: "0"
-      net.ipv6.conf.default.disable_ipv6: "0"
-      net.ipv6.conf.eth0.disable_ipv6: "0"
-      net.ipv6.conf.all.forwarding: "1"
-      net.ipv6.conf.default.forwarding: "1"
-      # Linux normally stops accepting Router Advertisements when forwarding is
-      # enabled. QNAP DNS/fake-IP steering deliberately keeps the upstream
-      # router's native/public IPv6 path, so eth0 must continue learning RA.
-      net.ipv6.conf.default.accept_ra: "2"
-      net.ipv6.conf.eth0.accept_ra: "2"
-      net.ipv6.conf.default.autoconf: "1"
-      net.ipv6.conf.eth0.autoconf: "1"
+      # OpenSurge for QNAP is intentionally IPv4-only. Disable IPv6 in the
+      # container namespace so legacy configs cannot accidentally re-enable an
+      # unsupported data plane.
+      net.ipv6.conf.all.disable_ipv6: "1"
+      net.ipv6.conf.default.disable_ipv6: "1"
+      net.ipv6.conf.eth0.disable_ipv6: "1"
 
     security_opt:
       - no-new-privileges:true
