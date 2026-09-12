@@ -341,24 +341,20 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 		return err
 	}
 
-	probe, err := m.runHost(ctx, nil, "ip", "-4", "route", "get", "1.1.1.1", "from", hostIP, "iif", "lo")
-	if err != nil || !strings.Contains(string(probe), "via "+cfg.Gateway.LANIP) {
+	// `ip route get ... iif lo` is not a valid simulation of a local socket on
+	// all Linux kernels: route-get treats an explicit iif as an ingress lookup
+	// and may reject a locally-owned source with EINVAL. Verify the host half by
+	// reading back the exact installed RPDB/table state instead; the L4 selector
+	// capability was already proven before any persistent state was installed.
+	installed := m.statusLocked(ctx)
+	if !installed.Enabled || !installed.DNSRedirect {
 		_ = m.disableLocked(ctx)
-		if err != nil {
-			return fmt.Errorf("verify NAS host proxy route: %w", err)
-		}
-		return fmt.Errorf("NAS host route verification did not select OpenSurge: %s", strings.TrimSpace(string(probe)))
+		return fmt.Errorf("verify NAS host takeover state: routing=%t dns=%t", installed.Enabled, installed.DNSRedirect)
 	}
 
-	dnsProbe, err := m.runHost(ctx, nil, "ip", "-4", "route", "get", cfg.Gateway.UpstreamGateway, "from", hostIP, "iif", "lo", "ipproto", "udp", "dport", "53")
-	if err != nil || !strings.Contains(string(dnsProbe), "via "+cfg.Gateway.LANIP) {
-		_ = m.disableLocked(ctx)
-		if err != nil {
-			return fmt.Errorf("verify NAS DNS policy route: %w", err)
-		}
-		return fmt.Errorf("NAS DNS route verification did not select OpenSurge: %s", strings.TrimSpace(string(dnsProbe)))
-	}
-
+	// The container receives the NAS address as a forwarded source, so an
+	// ingress route lookup is valid here and proves the DNS-specific table wins
+	// over the ordinary same-LAN route before Mihomo's dns-hijack.
 	gatewayDNSProbe, err := m.runContainer(ctx, nil, "ip", "-4", "route", "get", cfg.Gateway.UpstreamGateway, "from", hostIP, "iif", cfg.Gateway.Interface, "ipproto", "udp", "dport", "53")
 	if err != nil || !strings.Contains(string(gatewayDNSProbe), "dev "+cfg.Transparent.TUNDevice) {
 		_ = m.disableLocked(ctx)
@@ -458,7 +454,7 @@ func (m *Manager) ensurePolicySlotsFreeLocked(ctx context.Context) error {
 			if strings.HasPrefix(line, priority+":") {
 				return fmt.Errorf("OpenSurge container already uses policy-rule priority %s; NAS DNS takeover will not overwrite it", priority)
 			}
-	}
+		}
 	}
 	containerRoutes, err := m.runContainer(ctx, nil, "ip", "-4", "route", "show", "table", containerDNSRouteTableID)
 	if err != nil {
