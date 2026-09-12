@@ -70,7 +70,9 @@ ARG DNSMASQ_VERSION=2.93
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      ca-certificates curl iproute2 nftables tini tzdata util-linux \
+      ca-certificates curl iproute2 netbase nftables tini tzdata util-linux \
+ && grep -Eq '^udp[[:space:]]+17([[:space:]]|$)' /etc/protocols \
+ && grep -Eq '^tcp[[:space:]]+6([[:space:]]|$)' /etc/protocols \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=go-builder /out/opensurge-container /usr/local/bin/opensurge-container
