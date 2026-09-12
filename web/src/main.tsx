@@ -4,6 +4,7 @@ import { App } from './App'
 import { activateLanguage, initialRequestedLanguage, prepareLanguage } from './i18n'
 import './i18n.profile-overlay.en'
 import './i18n.qnap.en'
+import './i18n.qnap-host.en'
 import './styles.css'
 import './qnap-enhancements.css'
 
