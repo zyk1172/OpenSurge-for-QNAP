@@ -308,12 +308,23 @@ func (m *Manager) ensurePolicySlotsFreeLocked(ctx context.Context) error {
 	}
 	routes, err := m.runHost(ctx, nil, "ip", "-4", "route", "show", "table", routeTableID)
 	if err != nil {
-		return fmt.Errorf("inspect QNAP host route table %s: %w", routeTableID, err)
+		// On a fresh QNAP host the dedicated table has not been created yet.
+		// iproute2 reports that normal empty-table state as a command error;
+		// treat it as an unused table and let enableLocked create the first
+		// OpenSurge-owned route. Other inspection errors still fail closed.
+		if !isMissingRouteTableError(routes) {
+			return fmt.Errorf("inspect QNAP host route table %s: %w", routeTableID, err)
+		}
+		routes = nil
 	}
 	if strings.TrimSpace(string(routes)) != "" {
 		return fmt.Errorf("QNAP host route table %s is already in use; OpenSurge will not overwrite it", routeTableID)
 	}
 	return nil
+}
+
+func isMissingRouteTableError(output []byte) bool {
+	return strings.Contains(strings.ToLower(string(output)), "fib table does not exist")
 }
 
 func (m *Manager) disableLocked(ctx context.Context) error {
