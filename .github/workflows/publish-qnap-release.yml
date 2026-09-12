@@ -1,0 +1,286 @@
+name: Publish QNAP stable release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vX.Y.Z tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qnap-stable-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOCKERHUB_REPOSITORY: zyk1172/opensurge-for-qnap
+  GHCR_REPOSITORY: ghcr.io/zyk1172/opensurge-for-qnap
+
+jobs:
+  security:
+    name: Stable security gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Go vulnerability scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          govulncheck ./...
+      - name: Build release scan image
+        run: |
+          docker build \
+            --file docker/Dockerfile \
+            --build-arg OPENSURGE_VERSION="security-scan-${GITHUB_SHA::12}" \
+            --build-arg VCS_REF="$GITHUB_SHA" \
+            --tag opensurge-for-qnap:release-scan \
+            .
+      - name: Scan final container image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: opensurge-for-qnap:release-scan
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          vuln-type: os,library
+
+  build:
+    name: Build ${{ matrix.arch }} release archive
+    needs: security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+          - arch: arm64
+            platform: linux/arm64
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Resolve release version
+        id: version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            tag="${INPUT_TAG}"
+          fi
+          case "$tag" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "invalid stable tag: $tag" >&2; exit 2 ;;
+          esac
+          version="${tag#v}"
+          printf 'tag=%s\nversion=%s\n' "$tag" "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build Docker archive
+        run: |
+          mkdir -p artifacts
+          docker buildx build \
+            --platform '${{ matrix.platform }}' \
+            --file docker/Dockerfile \
+            --build-arg OPENSURGE_VERSION='${{ steps.version.outputs.version }}' \
+            --build-arg VCS_REF="$GITHUB_SHA" \
+            --tag 'opensurge-for-qnap:${{ steps.version.outputs.version }}' \
+            --output 'type=docker,dest=artifacts/OpenSurge-for-QNAP-${{ steps.version.outputs.version }}-${{ matrix.arch }}.tar' \
+            .
+
+      - name: Load image for SBOM generation
+        run: docker load --input 'artifacts/OpenSurge-for-QNAP-${{ steps.version.outputs.version }}-${{ matrix.arch }}.tar'
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: opensurge-for-qnap:${{ steps.version.outputs.version }}
+          format: spdx-json
+          output-file: artifacts/OpenSurge-for-QNAP-${{ steps.version.outputs.version }}-${{ matrix.arch }}.spdx.json
+          artifact-name: OpenSurge-for-QNAP-${{ steps.version.outputs.version }}-${{ matrix.arch }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Compress release archive
+        run: gzip -9 'artifacts/OpenSurge-for-QNAP-${{ steps.version.outputs.version }}-${{ matrix.arch }}.tar'
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: artifacts/OpenSurge-for-QNAP-${{ steps.version.outputs.version }}-${{ matrix.arch }}.tar.gz
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2
+        with:
+          subject-path: artifacts/OpenSurge-for-QNAP-${{ steps.version.outputs.version }}-${{ matrix.arch }}.tar.gz
+          sbom-path: artifacts/OpenSurge-for-QNAP-${{ steps.version.outputs.version }}-${{ matrix.arch }}.spdx.json
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: qnap-release-${{ matrix.arch }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-github:
+    name: Publish GitHub stable release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: qnap-release-*
+          path: artifacts
+          merge-multiple: true
+      - name: Resolve release tag
+        id: version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            tag="${INPUT_TAG}"
+          fi
+          version="${tag#v}"
+          printf 'tag=%s\nversion=%s\n' "$tag" "$version" >> "$GITHUB_OUTPUT"
+      - name: Create release checksums
+        run: |
+          cd artifacts
+          sha256sum \
+            OpenSurge-for-QNAP-${{ steps.version.outputs.version }}-*.tar.gz \
+            OpenSurge-for-QNAP-${{ steps.version.outputs.version }}-*.spdx.json \
+            > SHA256SUMS
+      - name: Publish immutable stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view '${{ steps.version.outputs.tag }}' --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release ${{ steps.version.outputs.tag }} already exists; refusing to replace a stable release" >&2
+            exit 2
+          fi
+          cat > /tmp/release-notes.md <<EOF
+          # OpenSurge for QNAP ${{ steps.version.outputs.tag }}
+
+          Stable IPv4 same-LAN QNAP gateway release.
+
+          Docker Hub:
+          \`docker pull zyk1172/opensurge-for-qnap:${{ steps.version.outputs.version }}\`
+
+          GHCR mirror:
+          \`docker pull ghcr.io/zyk1172/opensurge-for-qnap:${{ steps.version.outputs.version }}\`
+
+          The default Compose runs with NET_ADMIN + NET_RAW only. NAS Host Takeover is an explicit opt-in through \`deploy/qnap/docker-compose.host-takeover.yml\`, which adds SYS_ADMIN and a read-only host network-namespace handle.
+
+          Release assets include amd64/arm64 Docker archives, SPDX JSON SBOMs, SHA256 checksums and GitHub attestations.
+          EOF
+          gh release create '${{ steps.version.outputs.tag }}' \
+            artifacts/OpenSurge-for-QNAP-${{ steps.version.outputs.version }}-amd64.tar.gz \
+            artifacts/OpenSurge-for-QNAP-${{ steps.version.outputs.version }}-arm64.tar.gz \
+            artifacts/OpenSurge-for-QNAP-${{ steps.version.outputs.version }}-amd64.spdx.json \
+            artifacts/OpenSurge-for-QNAP-${{ steps.version.outputs.version }}-arm64.spdx.json \
+            artifacts/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title 'OpenSurge for QNAP ${{ steps.version.outputs.tag }}' \
+            --notes-file /tmp/release-notes.md
+
+  publish-ghcr:
+    name: Publish multi-arch image to GHCR
+    needs: security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Resolve release version
+        id: version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then tag="${INPUT_TAG}"; fi
+          printf 'tag=%s\nversion=%s\n' "$tag" "${tag#v}" >> "$GITHUB_OUTPUT"
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+      - name: Build and push GHCR manifest
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --file docker/Dockerfile \
+            --build-arg OPENSURGE_VERSION='${{ steps.version.outputs.version }}' \
+            --build-arg VCS_REF="$GITHUB_SHA" \
+            --tag '${{ env.GHCR_REPOSITORY }}:${{ steps.version.outputs.version }}' \
+            --tag '${{ env.GHCR_REPOSITORY }}:${{ steps.version.outputs.tag }}' \
+            --tag '${{ env.GHCR_REPOSITORY }}:latest' \
+            --provenance=true \
+            --sbom=true \
+            --push \
+            .
+
+  publish-dockerhub:
+    name: Publish multi-arch image to Docker Hub
+    needs: security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Resolve release version
+        id: version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then tag="${INPUT_TAG}"; fi
+          printf 'tag=%s\nversion=%s\n' "$tag" "${tag#v}" >> "$GITHUB_OUTPUT"
+      - name: Require Docker Hub credentials
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          test -n "$DOCKERHUB_USERNAME" || { echo 'missing DOCKERHUB_USERNAME repository secret' >&2; exit 2; }
+          test -n "$DOCKERHUB_TOKEN" || { echo 'missing DOCKERHUB_TOKEN repository secret' >&2; exit 2; }
+      - name: Log in to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: echo "$DOCKERHUB_TOKEN" | docker login docker.io -u "$DOCKERHUB_USERNAME" --password-stdin
+      - name: Build and push Docker Hub manifest
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --file docker/Dockerfile \
+            --build-arg OPENSURGE_VERSION='${{ steps.version.outputs.version }}' \
+            --build-arg VCS_REF="$GITHUB_SHA" \
+            --tag '${{ env.DOCKERHUB_REPOSITORY }}:${{ steps.version.outputs.version }}' \
+            --tag '${{ env.DOCKERHUB_REPOSITORY }}:${{ steps.version.outputs.tag }}' \
+            --tag '${{ env.DOCKERHUB_REPOSITORY }}:latest' \
+            --provenance=true \
+            --sbom=true \
+            --push \
+            .
