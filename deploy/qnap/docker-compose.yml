@@ -8,6 +8,10 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+      # Required only by the privileged Control process to enter the read-only
+      # QNAP host network-namespace handle below. The Web process drops every
+      # capability before serving LAN HTTP.
+      - SYS_ADMIN
 
     devices:
       - /dev/net/tun:/dev/net/tun
@@ -33,6 +37,7 @@ services:
       OPENSURGE_ALLOWED_HOSTS: ${OPENSURGE_ALLOWED_HOSTS:-}
       OPENSURGE_WEB_UID: ${OPENSURGE_WEB_UID:-1000}
       OPENSURGE_WEB_GID: ${OPENSURGE_WEB_GID:-100}
+      OPENSURGE_HOST_NETNS_PATH: /run/opensurge/host-netns
       # Set true only when clients reach OpenSurge through an HTTPS reverse
       # proxy. Cookies will then carry Secure and the Web response emits HSTS.
       OPENSURGE_SECURE_COOKIES: ${OPENSURGE_SECURE_COOKIES:-false}
@@ -47,6 +52,10 @@ services:
 
     volumes:
       - ${OPENSURGE_DATA_PATH:?set absolute QNAP /share/... persistence path}:/data
+      # A namespace handle, not the host filesystem. It lets the root Control
+      # process install/remove only the dedicated NAS-host policy rules when the
+      # administrator explicitly enables that feature from Web UI.
+      - /proc/1/ns/net:/run/opensurge/host-netns:ro
 
     networks:
       opensurge_lan:
