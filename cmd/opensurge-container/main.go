@@ -8,10 +8,12 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"open-mihomo-gateway/internal/controlapi"
 	"open-mihomo-gateway/internal/gateway"
 	"open-mihomo-gateway/internal/linuxnetwork"
+	"open-mihomo-gateway/internal/qnaphost"
 	"open-mihomo-gateway/internal/webgateway"
 	"open-mihomo-gateway/internal/webui"
 )
@@ -67,13 +69,17 @@ func main() {
 		}
 		fmt.Printf("gateway ready: desired_running=%t gateway=%s runtime_state=%s\n", readiness.DesiredRunning, readiness.Gateway, readiness.RuntimeState)
 	case "control":
-		control, err := newControl(*configPath, *storeDir, *controlAddr)
+		control, hostManager, err := newControl(*configPath, *storeDir, *controlAddr)
 		if err != nil {
 			fatal(err)
 		}
+		go hostManager.Run(ctx)
 		fmt.Printf("OpenSurge privileged control: http://%s (loopback only)\n", *controlAddr)
-		if err := control.Serve(ctx); err != nil {
-			fatal(err)
+		serveErr := control.Serve(ctx)
+		cancel()
+		releaseHostRouting(hostManager)
+		if serveErr != nil {
+			fatal(serveErr)
 		}
 	case "web":
 		if strings.TrimSpace(*controlTokenFlag) == "" {
@@ -88,7 +94,7 @@ func main() {
 			fatal(err)
 		}
 	case "all":
-		control, err := newControl(*configPath, *storeDir, *controlAddr)
+		control, hostManager, err := newControl(*configPath, *storeDir, *controlAddr)
 		if err != nil {
 			fatal(err)
 		}
@@ -104,26 +110,33 @@ func main() {
 			fatal(err)
 		}
 		errCh := make(chan error, 2)
+		go hostManager.Run(ctx)
 		go func() { errCh <- control.Serve(ctx) }()
 		go func() { errCh <- gateway.Serve(ctx) }()
 		fmt.Printf("OpenSurge privileged control: http://%s (loopback only)\n", *controlAddr)
 		fmt.Printf("OpenSurge Web: http://%s\n", *webAddr)
+		var serveErr error
 		select {
 		case <-ctx.Done():
-			return
-		case err := <-errCh:
-			if err != nil {
-				cancel()
-				fatal(err)
-			}
+		case serveErr = <-errCh:
+			cancel()
+		}
+		releaseHostRouting(hostManager)
+		if serveErr != nil {
+			fatal(serveErr)
 		}
 	default:
 		fatal(fmt.Errorf("unsupported --component %q", *component))
 	}
 }
 
-func newControl(configPath, storeDir, controlAddr string) (*controlapi.Server, error) {
-	return controlapi.New(controlapi.Options{
+func newControl(configPath, storeDir, controlAddr string) (*controlapi.Server, *qnaphost.Manager, error) {
+	controlToken, err := controlapi.NewStore(storeDir).Token()
+	if err != nil {
+		return nil, nil, fmt.Errorf("load internal control token: %w", err)
+	}
+	hostManager := qnaphost.New(configPath, storeDir)
+	control, err := controlapi.New(controlapi.Options{
 		ConfigPath:        configPath,
 		Addr:              controlAddr,
 		StoreDir:          storeDir,
@@ -134,8 +147,12 @@ func newControl(configPath, storeDir, controlAddr string) (*controlapi.Server, e
 		DiscoverNeighbors: linuxnetwork.DiscoverNeighbors,
 		LookupRoute:       linuxnetwork.LookupRoute,
 		PingRouter:        linuxnetwork.PingRouter,
-		Static:            webui.Handler(),
+		Static:            hostManager.Handler(controlToken, webui.Handler()),
 	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return control, hostManager, nil
 }
 
 func newWeb(webAddr, controlAddr, token, authDir, allowedHosts string, requireBootstrapToken, secureCookies, qnapOnly bool) (*webgateway.Server, error) {
@@ -149,6 +166,14 @@ func newWeb(webAddr, controlAddr, token, authDir, allowedHosts string, requireBo
 		SecureCookies:         secureCookies,
 		QNAPOnly:              qnapOnly,
 	})
+}
+
+func releaseHostRouting(manager *qnaphost.Manager) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := manager.Release(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "release NAS host routing: %v\n", err)
+	}
 }
 
 func splitCSV(value string) []string {

@@ -11,6 +11,7 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+      - SYS_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
     sysctls:
@@ -25,12 +26,14 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       OPENSURGE_ALLOWED_HOSTS: ${OPENSURGE_ALLOWED_HOSTS:-}
+      OPENSURGE_HOST_NETNS_PATH: /run/opensurge/host-netns
       OPENSURGE_SEED_LAN_IP: ${OPENSURGE_IP:?set OPENSURGE_IP to a free static LAN address}
       OPENSURGE_SEED_LAN_CIDR: ${OPENSURGE_SUBNET:?set the LAN CIDR, e.g. 192.168.2.0/24}
       OPENSURGE_SEED_UPSTREAM_GATEWAY: ${OPENSURGE_GATEWAY:?set the main router IPv4 address}
       OPENSURGE_CONTAINER_INTERFACE: ${OPENSURGE_CONTAINER_INTERFACE:-eth0}
     volumes:
       - ${OPENSURGE_DATA_PATH:?set an absolute QNAP path such as /share/Container/opensurge}:/data
+      - /proc/1/ns/net:/run/opensurge/host-netns:ro
     networks:
       opensurge_lan:
         ipv4_address: ${OPENSURGE_IP:?set OPENSURGE_IP to a free static LAN address}
