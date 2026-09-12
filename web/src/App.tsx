@@ -9,6 +9,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { ConnectivityPage } from './pages/ConnectivityPage'
 import { DevicesPage } from './pages/DevicesPage'
 import { DiagnosticsPage } from './pages/DiagnosticsPage'
+import { TrafficAnalysisPage } from './pages/TrafficAnalysisPage'
 import { NetworkPage } from './pages/NetworkPage'
 import { QNAPNetworkPage } from './pages/QNAPNetworkPage'
 import { PoliciesPage, type PoliciesViewState } from './pages/PoliciesPage'
@@ -19,7 +20,7 @@ import { operationStatusUnknownMessage } from './operations'
 import type { Overview } from './types'
 import { activateLanguage, cacheRequestedLanguage, initialRequestedLanguage, isRequestedLanguage, prepareLanguage, t, type RequestedLanguage } from './i18n'
 
-type Page = 'dashboard' | 'network' | 'sources' | 'devices' | 'policies' | 'connectivity' | 'diagnostics'
+type Page = 'dashboard' | 'network' | 'sources' | 'devices' | 'policies' | 'connectivity' | 'diagnostics' | 'traffic'
 type Theme = 'dark' | 'light'
 type NetworkNavigationTarget = 'none' | 'control' | 'bottom'
 
@@ -34,6 +35,7 @@ const nav = [
   { id: 'policies', label: '策略', icon: '⇄' },
   { id: 'connectivity', label: '连通性', icon: '◌' },
   { id: 'diagnostics', label: '诊断', icon: '⌘' },
+  { id: 'traffic', label: '流量分析', icon: '≋' },
 ] as const satisfies ReadonlyArray<{ id: Page; label: string; icon: string }>
 
 function currentPage(): Page {
@@ -262,6 +264,7 @@ export function App() {
           {page === 'policies' && <PoliciesPage overview={overview} onChanged={refresh} viewState={policiesViewState} onViewStateChange={updatePoliciesViewState} restoreScrollY={policiesScrollPosition.current} onScrollPositionChange={updatePoliciesScrollPosition} />}
           {page === 'connectivity' && <ConnectivityPage overview={overview} onChanged={refresh} />}
           {page === 'diagnostics' && <DiagnosticsPage overview={overview} />}
+          {page === 'traffic' && <TrafficAnalysisPage />}
         </PageErrorBoundary>
       </>}
     </main>
