@@ -4,12 +4,6 @@
 # configuration exists. The address values are documentation defaults, not an
 # assumption about the user's LAN. Open the Web UI and replace them before
 # starting the gateway.
-#
-# QNAP same-LAN IPv6 is opt-in. When enabled from Web, dns.ipv6 and tun_ipv6
-# are enabled together and ipv6_shared_l2_ready acknowledges that the main
-# router already uses OpenSurge DNS and routes fdfe:dcba:9876::/64 to the
-# OpenSurge link-local next hop. OpenSurge does not replace the LAN IPv6
-# default router or advertise RA/SLAAC in this topology.
 
 gateway:
   mode: "same_lan"
