@@ -400,11 +400,11 @@ func (m *Manager) installContainerDNSPolicyLocked(ctx context.Context, cfg confi
 }
 
 func (m *Manager) preflightL4PolicyRoutingLocked(ctx context.Context) error {
-	probe := []string{"-4", "rule", "add", "pref", policyCapabilityProbeHost, "from", "192.0.2.1/32", "iif", "lo", "ipproto", "udp", "dport", "65535", "table", "main"}
+	probe := []string{"-4", "rule", "add", "pref", policyCapabilityProbeHost, "from", "192.0.2.1/32", "iif", "lo", "ipproto", "udp", "dport", "65534", "table", "main"}
 	if _, err := m.runHost(ctx, nil, "ip", probe...); err != nil {
 		return fmt.Errorf("QNAP host kernel does not support L4 policy routing required for NAS DNS takeover: %w", err)
 	}
-	deleteProbe := []string{"-4", "rule", "del", "pref", policyCapabilityProbeHost, "from", "192.0.2.1/32", "iif", "lo", "ipproto", "udp", "dport", "65535", "table", "main"}
+	deleteProbe := []string{"-4", "rule", "del", "pref", policyCapabilityProbeHost, "from", "192.0.2.1/32", "iif", "lo", "ipproto", "udp", "dport", "65534", "table", "main"}
 	if _, err := m.runHost(ctx, nil, "ip", deleteProbe...); err != nil {
 		return fmt.Errorf("clean QNAP host L4 policy-routing probe: %w", err)
 	}
