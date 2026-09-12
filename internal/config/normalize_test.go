@@ -43,7 +43,7 @@ func TestNormalizePreservesLegacySystemProxyFieldUntilSchemaCleanup(t *testing.T
 	}
 }
 
-func TestNormalizeMigratesLegacyIPv6ConfigurationToOff(t *testing.T) {
+func TestNormalizeRetiresLegacyQNAPIPv6RuntimeMarkers(t *testing.T) {
 	cfg := Default()
 	cfg.DNS.IPv6 = true
 	cfg.Transparent.TUNIPv6 = TUNIPv6Always
@@ -54,11 +54,15 @@ func TestNormalizeMigratesLegacyIPv6ConfigurationToOff(t *testing.T) {
 	if err := Normalize(&cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.DNS.IPv6 {
-		t.Fatal("DNS IPv6 remained enabled")
+	// Legacy schema values remain visible long enough for validation/API
+	// compatibility. DNS IPv6 is operationally suppressed by the QNAP mihomo
+	// Manager when TUN IPv6 is off; an auto/always TUN request is rejected by
+	// validation because the retired runtime marker has been removed.
+	if !cfg.DNS.IPv6 {
+		t.Fatal("Normalize unexpectedly erased legacy DNS IPv6 schema value")
 	}
-	if cfg.Transparent.TUNIPv6 != TUNIPv6Off {
-		t.Fatalf("TUNIPv6 = %q, want off", cfg.Transparent.TUNIPv6)
+	if cfg.Transparent.TUNIPv6 != TUNIPv6Always {
+		t.Fatalf("TUNIPv6 = %q, want always preserved for validation", cfg.Transparent.TUNIPv6)
 	}
 	if cfg.Transparent.IPv6SharedL2Ready {
 		t.Fatal("IPv6SharedL2Ready remained enabled")
