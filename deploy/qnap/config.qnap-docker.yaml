@@ -4,6 +4,10 @@
 # configuration exists. The address values are documentation defaults, not an
 # assumption about the user's LAN. Open the Web UI and replace them before
 # starting the gateway.
+#
+# OpenSurge for QNAP is intentionally IPv4-only. Legacy IPv6 keys remain in the
+# schema so older persistent configs can still be loaded, but the QNAP runtime
+# normalizes them to OFF and the container namespace disables IPv6.
 
 gateway:
   mode: "same_lan"
@@ -55,6 +59,7 @@ transparent:
   tun_auto_route: false
   tun_auto_detect_interface: false
   tun_strict_route: false
+  # Compatibility keys only; QNAP always normalizes these values to OFF/false.
   tun_ipv6: "off"
   ipv6_shared_l2_ready: false
 
