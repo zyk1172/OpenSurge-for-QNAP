@@ -1,145 +1,217 @@
 # OpenSurge for QNAP 使用指南
 
-**简体中文** · [English](app-user-guide.md)
+这份说明面向已经完成部署、准备日常使用的用户。
 
-本指南面向通过 QNAP Container Station / Docker 使用 OpenSurge 的普通用户。部署细节见 [QNAP Docker 部署指南](../deploy/qnap/README.zh-CN.md)。
+部署还没完成时，请先看：[QNAP 部署指南](../deploy/qnap/README.zh-CN.md)。
 
 ## 1. 打开 Web
 
-容器启动后访问：
+浏览器访问：
 
 ```text
 http://<OpenSurge-IP>:8080
 ```
 
-首次访问创建管理员账户。之后所有日常配置都在 Web 中完成。
+例如：
 
-QNAP 版默认是单容器产品，不需要额外的 Manager 或 Orchestrator 页面。
+```text
+http://192.168.2.241:8080
+```
 
-## 2. 容器网络与运行配置
+第一次创建管理员账户时，需要容器日志中的一次性 bootstrap token：
 
-以下参数在创建容器时确定：
+```sh
+docker logs opensurge
+```
 
-- QNAP QNET 父网卡 / Virtual Switch；
-- OpenSurge 静态 IPv4；
-- LAN CIDR；
-- 上游主路由 IPv4；
-- `/data` 持久化目录。
+创建完成后，之后的日常操作基本都可以在 Web 中完成。
 
-这些值不是运行期 Web 配置。需要修改时，应保留 `/data`，修改 Compose/QNET 创建参数并重建容器。
-
-Web 中管理的是 OpenSurge 自身的运行参数，例如 DNS、TUN、订阅、Provider、策略和设备规则。
-
-## 3. 导入代理配置
+## 2. 导入代理配置
 
 进入 **代理与规则源**。
 
-可以选择：
+支持：
 
-- HTTPS 订阅；
-- 本地 `.yaml` / `.yml` Mihomo 配置。
+- HTTPS Mihomo 订阅；
+- 本地 `.yaml` / `.yml` 配置。
 
-导入后先生成持久化草稿，不会立即改变当前网关。
+导入完成后，检查订阅、Provider、策略组和规则是否正常。
 
-每个来源会显示配置结构、策略组、Provider、规则数量以及当前运行/下次启动状态。网关停止时可以 **设为下次启动版本**；网关运行时可以 **应用并重载**。
+如果网关还没启动，可以把配置设为下次启动使用；如果网关已经运行，可以直接应用并重载。
 
-Web 会在后端操作后重新读取持久化状态，只有确认 `desired` 或 `applied` 已更新才显示成功。
+## 3. 启动网关
 
-## 4. 启动网关
+进入 **网络设置**，点击 **启动网关**。
 
-进入 **网络设置** 或总览，点击 **启动网关**。
-
-当前 QNAP same-LAN 模式使用 TUN + Linux policy routing。部分 QNAP 内核没有 `nf_tables`，这并不一定阻止透明代理；支持的 same-LAN 路径可以通过 ingress-interface policy routing 把客户端流量送入 TUN。
-
-启动成功后应看到 Gateway、mihomo、DNS/dnsmasq、TUN 和 IPv4 forwarding 处于正常状态。
-
-如果显示错误，先打开 **诊断**，运行 Doctor 并查看结构化错误和组件日志。
-
-## 5. 让一台客户端接入
-
-第一阶段不要修改主路由 DHCP。
-
-只选一台测试设备，把：
+正常情况下应看到这些组件处于可用状态：
 
 ```text
-IPv4 Gateway = OpenSurge IP
-DNS          = OpenSurge IP
+Gateway
+Mihomo
+DNS
+TUN
+IPv4 转发
 ```
 
-然后依次验证：
+如果启动失败，不要反复点击，直接进入 **诊断 → 运行 Doctor** 查看原因。
 
-1. 国内直连站点；
-2. 需要代理的站点；
-3. DNS；
-4. UDP / QUIC；
-5. 视频长连接；
-6. 大文件下载。
+## 4. 让设备经过 OpenSurge
 
-验证完成后再逐步增加客户端。
+先只测试一台设备。
 
-## 6. 策略与设备
+把该设备的网络设置改成：
 
-进入 **策略** 可以查看最终配置中的策略组、选择 Selector 当前节点、检查 Provider 和规则出口。
+```text
+IPv4 网关 = OpenSurge IP
+DNS       = OpenSurge IP
+```
 
-进入 **设备** 可以登记客户端，为设备指定独立出口或跟随全局规则，并查看当前连接和流量。
+例如：
 
-当前首版目标仍是 same-LAN manual gateway，不自动接管整个家庭 LAN 的 DHCP。
+```text
+IPv4 网关 = 192.168.2.241
+DNS       = 192.168.2.241
+```
 
-## 7. 修改 DNS / TUN 运行参数
+然后测试：
+
+- 普通直连网站；
+- 需要代理的网站；
+- DNS 是否正常；
+- 视频播放；
+- 下载；
+- UDP / QUIC 应用。
+
+确认这台设备没问题后，再逐步给其他设备使用。
+
+**不需要先修改整个家庭网络的 DHCP。**
+
+## 5. 切换节点和策略
+
+进入 **策略**。
+
+这里可以：
+
+- 查看策略组；
+- 切换 Selector 当前节点；
+- 查看 Provider 状态；
+- 检查规则最终走哪个出口。
+
+如果只是想换代理节点，通常只需要在这里操作，不需要重新导入订阅。
+
+## 6. 给不同设备设置不同出口
+
+进入 **设备**。
+
+可以给单独的手机、电脑、电视等设置：
+
+- 跟随全局规则；
+- 固定走某个代理出口；
+- 使用独立设备策略。
+
+同时可以查看该设备的连接和流量情况。
+
+## 7. 修改 DNS、TUN 等运行参数
 
 进入 **网络设置 → 运行参数**。
 
-可变值保存在：
+配置会保存到：
 
 ```text
 /data/config/opensurge.yaml
 ```
 
-如果网关正在运行，Web 会执行：
+修改需要重启数据面的参数时，Web 会自动完成停止、保存和重新启动。
+
+如果中间失败，会直接显示错误，不需要手工猜当前到底有没有生效。
+
+## 8. 查看连接和流量
+
+可以使用：
+
+- **连通性**：检查目标是否可访问；
+- **流量分析**：查看流量和连接；
+- **设备**：查看某台设备的实际出口；
+- **策略**：查看规则和策略组；
+- **诊断**：查看组件日志和 Doctor 结果。
+
+遇到“网页能开，但某些应用不能用”时，优先看 **连通性** 和 **诊断**。
+
+## 9. 让 QNAP NAS 自己也走 OpenSurge
+
+这个功能是可选的。
+
+前提是部署时使用了：
 
 ```text
-停止 → 持久化 → 重新读取校验 → 重新启动
+docker-compose.host-takeover.yml
 ```
 
-任何一步失败都会明确报错，不应显示假成功。
+之后在 Web 的网络设置中开启 **让 NAS 使用 OpenSurge**。
 
-## 8. 诊断
+如果没有使用 Host Takeover 的 Compose 配置，Web 不应强行接管 QNAP 宿主网络。
 
-进入 **诊断** 可以查看 Doctor、Provider、活跃连接、组件日志、生命周期 Operations 和 Recovery 状态。
+详细说明：[NAS Host Takeover](QNAP_NAS_HOST_TAKEOVER.zh-CN.md)
 
-普通页面刷新不会自动运行完整 Doctor；需要时手工点击 **运行 Doctor**。
+## 10. 更新容器
 
-在缺少 `nf_tables` 的 QNAP 上，单独执行 `nft list ruleset` 失败并不代表 same-LAN 数据面失败。应以当前 data plane、TUN、`ip rule` 和专用 routing table 的实际状态为准。
+更新镜像时保留原来的 `/data`：
 
-## 9. 容器重建与升级
+```sh
+docker compose pull
+docker compose up -d
+```
 
-升级测试镜像时保留原来的 `/data` bind mount：
+不要删除整个持久化目录。
 
-1. 下载并校验新测试镜像；
-2. `docker load`；
-3. 保留同一个 QNET 参数和 `/data`；
-4. 重建 `opensurge` 容器；
-5. 登录 Web 检查配置、订阅和管理员状态；
-6. 再启动 Gateway。
+更新后建议检查：
 
-不要为了升级删除 `/data/runtime`、`/data/control` 或整个持久化目录。
+- 管理员账户能否正常登录；
+- 订阅和策略是否还在；
+- 网关能否正常启动；
+- 测试设备能否正常联网。
 
-## 10. 异常重启后的恢复
+## 11. 容器异常重启后怎么办
 
-如果容器或 NAS 在 Gateway 运行时被中断，OpenSurge 可能把上一次 runtime 标记为 interrupted。
+如果 NAS 断电、容器被强制终止，OpenSurge 可能检测到上一次运行被中断。
 
-此时先执行 **安全清理旧状态**。清理只针对 OpenSurge 持久化记录中能够证明 ownership 的对象，不应修改 QTS 默认网关、DNS 或其他容器网络。
+此时按照 Web 提示先执行 **安全清理旧状态**，再重新启动网关。
 
-清理完成后再重新启动 Gateway。
+清理只应处理 OpenSurge 自己创建并能确认归属的网络状态，不会主动删除 QTS 原来的默认网关。
 
-## 11. 当前边界
+## 12. 常见问题
 
-第一稳定版暂不提供：
+### Web 能打开，但设备不能上网
 
-- 自动修改 QNAP Network & Virtual Switch；
-- 自动关闭/接管主路由 DHCP；
-- 下游 IPv6 takeover；
-- QPKG；
-- 自动迁移整个家庭网络。
+先检查设备是否同时设置了：
 
-当前重点是把单容器、QNET、TUN、DNS、订阅、策略、设备管理和恢复流程在真实 QNAP 上做稳定。
+```text
+网关 = OpenSurge IP
+DNS  = OpenSurge IP
+```
+
+然后进入 **诊断 → 运行 Doctor**。
+
+### `nft list ruleset` 报错，是不是坏了？
+
+不一定。
+
+QNAP 的 Same-LAN 模式可以使用 TUN + Linux policy routing 工作，不要求所有机型都具备可用的 `nf_tables`。
+
+应以 Web 状态、TUN、`ip rule` 和实际联网结果为准。
+
+### 换网卡或改 OpenSurge IP 怎么办？
+
+这些属于容器创建参数，需要修改 `.env` 后重建容器。
+
+只要保留 `/data`，用户配置不会因为重建容器自动丢失。
+
+## 13. 当前限制
+
+- 仅支持 IPv4 数据面；
+- 不自动修改主路由 DHCP；
+- 不自动修改 QTS「网络与虚拟交换机」；
+- 不提供 IPv6 takeover；
+- 不提供 QPKG。
+
+更多问题见：[FAQ](faq.zh-CN.md)
