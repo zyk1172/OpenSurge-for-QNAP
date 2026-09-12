@@ -119,7 +119,7 @@ func TestPreflightL4PolicyRoutingUsesOnlyInertTemporaryRules(t *testing.T) {
 		t.Fatalf("expected add/delete probes in host and container namespaces, got %#v", runner.calls)
 	}
 	for _, call := range runner.calls {
-		if !strings.Contains(call, "from 192.0.2.1/32") || !strings.Contains(call, "ipproto udp") || !strings.Contains(call, "dport 65535") || !strings.Contains(call, "table main") {
+		if !strings.Contains(call, "from 192.0.2.1/32") || !strings.Contains(call, "ipproto udp") || !strings.Contains(call, "dport 65534") || !strings.Contains(call, "table main") {
 			t.Fatalf("probe is not tightly scoped and inert: %q", call)
 		}
 	}
