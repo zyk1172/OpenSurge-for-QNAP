@@ -1,0 +1,308 @@
+name: One-shot QNAP host priority fix
+
+on:
+  push:
+    branches:
+      - fix/qnap-host-priority-shadow
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Patch QNAP host takeover priority handling
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('internal/qnaphost/manager.go')
+          s = path.read_text()
+
+          def replace(old, new, label):
+              global s
+              if old not in s:
+                  raise SystemExit(f'missing expected block: {label}')
+              s = s.replace(old, new, 1)
+
+          replace('''\t"path/filepath"\n\t"strings"''', '''\t"path/filepath"\n\t"strconv"\n\t"strings"''', 'strconv import')
+
+          replace('''\thostDNSUDPRulePriority       = "24090"\n\thostDNSTCPRulePriority       = "24091"\n\tmainRulePriority             = "24100"\n\tproxyRulePriority            = "24110"''', '''\thostDNSUDPRulePriority       = "19996"\n\thostDNSTCPRulePriority       = "19997"\n\tmainRulePriority             = "19998"\n\tproxyRulePriority            = "19999"\n\tlegacyHostDNSUDPPriority     = "24090"\n\tlegacyHostDNSTCPPriority     = "24091"\n\tlegacyMainRulePriority       = "24100"\n\tlegacyProxyRulePriority      = "24110"\n\tpreferredHostPriorityMax     = 19999\n\tminimumHostPriority          = 1000\n\tpublicRouteProbeIPv4         = "1.1.1.1"''', 'host priority constants')
+
+          replace('''\tDNSRedirect     bool      `json:"dns_redirect"`\n\tDNSMode         string    `json:"dns_mode,omitempty"`''', '''\tDNSRedirect        bool                  `json:"dns_redirect"`\n\tDNSMode            string                `json:"dns_mode,omitempty"`\n\tHostRulePriorities *hostPolicyPriorities `json:"host_rule_priorities,omitempty"`''', 'status priorities')
+
+          replace('''type intent struct {\n\tSchemaVersion int  `json:"schema_version"`\n\tEnabled       bool `json:"enabled"`\n}\n''', '''type hostPolicyPriorities struct {\n\tDNSUDP int `json:"dns_udp"`\n\tDNSTCP int `json:"dns_tcp"`\n\tMain   int `json:"main"`\n\tProxy  int `json:"proxy"`\n}\n\nfunc (p hostPolicyPriorities) valid() bool {\n\treturn p.DNSUDP >= minimumHostPriority && p.DNSUDP < p.DNSTCP && p.DNSTCP < p.Main && p.Main < p.Proxy\n}\n\nfunc (p hostPolicyPriorities) strings() (string, string, string, string) {\n\treturn strconv.Itoa(p.DNSUDP), strconv.Itoa(p.DNSTCP), strconv.Itoa(p.Main), strconv.Itoa(p.Proxy)\n}\n\nfunc defaultHostPriorities() hostPolicyPriorities {\n\treturn hostPolicyPriorities{DNSUDP: 19996, DNSTCP: 19997, Main: 19998, Proxy: 19999}\n}\n\nfunc legacyHostPriorities() hostPolicyPriorities {\n\treturn hostPolicyPriorities{DNSUDP: 24090, DNSTCP: 24091, Main: 24100, Proxy: 24110}\n}\n\ntype intent struct {\n\tSchemaVersion  int                   `json:"schema_version"`\n\tEnabled        bool                  `json:"enabled"`\n\tHostPriorities *hostPolicyPriorities `json:"host_priorities,omitempty"`\n}\n''', 'intent schema')
+
+          old_status = '''\thostRules, hostRulesErr := m.runHost(ctx, nil, "ip", "-4", "rule", "show")\n\thostRoutes, hostRoutesErr := m.runHost(ctx, nil, "ip", "-4", "route", "show", "table", routeTableID)\n\tif hostRulesErr == nil && hostRoutesErr == nil {\n\t\tstatus.Enabled = ruleLineContains(hostRules, mainRulePriority, "lookup main", "suppress_prefixlength 0") &&\n\t\t\truleLineContains(hostRules, proxyRulePriority, "lookup "+routeTableID) &&\n\t\t\tstrings.Contains(string(hostRoutes), "default via "+cfg.Gateway.LANIP) &&\n\t\t\tstrings.Contains(string(hostRoutes), "proto "+routeProtocol)\n\t}\n\n\tcontainerRules, containerRulesErr := m.runContainer(ctx, nil, "ip", "-4", "rule", "show")\n\tcontainerRoutes, containerRoutesErr := m.runContainer(ctx, nil, "ip", "-4", "route", "show", "table", containerDNSRouteTableID)\n\tif hostRulesErr == nil && containerRulesErr == nil && containerRoutesErr == nil {\n\t\tstatus.DNSRedirect = ruleLineContains(hostRules, hostDNSUDPRulePriority, "ipproto udp", "dport 53", "lookup "+routeTableID) &&\n\t\t\truleLineContains(hostRules, hostDNSTCPRulePriority, "ipproto tcp", "dport 53", "lookup "+routeTableID) &&\n\t\t\truleLineContains(containerRules, containerDNSUDPRulePriority, hostIP, "ipproto udp", "dport 53", "lookup "+containerDNSRouteTableID) &&\n\t\t\truleLineContains(containerRules, containerDNSTCPRulePriority, hostIP, "ipproto tcp", "dport 53", "lookup "+containerDNSRouteTableID) &&\n\t\t\tstrings.Contains(string(containerRoutes), "default dev "+cfg.Transparent.TUNDevice) &&\n\t\t\tstrings.Contains(string(containerRoutes), "proto "+containerDNSRouteProtocol)\n\t\tif status.DNSRedirect {\n\t\t\tstatus.DNSMode = "policy-routing"\n\t\t}\n\t}\n'''
+          new_status = '''\tpriorities := m.hostPrioritiesLocked()\n\tstatus.HostRulePriorities = &priorities\n\tdnsUDP, dnsTCP, mainPriority, proxyPriority := priorities.strings()\n\thostRules, hostRulesErr := m.runHost(ctx, nil, "ip", "-4", "rule", "show")\n\thostRoutes, hostRoutesErr := m.runHost(ctx, nil, "ip", "-4", "route", "show", "table", routeTableID)\n\trulesInstalled := hostRulesErr == nil && hostRoutesErr == nil &&\n\t\truleLineContains(hostRules, mainPriority, "lookup main", "suppress_prefixlength 0") &&\n\t\truleLineContains(hostRules, proxyPriority, "lookup "+routeTableID) &&\n\t\tstrings.Contains(string(hostRoutes), "default via "+cfg.Gateway.LANIP) &&\n\t\tstrings.Contains(string(hostRoutes), "proto "+routeProtocol)\n\tif rulesInstalled {\n\t\tpublicRoute, routeErr := m.runHost(ctx, nil, "ip", "-4", "route", "get", publicRouteProbeIPv4, "from", hostIP)\n\t\tstatus.Enabled = routeErr == nil && routeUsesGatewayTable(publicRoute, cfg.Gateway.LANIP, routeTableID)\n\t\tif !status.Enabled && routeErr == nil {\n\t\t\tstatus.Error = "NAS host policy is installed but an earlier QNAP policy rule still wins: " + strings.TrimSpace(string(publicRoute))\n\t\t}\n\t}\n\n\tcontainerRules, containerRulesErr := m.runContainer(ctx, nil, "ip", "-4", "rule", "show")\n\tcontainerRoutes, containerRoutesErr := m.runContainer(ctx, nil, "ip", "-4", "route", "show", "table", containerDNSRouteTableID)\n\thostDNSRules := hostRulesErr == nil &&\n\t\truleLineContains(hostRules, dnsUDP, "ipproto udp", "dport 53", "lookup "+routeTableID) &&\n\t\truleLineContains(hostRules, dnsTCP, "ipproto tcp", "dport 53", "lookup "+routeTableID)\n\tcontainerDNSRules := containerRulesErr == nil && containerRoutesErr == nil &&\n\t\truleLineContains(containerRules, containerDNSUDPRulePriority, hostIP, "ipproto udp", "dport 53", "lookup "+containerDNSRouteTableID) &&\n\t\truleLineContains(containerRules, containerDNSTCPRulePriority, hostIP, "ipproto tcp", "dport 53", "lookup "+containerDNSRouteTableID) &&\n\t\tstrings.Contains(string(containerRoutes), "default dev "+cfg.Transparent.TUNDevice) &&\n\t\tstrings.Contains(string(containerRoutes), "proto "+containerDNSRouteProtocol)\n\tif hostDNSRules && containerDNSRules {\n\t\tudpRoute, udpErr := m.runHost(ctx, nil, "ip", "-4", "route", "get", cfg.Gateway.UpstreamGateway, "from", hostIP, "ipproto", "udp", "dport", "53")\n\t\ttcpRoute, tcpErr := m.runHost(ctx, nil, "ip", "-4", "route", "get", cfg.Gateway.UpstreamGateway, "from", hostIP, "ipproto", "tcp", "dport", "53")\n\t\tstatus.DNSRedirect = udpErr == nil && tcpErr == nil &&\n\t\t\trouteUsesGatewayTable(udpRoute, cfg.Gateway.LANIP, routeTableID) &&\n\t\t\trouteUsesGatewayTable(tcpRoute, cfg.Gateway.LANIP, routeTableID)\n\t\tif status.DNSRedirect {\n\t\t\tstatus.DNSMode = "policy-routing"\n\t\t} else if status.Enabled && status.Error == "" {\n\t\t\tstatus.Error = "NAS DNS policy is installed but is shadowed by an earlier QNAP policy rule"\n\t\t}\n\t}\n'''
+          replace(old_status, new_status, 'status routing verification')
+
+          insert_before_rule = '''func ruleLineContains(output []byte, priority string, fragments ...string) bool {'''
+          helpers = r'''func routeUsesGatewayTable(output []byte, gateway, table string) bool {
+	text := string(output)
+	return strings.Contains(text, "via "+gateway) && strings.Contains(text, "table "+table)
+}
+
+func parseRulePriority(line string) (int, bool) {
+	line = strings.TrimSpace(line)
+	index := strings.IndexByte(line, ':')
+	if index <= 0 {
+		return 0, false
+	}
+	value, err := strconv.Atoi(strings.TrimSpace(line[:index]))
+	return value, err == nil
+}
+
+func ruleMatchesHostSource(line, hostIP string) bool {
+	fields := strings.Fields(line)
+	for index := 0; index+1 < len(fields); index++ {
+		if fields[index] != "from" {
+			continue
+		}
+		value := strings.TrimSuffix(fields[index+1], "/32")
+		return value == hostIP
+	}
+	return false
+}
+
+func chooseHostPriorities(hostRules []byte, hostIP string) (hostPolicyPriorities, error) {
+	used := make(map[int]bool)
+	anchor := 0
+	for _, line := range strings.Split(string(hostRules), "\n") {
+		priority, ok := parseRulePriority(line)
+		if !ok {
+			continue
+		}
+		used[priority] = true
+		if priority > 0 && ruleMatchesHostSource(line, hostIP) && (anchor == 0 || priority < anchor) {
+			anchor = priority
+		}
+	}
+
+	maxPriority := preferredHostPriorityMax
+	if anchor > 0 && anchor-1 < maxPriority {
+		maxPriority = anchor - 1
+	}
+	for proxy := maxPriority; proxy-3 >= minimumHostPriority; proxy-- {
+		candidate := hostPolicyPriorities{DNSUDP: proxy - 3, DNSTCP: proxy - 2, Main: proxy - 1, Proxy: proxy}
+		if used[candidate.DNSUDP] || used[candidate.DNSTCP] || used[candidate.Main] || used[candidate.Proxy] {
+			continue
+		}
+		return candidate, nil
+	}
+	if anchor > 0 {
+		return hostPolicyPriorities{}, fmt.Errorf("cannot allocate OpenSurge policy priorities before QNAP host-source rule %d without entering protected low-priority space", anchor)
+	}
+	return hostPolicyPriorities{}, fmt.Errorf("cannot allocate a free OpenSurge host policy priority block")
+}
+
+'''
+          replace(insert_before_rule, helpers + insert_before_rule, 'priority helpers')
+
+          old_preflight = '''\t// Remove a previous OpenSurge-owned instance first. Before installing any\n\t// persistent route or rule, prove both reserved tables/priorities are free\n\t// and that the QNAP kernel accepts L4 RPDB selectors (ipproto + dport).\n\t_ = m.disableLocked(ctx)\n\tif err := m.ensurePolicySlotsFreeLocked(ctx); err != nil {\n\t\treturn err\n\t}\n\tif err := m.preflightL4PolicyRoutingLocked(ctx); err != nil {\n\t\treturn err\n\t}\n'''
+          new_preflight = '''\t// Remove a previous OpenSurge-owned instance first, then inspect QNAP's\n\t// source-address policy rules. QTS commonly installs rules such as priority\n\t// 20010 for the NAS address; OpenSurge must run before those rules while\n\t// staying after the kernel's protected low-priority rules.\n\tdesired, _ := m.readIntentLocked()\n\t_ = m.disableLocked(ctx)\n\thostRules, err := m.runHost(ctx, nil, "ip", "-4", "rule", "show")\n\tif err != nil {\n\t\treturn fmt.Errorf("inspect QNAP host policy rules: %w", err)\n\t}\n\tpriorities, err := chooseHostPriorities(hostRules, hostIP)\n\tif err != nil {\n\t\treturn err\n\t}\n\tif err := m.writeIntentWithPrioritiesLocked(desired, priorities); err != nil {\n\t\treturn fmt.Errorf("persist selected NAS host policy priorities: %w", err)\n\t}\n\tif err := m.ensurePolicySlotsFreeLocked(ctx); err != nil {\n\t\treturn err\n\t}\n\tif err := m.preflightL4PolicyRoutingLocked(ctx); err != nil {\n\t\treturn err\n\t}\n'''
+          replace(old_preflight, new_preflight, 'dynamic preflight')
+
+          replace('''\tif _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", mainRulePriority, "iif", "lo", "table", "main", "suppress_prefixlength", "0"); err != nil {\n\t\t_ = m.disableLocked(ctx)\n\t\treturn fmt.Errorf("preserve QNAP non-default routes: %w", err)\n\t}\n\tif _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", proxyRulePriority, "iif", "lo", "table", routeTableID); err != nil {''', '''\tdnsUDP, dnsTCP, mainPriority, proxyPriority := priorities.strings()\n\t_ = dnsUDP\n\t_ = dnsTCP\n\tif _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", mainPriority, "iif", "lo", "table", "main", "suppress_prefixlength", "0"); err != nil {\n\t\t_ = m.disableLocked(ctx)\n\t\treturn fmt.Errorf("preserve QNAP non-default routes: %w", err)\n\t}\n\tif _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", proxyPriority, "iif", "lo", "table", routeTableID); err != nil {''', 'dynamic main/proxy install')
+
+          replace('''func (m *Manager) installHostDNSPolicyLocked(ctx context.Context) error {\n\tfor _, rule := range []struct {\n\t\tpriority string\n\t\tproto    string\n\t}{\n\t\t{priority: hostDNSUDPRulePriority, proto: "udp"},\n\t\t{priority: hostDNSTCPRulePriority, proto: "tcp"},\n\t} {''', '''func (m *Manager) installHostDNSPolicyLocked(ctx context.Context) error {\n\tpriorities := m.hostPrioritiesLocked()\n\tdnsUDP, dnsTCP, _, _ := priorities.strings()\n\tfor _, rule := range []struct {\n\t\tpriority string\n\t\tproto    string\n\t}{\n\t\t{priority: dnsUDP, proto: "udp"},\n\t\t{priority: dnsTCP, proto: "tcp"},\n\t} {''', 'dynamic DNS install')
+
+          old_slot = '''\thostRules, err := m.runHost(ctx, nil, "ip", "-4", "rule", "show")\n\tif err != nil {\n\t\treturn fmt.Errorf("inspect QNAP host policy rules: %w", err)\n\t}\n\tfor _, line := range strings.Split(string(hostRules), "\\n") {\n\t\tline = strings.TrimSpace(line)\n\t\tfor _, priority := range []string{hostDNSUDPRulePriority, hostDNSTCPRulePriority, mainRulePriority, proxyRulePriority} {\n\t\t\tif strings.HasPrefix(line, priority+":") {\n\t\t\t\treturn fmt.Errorf("QNAP host already uses policy-rule priority %s; OpenSurge will not overwrite it", priority)\n\t\t\t}\n\t\t}\n\t}\n'''
+          new_slot = '''\thostRules, err := m.runHost(ctx, nil, "ip", "-4", "rule", "show")\n\tif err != nil {\n\t\treturn fmt.Errorf("inspect QNAP host policy rules: %w", err)\n\t}\n\tpriorities := m.hostPrioritiesLocked()\n\tdnsUDP, dnsTCP, mainPriority, proxyPriority := priorities.strings()\n\tfor _, line := range strings.Split(string(hostRules), "\\n") {\n\t\tline = strings.TrimSpace(line)\n\t\tfor _, priority := range []string{dnsUDP, dnsTCP, mainPriority, proxyPriority} {\n\t\t\tif strings.HasPrefix(line, priority+":") {\n\t\t\t\treturn fmt.Errorf("QNAP host already uses policy-rule priority %s; OpenSurge will not overwrite it", priority)\n\t\t\t}\n\t\t}\n\t}\n'''
+          replace(old_slot, new_slot, 'dynamic collision scan')
+
+          old_disable = '''\t// Remove host selectors first so a degraded/stopping OpenSurge immediately\n\t// falls back to QTS's untouched main table. Every delete is scoped to the\n\t// dedicated priority plus selectors/table; no global rule/route flush occurs.\n\t_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", hostDNSUDPRulePriority, "iif", "lo", "ipproto", "udp", "dport", "53", "table", routeTableID)\n\t_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", hostDNSTCPRulePriority, "iif", "lo", "ipproto", "tcp", "dport", "53", "table", routeTableID)\n\t_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", proxyRulePriority, "iif", "lo", "table", routeTableID)\n\t_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", mainRulePriority, "iif", "lo", "table", "main", "suppress_prefixlength", "0")\n'''
+          new_disable = '''\t// Remove host selectors first so a degraded/stopping OpenSurge immediately\n\t// falls back to QTS's untouched main table. Dynamic priorities are persisted\n\t// before installation, so crash/restart cleanup can still target only the\n\t// exact OpenSurge selectors. Also remove the legacy fixed priorities once\n\t// for seamless migration from older builds.\n\tsets := []hostPolicyPriorities{m.hostPrioritiesLocked(), legacyHostPriorities()}\n\tseen := make(map[hostPolicyPriorities]bool)\n\tfor _, priorities := range sets {\n\t\tif seen[priorities] {\n\t\t\tcontinue\n\t\t}\n\t\tseen[priorities] = true\n\t\tdnsUDP, dnsTCP, mainPriority, proxyPriority := priorities.strings()\n\t\t_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", dnsUDP, "iif", "lo", "ipproto", "udp", "dport", "53", "table", routeTableID)\n\t\t_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", dnsTCP, "iif", "lo", "ipproto", "tcp", "dport", "53", "table", routeTableID)\n\t\t_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", proxyPriority, "iif", "lo", "table", routeTableID)\n\t\t_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", mainPriority, "iif", "lo", "table", "main", "suppress_prefixlength", "0")\n\t}\n'''
+          replace(old_disable, new_disable, 'dynamic cleanup')
+
+          old_state = r'''func (m *Manager) readIntentLocked() (bool, error) {
+	data, err := os.ReadFile(m.statePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var state intent
+	if err := json.Unmarshal(data, &state); err != nil {
+		return false, err
+	}
+	if state.SchemaVersion != 1 {
+		return false, fmt.Errorf("unsupported QNAP host routing state version %d", state.SchemaVersion)
+	}
+	return state.Enabled, nil
+}
+
+func (m *Manager) writeIntentLocked(enabled bool) error {
+	if err := os.MkdirAll(filepath.Dir(m.statePath), 0o700); err != nil {
+		return err
+	}
+	payload, err := json.MarshalIndent(intent{SchemaVersion: 1, Enabled: enabled}, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := m.statePath + ".tmp"
+	if err := os.WriteFile(tmp, append(payload, '\n'), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, m.statePath); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+'''
+          new_state = r'''func (m *Manager) readStateLocked() (intent, error) {
+	data, err := os.ReadFile(m.statePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return intent{SchemaVersion: 2}, nil
+	}
+	if err != nil {
+		return intent{}, err
+	}
+	var state intent
+	if err := json.Unmarshal(data, &state); err != nil {
+		return intent{}, err
+	}
+	switch state.SchemaVersion {
+	case 1:
+		legacy := legacyHostPriorities()
+		state.SchemaVersion = 2
+		state.HostPriorities = &legacy
+	case 2:
+		if state.HostPriorities != nil && !state.HostPriorities.valid() {
+			return intent{}, fmt.Errorf("invalid persisted QNAP host policy priorities: %+v", *state.HostPriorities)
+		}
+	default:
+		return intent{}, fmt.Errorf("unsupported QNAP host routing state version %d", state.SchemaVersion)
+	}
+	return state, nil
+}
+
+func (m *Manager) readIntentLocked() (bool, error) {
+	state, err := m.readStateLocked()
+	return state.Enabled, err
+}
+
+func (m *Manager) hostPrioritiesLocked() hostPolicyPriorities {
+	state, err := m.readStateLocked()
+	if err == nil && state.HostPriorities != nil && state.HostPriorities.valid() {
+		return *state.HostPriorities
+	}
+	return defaultHostPriorities()
+}
+
+func (m *Manager) writeIntentLocked(enabled bool) error {
+	state, err := m.readStateLocked()
+	if err != nil {
+		return err
+	}
+	priorities := defaultHostPriorities()
+	if state.HostPriorities != nil && state.HostPriorities.valid() {
+		priorities = *state.HostPriorities
+	}
+	return m.writeIntentWithPrioritiesLocked(enabled, priorities)
+}
+
+func (m *Manager) writeIntentWithPrioritiesLocked(enabled bool, priorities hostPolicyPriorities) error {
+	if !priorities.valid() {
+		return fmt.Errorf("invalid QNAP host policy priorities: %+v", priorities)
+	}
+	if err := os.MkdirAll(filepath.Dir(m.statePath), 0o700); err != nil {
+		return err
+	}
+	payload, err := json.MarshalIndent(intent{SchemaVersion: 2, Enabled: enabled, HostPriorities: &priorities}, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := m.statePath + ".tmp"
+	if err := os.WriteFile(tmp, append(payload, '\n'), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, m.statePath); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+'''
+          replace(old_state, new_state, 'state v2')
+
+          path.write_text(s)
+
+          test = Path('internal/qnaphost/priority_test.go')
+          test.write_text(r'''package qnaphost
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestChooseHostPrioritiesBeatsQNAPSourceRule(t *testing.T) {
+	rules := []byte("0: from all lookup local\n20010: from 192.168.2.240 lookup 20010\n32766: from all lookup main\n")
+	priorities, err := chooseHostPriorities(rules, "192.168.2.240")
+	if err != nil {
+		t.Fatalf("chooseHostPriorities: %v", err)
+	}
+	if priorities.Proxy >= 20010 {
+		t.Fatalf("proxy priority %d must run before QNAP source rule 20010", priorities.Proxy)
+	}
+	if !priorities.valid() {
+		t.Fatalf("invalid priority set: %+v", priorities)
+	}
+}
+
+func TestChooseHostPrioritiesSkipsOccupiedSlots(t *testing.T) {
+	rules := []byte("0: from all lookup local\n19999: from all lookup 123\n20010: from 192.168.2.240 lookup 20010\n")
+	priorities, err := chooseHostPriorities(rules, "192.168.2.240")
+	if err != nil {
+		t.Fatalf("chooseHostPriorities: %v", err)
+	}
+	if priorities.Proxy == 19999 || priorities.DNSUDP == 19999 || priorities.DNSTCP == 19999 || priorities.Main == 19999 {
+		t.Fatalf("selected occupied priority 19999: %+v", priorities)
+	}
+	if priorities.Proxy >= 20010 {
+		t.Fatalf("priority block does not beat QNAP rule: %+v", priorities)
+	}
+}
+
+func TestChooseHostPrioritiesRefusesProtectedLowRange(t *testing.T) {
+	rules := []byte("0: from all lookup local\n1002: from 192.168.2.240 lookup 20010\n")
+	_, err := chooseHostPriorities(rules, "192.168.2.240")
+	if err == nil || !strings.Contains(err.Error(), "protected low-priority") {
+		t.Fatalf("expected protected low-priority error, got %v", err)
+	}
+}
+
+func TestRouteUsesGatewayTable(t *testing.T) {
+	output := []byte("1.1.1.1 from 192.168.2.240 via 192.168.2.241 dev br0 table 20242\n")
+	if !routeUsesGatewayTable(output, "192.168.2.241", "20242") {
+		t.Fatal("expected route to be recognized as OpenSurge takeover")
+	}
+	if routeUsesGatewayTable(output, "192.168.2.1", "20010") {
+		t.Fatal("unexpected QNAP route match")
+	}
+}
+''')
+          PY
+          gofmt -w internal/qnaphost/manager.go internal/qnaphost/priority_test.go
+          go test ./internal/qnaphost
+      - name: Commit patch and remove one-shot workflow
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/one-shot-qnap-host-priority.yml
+          git add internal/qnaphost/manager.go internal/qnaphost/priority_test.go
+          git commit -m "fix(qnap): outrank QTS host policy routing safely"
+          git push origin HEAD:fix/qnap-host-priority-shadow
