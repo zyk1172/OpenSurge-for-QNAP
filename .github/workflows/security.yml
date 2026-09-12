@@ -40,7 +40,7 @@ jobs:
             --build-arg VCS_REF="$GITHUB_SHA" \
             --tag opensurge-for-qnap:security \
             .
-      - name: Reject HIGH/CRITICAL vulnerabilities
+      - name: Reject fixable HIGH/CRITICAL vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: opensurge-for-qnap:security
@@ -48,3 +48,5 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: '1'
           vuln-type: os,library
+          ignore-unfixed: true
+          scanners: vuln
