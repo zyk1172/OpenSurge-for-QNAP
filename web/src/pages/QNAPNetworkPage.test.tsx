@@ -130,16 +130,18 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
       return hostRouting
     })
     vi.mocked(waitForOperation).mockResolvedValue({ id: 'operation', kind: 'start', state: 'succeeded' })
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ enabled: false, api_base: '/api/remote/v1', capabilities: '/api/remote/v1/capabilities' }) })))
   })
 
-  it('shows NAS Tailscale state and removes the raw OpenSurge config-file editor', async () => {
+  it('focuses the page on network configuration and keeps Tailscale coexistence visible', async () => {
     render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={() => {}} />)
 
     expect(await screen.findByText('检测到 NAS 本机 Tailscale')).toBeTruthy()
     expect(screen.getAllByText('已保留给 Tailscale')).toHaveLength(2)
     expect(screen.queryByRole('textbox', { name: 'OpenSurge 配置文件内容' })).toBeNull()
-    expect(screen.getByText('OpenSurge 控制面配置不再作为通用 YAML 编辑器')).toBeTruthy()
+    expect(screen.getByText('使用 Profile Overlay')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'QNAP 网关网络' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /启动网关|停止网关/ })).toBeNull()
+    expect(screen.queryByText('局域网 API 令牌')).toBeNull()
   })
 
   it('persists DNS mode and Tailscale protection through the host-routing endpoint', async () => {

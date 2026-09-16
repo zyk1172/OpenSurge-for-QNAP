@@ -74,20 +74,17 @@ export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
       <SectionTitle title={t('环境检查')} subtitle={doctorSubtitle(doctorStatus)} />
       <button className="primary" type="button" disabled={running} onClick={() => void runDoctor()}>{running ? <><span className="button-spinner" aria-hidden="true" />{t('后台检查中')}</> : t(!doctorStatus || doctorStatus.state === 'idle' ? '运行检查' : '重新检查')}</button>
     </div>
-    {qnapBuild && <div className="notice qnap-doctor-note">
-      <strong>{t('持久化存储检查')}</strong>
-      <p>{t('检查 /data/runtime 的持久化写入；/data/web-auth 权限由部署预检验证。')}</p>
-    </div>}
+    {qnapBuild && <div className="notice qnap-doctor-note"><strong>{t('持久化检查')}</strong><p>{t('验证 /data/runtime 写入；认证目录由部署预检验证。')}</p></div>}
     {doctorError && <div className="notice warn" role="alert">{t('环境检查状态暂不可用：{{error}}', { error: doctorError })}</div>}
     {doctorStatus?.state === 'failed' && <div className="notice warn" role="alert">{t('环境检查任务失败：{{error}}', { error: doctorStatus.error || t('未知错误') })}</div>}
     <div className="doctor-check-list">
       {orderedChecks.map(check => <div className={`check ${check.ok ? '' : 'doctor-check-failed'}`} key={check.name}><span className={check.ok ? 'ok-mark' : 'bad-mark'}>{check.ok ? '✓' : '!'}</span><div><strong>{doctorCheckName(check.name)}</strong>{check.message && <small>{doctorCheckMessage(check.message)}</small>}</div></div>)}
     </div>
-    {!checks.length && !doctorError && doctorStatus?.state !== 'failed' && <div className="empty">{t(running ? '检查在后台执行；离开本页不会重复启动。' : '运行检查后才会执行完整检查；刷新页面不会自动触发。')}</div>}
+    {!checks.length && !doctorError && doctorStatus?.state !== 'failed' && <div className="empty">{t(running ? '检查正在后台执行。' : '按“运行检查”开始完整检查。')}</div>}
   </>
 
   const providerPanel = <>
-    <SectionTitle title={t('代理集合')} subtitle={t('查看状态并手动刷新')} />
+    <SectionTitle title={t('代理集合')} subtitle={t('Provider 运行状态')} />
     <div className="provider-status-list">
       {providers.map(provider => <div className="row" key={provider.name}><StatusDot status={provider.proxies.some(proxy => proxy.alive) ? 'running' : 'degraded'} /><div className="grow"><strong>{provider.name}</strong><small>{t('{{count}} 个节点 · {{type}}', { count: String(provider.proxy_count), type: provider.vehicle_type })}</small></div><button onClick={() => void api.refreshProvider(provider.name)}>{t('刷新')}</button></div>)}
       {!providers.length && <div className="empty">{t('暂无代理集合')}</div>}
@@ -95,33 +92,13 @@ export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
   </>
 
   return <>
-    <PageHeader
-      eyebrow={t('诊断')}
-      title={t('诊断与运行状态')}
-      description={t('查看网关、环境检查、代理集合、连接和日志。')}
-    />
+    <PageHeader eyebrow={t('诊断')} title={t('诊断与运行状态')} description={t('环境检查、连接、代理集合与日志。')} />
 
     {qnapBuild && <section className="diagnostic-summary-grid" aria-label={t('诊断概览')}>
-      <article className="diagnostic-summary-card">
-        <small>{t('网关')}</small>
-        <strong>{statusLabel(overview?.status.gateway)}</strong>
-        <span>{statusLabel(overview?.status.runtime_state ?? 'loading')}</span>
-      </article>
-      <article className={`diagnostic-summary-card ${failedChecks ? 'warn' : doctorStatus?.healthy ? 'ok' : ''}`}>
-        <small>{t('环境检查')}</small>
-        <strong>{running ? t('后台检查中') : failedChecks ? t('{{count}} 项异常', { count: String(failedChecks) }) : doctorStatus?.healthy ? t('正常') : statusLabel(doctorStatus?.state)}</strong>
-        <span>{doctorSubtitle(doctorStatus)}</span>
-      </article>
-      <article className="diagnostic-summary-card">
-        <small>{t('活动连接')}</small>
-        <strong>{connections.length}</strong>
-        <span>↑ {formatBytes(details?.connections.upload_total ?? 0)} · ↓ {formatBytes(details?.connections.download_total ?? 0)}</span>
-      </article>
-      <article className="diagnostic-summary-card">
-        <small>{t('代理集合')}</small>
-        <strong>{providers.length}</strong>
-        <span>{t('{{count}} 个可用', { count: String(availableProviders) })}</span>
-      </article>
+      <article className="diagnostic-summary-card"><small>{t('网关')}</small><strong>{statusLabel(overview?.status.gateway)}</strong><span>{statusLabel(overview?.status.runtime_state ?? 'loading')}</span></article>
+      <article className={`diagnostic-summary-card ${failedChecks ? 'warn' : doctorStatus?.healthy ? 'ok' : ''}`}><small>{t('环境检查')}</small><strong>{running ? t('后台检查中') : failedChecks ? t('{{count}} 项异常', { count: String(failedChecks) }) : doctorStatus?.healthy ? t('正常') : statusLabel(doctorStatus?.state)}</strong><span>{doctorSubtitle(doctorStatus)}</span></article>
+      <article className="diagnostic-summary-card"><small>{t('活动连接')}</small><strong>{connections.length}</strong><span>↑ {formatBytes(details?.connections.upload_total ?? 0)} · ↓ {formatBytes(details?.connections.download_total ?? 0)}</span></article>
+      <article className="diagnostic-summary-card"><small>{t('代理集合')}</small><strong>{providers.length}</strong><span>{t('{{count}} 个可用', { count: String(availableProviders) })}</span></article>
     </section>}
 
     {qnapBuild ? <>
@@ -136,7 +113,7 @@ export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
     </section>
 
     <section className="section">
-      <SectionTitle title={t('近期日志')} subtitle={t('每个进程最多 80 行；敏感凭据已脱敏')} />
+      <SectionTitle title={t('近期日志')} subtitle={t('最多 80 行 / 进程 · 已脱敏')} />
       <div className="diagnostic-log-list">
         {Object.entries(details?.logs ?? {}).map(([name, lines]) => <details key={name} className="diagnostic-log-panel"><summary><strong>{name}</strong><span>{t('{{count}} 行', { count: String(lines.length) })}</span></summary><pre>{lines.join('\n') || t('暂无日志输出')}</pre></details>)}
         {!Object.keys(details?.logs ?? {}).length && <div className="empty">{t('暂无日志')}</div>}
@@ -145,14 +122,14 @@ export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
 
     <section className="section">
       <SectionTitle title={t('操作与恢复')} subtitle={t('恢复状态：{{state}}', { state: statusLabel(recoveryState) })} />
-      {details?.operations.length ? details.operations.map(operation => <div className="row" key={operation.id}><StatusDot status={operation.state === 'failed' ? 'degraded' : operation.state === 'succeeded' ? 'running' : 'stopped'} /><div className="grow"><strong>{operationKindLabel(operation.kind)} · {statusLabel(operation.state)}</strong><small>{operation.id} · {operation.updated_at}{operation.error ? ` · ${operation.error}` : ''}</small></div></div>) : <div className="empty">{t('尚无生命周期操作记录')}</div>}
+      {details?.operations.length ? details.operations.map(operation => <div className="row" key={operation.id}><StatusDot status={operation.state === 'failed' ? 'degraded' : operation.state === 'succeeded' ? 'running' : 'stopped'} /><div className="grow"><strong>{operationKindLabel(operation.kind)} · {statusLabel(operation.state)}</strong><small>{operation.id} · {operation.updated_at}{operation.error ? ` · ${operation.error}` : ''}</small></div></div>) : <div className="empty">{t('暂无生命周期操作记录')}</div>}
     </section>
   </>
 }
 
 function doctorSubtitle(status: DoctorRunStatus | null): string {
   if (!status) return t('读取检查结果')
-  if (status.state === 'idle') return t('按需执行，不随页面刷新自动运行')
+  if (status.state === 'idle') return t('按需执行')
   if (status.state === 'running') return t('后台检查中')
   if (!status.current) return t('配置已变化，请重新检查')
   if (status.state === 'failed') return t('检查未完成')

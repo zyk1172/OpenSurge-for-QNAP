@@ -27,6 +27,7 @@ type PoliciesPageProps = {
 }
 
 const emptyGroups: ProxyGroup[] = []
+const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
 
 export function PoliciesPage({ overview, onChanged, viewState, onViewStateChange, restoreScrollY, onScrollPositionChange }: PoliciesPageProps) {
   const { search, scope, activeGroup } = viewState
@@ -160,7 +161,7 @@ export function PoliciesPage({ overview, onChanged, viewState, onViewStateChange
   }, [snapshot, groupNames, onScrollPositionChange, onViewStateChange])
 
   return <>
-    <PageHeader eyebrow="POLICIES" title="策略与节点健康" description="查看当前配置的策略组、节点选择与延迟；未启动网关时也可以提前选择出口。" action={<div className="source-head">{snapshot && <span className={`effect-badge ${snapshot.mode === 'running' ? 'live' : ''}`}>{t(snapshot.mode === 'running' ? '运行中配置' : '待启动配置')}</span>}<button className="primary" type="button" disabled={!testableNames.length || testableNames.some(name => testing.has(name))} onClick={() => void test(testableNames)}>{testing.size ? t('正在检测 {{count}} 个节点…', { count: testing.size }) : t('检测当前视图')}</button></div>} />
+    <PageHeader eyebrow="POLICIES" title={qnapBuild ? '策略与节点' : '策略与节点健康'} description={qnapBuild ? '选择策略出口并查看节点延迟。' : '查看当前配置的策略组、节点选择与延迟；未启动网关时也可以提前选择出口。'} action={<div className="source-head">{snapshot && <span className={`effect-badge ${snapshot.mode === 'running' ? 'live' : ''}`}>{t(snapshot.mode === 'running' ? '运行中配置' : '待启动配置')}</span>}<button className="primary" type="button" disabled={!testableNames.length || testableNames.some(name => testing.has(name))} onClick={() => void test(testableNames)}>{testing.size ? t('正在检测 {{count}} 个节点…', { count: testing.size }) : t('检测当前视图')}</button></div>} />
     <LocalMacGlobalPolicy
       running={overview?.status.gateway === 'running'}
       healthByName={byName}
@@ -168,7 +169,7 @@ export function PoliciesPage({ overview, onChanged, viewState, onViewStateChange
       onTest={test}
       onChanged={async () => { await onChanged(); await refresh() }}
     />
-    <section className="policy-health-overview" aria-label={t('节点健康概览')}><div><small>{t('当前视图')}</small><strong>{filteredGroups.length}</strong><span>{t('个策略组')}</span></div><div><small>{t('已检测')}</small><strong>{tested}</strong><span>{t('个出口')}</span></div><div><small>{t('当前可达')}</small><strong>{reachable}</strong><span>{t('个出口')}</span></div><div className="health-legend"><span><i className="legend-dot excellent" />{t('快速')}</span><span><i className="legend-dot good" />{t('可用')}</span><span><i className="legend-dot slow" />{t('较慢')}</span><span><i className="legend-dot unreachable" />{t('不可达')}</span></div></section>
+    <section className="policy-health-overview" aria-label={t('节点健康概览')}><div><small>{t('当前视图')}</small><strong>{filteredGroups.length}</strong><span>{t('策略组')}</span></div><div><small>{t('已检测')}</small><strong>{tested}</strong><span>{t('出口')}</span></div><div><small>{t('当前可达')}</small><strong>{reachable}</strong><span>{t('出口')}</span></div><div className="health-legend"><span><i className="legend-dot excellent" />{t('快速')}</span><span><i className="legend-dot good" />{t('可用')}</span><span><i className="legend-dot slow" />{t('较慢')}</span><span><i className="legend-dot unreachable" />{t('不可达')}</span></div></section>
     <div className="policy-controls-sticky" ref={controlsRef}>
       <section className="policy-toolbar"><label className="policy-search"><span className="sr-only">{t('搜索策略组或节点')}</span><input type="search" value={search} placeholder={t('搜索策略组或节点')} onChange={event => onViewStateChange({ search: event.target.value })} /></label><div className="segmented" role="group" aria-label={t('策略组范围')}>{([['global', '全局策略'], ['device', '设备策略'], ['all', '全部']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={scope === value} onClick={() => onViewStateChange({ scope: value })}>{t(label)}</button>)}</div></section>
       <PolicyGroupNav groups={groupNames} activeGroup={activeGroup} onNavigate={navigateToGroup} displayName={name => policyDisplayName(name, byName.get(name))} />
@@ -176,8 +177,8 @@ export function PoliciesPage({ overview, onChanged, viewState, onViewStateChange
     {error && <div className="notice warn" role="alert">{t('策略配置暂不可用：{{error}}', { error })} <button type="button" disabled={loading} onClick={() => void refresh()}>{t('重试')}</button></div>}
     <section className="policy-health-list">{filteredGroups.map(group => <PolicyGroupHealthCard key={group.name} group={group} search={search.trim()} healthByName={byName} testing={testing} onTest={test} onSelect={policy => select(group.name, policy)} articleRef={registerGroup(group.name)} navigationActive={group.name === activeGroup} />)}</section>
     {!snapshot && loading && <p role="status">{t('正在准备策略配置…')}</p>}
-    {snapshot && !filteredGroups.length && <Empty text={t(groups.length ? '当前筛选没有匹配的策略组或节点' : '当前配置还没有策略组；可以导入 mihomo YAML，也可以只在“全局附加配置”中添加节点与策略组。')} />}
-    <p className="evidence-note"><strong>{t('检测范围：')}</strong>{t('延迟由网关 Mac 上的 mihomo 访问探测地址得到；它不代表某台下游设备的 DHCP、DNS 或 TUN 路径已经完成端到端验收。')}</p>
+    {snapshot && !filteredGroups.length && <Empty text={t(groups.length ? '当前筛选没有匹配的策略组或节点' : qnapBuild ? '当前配置没有策略组。请先导入 Mihomo YAML 或添加全局策略组。' : '当前配置还没有策略组；可以导入 mihomo YAML，也可以只在“全局附加配置”中添加节点与策略组。')} />}
+    <p className="evidence-note"><strong>{t('检测范围：')}</strong>{t(qnapBuild ? '测速由 OpenSurge 网关经 Mihomo 发起，仅代表网关路径。' : '延迟由网关 Mac 上的 mihomo 访问探测地址得到；它不代表某台下游设备的 DHCP、DNS 或 TUN 路径已经完成端到端验收。')}</p>
   </>
 }
 
@@ -227,21 +228,21 @@ function LocalMacGlobalPolicy({
 
   return <section className="policy-local-mac" aria-labelledby="policy-local-mac-title">
     <div className="policy-local-mac-copy">
-      <div className="source-head"><div><small>THIS MAC</small><h2 id="policy-local-mac-title">{t('本机全局策略组')}</h2></div><span className="effect-badge live">{t('仅影响本机')}</span></div>
-      <p>{t('设备页选择“固定出口”时使用；更换策略不会改变下游设备。')}</p>
+      <div className="source-head"><div><small>{qnapBuild ? 'GATEWAY' : 'THIS MAC'}</small><h2 id="policy-local-mac-title">{t(qnapBuild ? '网关本机出口' : '本机全局策略组')}</h2></div><span className="effect-badge live">{t(qnapBuild ? '仅影响网关' : '仅影响本机')}</span></div>
+      <p>{t(qnapBuild ? '不影响下游设备策略。' : '设备页选择“固定出口”时使用；更换策略不会改变下游设备。')}</p>
     </div>
     <div className="policy-local-mac-outlet">
       {running && routing?.global_group
         ? <OutletSummary
-            title={t('本机全局出口')}
-            ariaLabel={t('本机全局策略组 当前策略 {{selected}}', { selected: routing.global_group.selected })}
+            title={t(qnapBuild ? '网关当前出口' : '本机全局出口')}
+            ariaLabel={t(qnapBuild ? '网关本机出口 当前策略 {{selected}}' : '本机全局策略组 当前策略 {{selected}}', { selected: routing.global_group.selected })}
             group={routing.global_group}
             healthByName={healthByName}
             testing={testing}
             onTest={onTest}
             onSelect={select}
           />
-        : <button className="outlet-summary unavailable" type="button" disabled><span className="outlet-summary-copy"><small>{t('本机全局出口')}</small><strong>{t(running ? '正在读取…' : '启动网关后可用')}</strong></span></button>}
+        : <button className="outlet-summary unavailable" type="button" disabled><span className="outlet-summary-copy"><small>{t(qnapBuild ? '网关当前出口' : '本机全局出口')}</small><strong>{t(running ? '正在读取…' : '启动网关后可用')}</strong></span></button>}
       {error && <div className="notice warn" role="alert">{error}</div>}
     </div>
   </section>

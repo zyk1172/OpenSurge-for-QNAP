@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { recoveryLabel } from '../status'
+import '../i18n.layout-audit.en'
 import { t } from '../i18n'
 
 export function RecoveryBanner({ recovery, onOpen }: { recovery: string; onOpen: () => void }) {

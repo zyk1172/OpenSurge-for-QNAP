@@ -84,15 +84,15 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
       setOverlay(profileOverlay)
       const persisted = sourceResponse.sources?.find(item => item.id === selected.id)
       if (!persisted || (!persisted.desired && !persisted.applied)) {
-        throw new Error(t('后端返回成功，但重新读取后没有发现 desired/运行版本标记；本次操作未被视为成功。'))
+        throw new Error(t('应用结果未能从持久化状态中确认，请刷新后重试。'))
       }
       setPending(null)
       if (persisted.applied) {
-        setMessage(t('{{name}} 已持久化并成为当前运行版本。', { name: selected.name }))
-        onNotify({ tone: 'success', title: t('订阅已应用'), message: t('重新读取配置后已确认当前网关正在使用该版本。') })
+        setMessage(t('{{name}} 已成为当前运行版本。', { name: selected.name }))
+        onNotify({ tone: 'success', title: t('订阅已应用'), message: t('当前网关已使用该版本。') })
       } else {
-        setMessage(t('{{name}} 已持久化为下次启动版本；重新读取配置后已确认 desired 状态。', { name: selected.name }))
-        onNotify({ tone: 'success', title: t('下次启动版本已保存'), message: t('该选择已写入 /data/config，容器或网关重启后仍会保留。') })
+        setMessage(t('{{name}} 已设为下次启动版本。', { name: selected.name }))
+        onNotify({ tone: 'success', title: t('下次启动版本已保存'), message: t('配置已持久化。') })
       }
       await Promise.resolve(onChanged())
     } catch (cause) {
@@ -112,7 +112,7 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
     try {
       const location = await api.sourceSnapshotLocation(source.id)
       await copyText(location.path)
-      setMessage(t('{{name}} 的容器内快照路径已复制。', { name: source.name }))
+      setMessage(t('{{name}} 的快照路径已复制。', { name: source.name }))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -122,12 +122,12 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
   }
 
   return <>
-    <PageHeader eyebrow="QNAP SOURCES" title="代理与规则源" description="状态来自重新读取后的持久化配置，不把一次 HTTP 200 当成已经保存。" />
+    <PageHeader eyebrow="QNAP SOURCES" title="代理与规则源" description="导入、校验并应用 Mihomo 配置来源。" />
     {error && <div className="notice warn" role="alert"><strong>{t('操作未完成')}</strong><p>{error}</p></div>}
-    {message && <div className="ok-notice" role="status"><strong>{t('状态已重新确认')}</strong><p>{message}</p></div>}
+    {message && <div className="ok-notice" role="status"><strong>{t('状态已更新')}</strong><p>{message}</p></div>}
 
     <section className="section source-import-panel">
-      <SectionTitle title="添加配置来源" subtitle="导入只创建持久化草稿；点击应用后会再次做完整候选配置校验。" />
+      <SectionTitle title="添加配置来源" subtitle="导入后先保存为草稿，应用前自动校验" />
       <div className="source-import-grid">
         <article className="source-import-card">
           <div className="source-import-head"><span aria-hidden="true">↗</span><div><small>REMOTE PROFILE</small><h3>{t('HTTPS 订阅')}</h3></div></div>
@@ -136,7 +136,7 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
           <button className="primary source-action-button" type="button" disabled={busy || !url} onClick={() => void run('import-url', '', () => api.importURL(name, url), t('订阅已保存为草稿。'))}>{action === 'import-url' ? t('正在导入…') : t('导入为草稿')}</button>
         </article>
         <article className="source-import-card local">
-          <div className="source-import-head"><span aria-hidden="true">⇧</span><div><small>LOCAL PROFILE</small><h3>{t('本地 mihomo YAML')}</h3></div></div>
+          <div className="source-import-head"><span aria-hidden="true">⇧</span><div><small>LOCAL PROFILE</small><h3>{t('本地 Mihomo YAML')}</h3></div></div>
           <label
             className={`dropzone source-dropzone ${dragging ? 'drag-active' : ''}`}
             onDragEnter={event => { event.preventDefault(); if (!busy) { dragDepth.current += 1; setDragging(true) } }}
@@ -160,7 +160,7 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
     </section>
 
     <section className="section source-library">
-      <SectionTitle title="已导入快照" subtitle="状态来自重新读取后的持久化配置，不把一次 HTTP 200 当成已经保存。" />
+      <SectionTitle title="已导入来源" subtitle="持久化版本与当前应用状态" />
       {sources.length ? <div className="source-grid">{sources.map(source => {
         const inventory = source.effective_inventory ?? source.inventory
         const valid = source.valid && source.overlay_compatible !== false
@@ -172,7 +172,7 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
           <div className="source-head"><div><small>{source.kind}</small><h3>{source.name}</h3></div><span className={source.applied || source.desired || valid ? 'pill ok' : 'pill bad'}>{state}</span></div>
           <p className="source-origin" title={source.origin}><span aria-hidden="true">⌁</span>{source.origin}</p>
           {source.snapshot_display_path && <div className="source-location">
-            <div className="source-location-copy"><small>{t('容器持久化快照')}</small><code dir="ltr">{source.snapshot_display_path}</code><span>{t('位于 /data 下，由 OpenSurge 管理')}</span></div>
+            <div className="source-location-copy"><small>{t('持久化快照')}</small><code dir="ltr">{source.snapshot_display_path}</code><span>{t('OpenSurge 管理')}</span></div>
             <div className="source-location-actions"><button type="button" disabled={busy} onClick={() => void copyPath(source)}>{copying ? t('复制中…') : t('复制路径')}</button></div>
           </div>}
           <div className="source-inventory">
@@ -193,11 +193,9 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
     <ProfileOverlayPanel overlay={overlay} sources={sources} onSaved={async saved => { setOverlay(saved); await refresh() }} />
 
     {pending && <dialog className="reload-dialog" open aria-modal="true" aria-labelledby="qnap-source-apply-title">
-      <h2 id="qnap-source-apply-title">{t(running ? '应用订阅并重载 QNAP 网关？' : '设为下次启动版本？')}</h2>
-      <p>{t(running
-        ? '导入只创建持久化草稿；点击应用后会再次做完整候选配置校验。'
-        : '当前网关未运行。确认后会把所选版本写入 /data/config，随后重新读取配置确认 desired 状态；容器重启不会丢失该选择。')}</p>
-      <div className="dialog-actions"><button type="button" disabled={busy} onClick={() => setPending(null)}>{t('取消')}</button><button className="primary" type="button" autoFocus disabled={busy} onClick={() => void apply()}>{action === 'apply' ? t('正在验证并持久化…') : t(running ? '确认应用并重载' : '确认设为下次启动版本')}</button></div>
+      <h2 id="qnap-source-apply-title">{t(running ? '应用并重载网关？' : '设为下次启动版本？')}</h2>
+      <p>{t(running ? '应用前会校验最终配置。' : '所选版本将持久化，并在下次启动时使用。')}</p>
+      <div className="dialog-actions"><button type="button" disabled={busy} onClick={() => setPending(null)}>{t('取消')}</button><button className="primary" type="button" autoFocus disabled={busy} onClick={() => void apply()}>{action === 'apply' ? t('正在验证…') : t(running ? '确认应用' : '确认保存')}</button></div>
     </dialog>}
   </>
 }

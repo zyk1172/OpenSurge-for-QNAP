@@ -1,0 +1,366 @@
+/* Authoritative layout rhythm and typography for the redesigned control center.
+ * This file loads last so every page follows the same spacing/type scale and
+ * critical summary surfaces cannot become transparent placeholders.
+ */
+:root{
+  --ui-space-1:4px;
+  --ui-space-2:8px;
+  --ui-space-3:12px;
+  --ui-space-4:16px;
+  --ui-space-5:20px;
+  --ui-radius-sm:10px;
+  --ui-radius-md:14px;
+  --ui-type-page:22px;
+  --ui-type-section:15px;
+  --ui-type-control:11px;
+  --ui-type-body:10px;
+  --ui-type-meta:9px;
+}
+
+/* Global vertical rhythm ------------------------------------------------ */
+.workspace-canvas{
+  padding:12px 28px 56px!important;
+}
+.page-header{
+  min-height:0!important;
+  margin:0 0 var(--ui-space-3)!important;
+  padding:11px 14px!important;
+  border-radius:var(--ui-radius-md)!important;
+}
+.page-header h1{
+  margin:0 0 3px!important;
+  font-size:var(--ui-type-page)!important;
+  line-height:1.16!important;
+  letter-spacing:-.025em!important;
+}
+.page-header p{
+  max-width:680px!important;
+  font-size:var(--ui-type-body)!important;
+  line-height:1.38!important;
+}
+.section{
+  min-height:0!important;
+  margin-top:var(--ui-space-3)!important;
+  padding:var(--ui-space-4)!important;
+  border-radius:var(--ui-radius-md)!important;
+}
+.page-header + .section,
+.workspace-canvas > .section:first-child,
+.qnap-network-section{
+  margin-top:0!important;
+}
+.section-title{
+  margin:0 0 var(--ui-space-3)!important;
+}
+.section-title h2,
+.section-title-row h2{
+  margin:0!important;
+  font-size:var(--ui-type-section)!important;
+  line-height:1.25!important;
+  letter-spacing:-.015em!important;
+}
+.section-title p,
+.section-title-row .muted{
+  margin:3px 0 0!important;
+  font-size:var(--ui-type-meta)!important;
+  line-height:1.4!important;
+}
+.muted,
+.compact-note,
+.notice p,
+.ok-notice p,
+.evidence-note,
+.source-origin,
+.source-validation small{
+  font-size:var(--ui-type-meta)!important;
+  line-height:1.42!important;
+}
+.notice,.ok-notice,.error-banner{
+  margin-top:var(--ui-space-2)!important;
+  padding:10px 12px!important;
+  border-radius:var(--ui-radius-sm)!important;
+}
+.notice strong,.ok-notice strong{
+  font-size:var(--ui-type-control)!important;
+  line-height:1.3!important;
+}
+.inventory{
+  gap:var(--ui-space-2)!important;
+  margin:10px 0!important;
+}
+.inventory span{
+  padding:6px 8px!important;
+  font-size:var(--ui-type-body)!important;
+  line-height:1.35!important;
+}
+.inventory span strong{
+  font-size:var(--ui-type-meta)!important;
+  font-weight:760!important;
+}
+.source-actions,.actions,.dialog-actions{
+  gap:var(--ui-space-2)!important;
+  margin-top:var(--ui-space-3)!important;
+  padding-top:0!important;
+}
+:where(.source-actions,.actions,.dialog-actions,.page-header,.category-summary,.group-health-summary,.diagnostic-doctor-head) button{
+  font-size:var(--ui-type-body)!important;
+}
+
+/* Policies: restore the summary content that was occupying invisible space. */
+.policy-local-mac{
+  position:relative!important;
+  display:grid!important;
+  visibility:visible!important;
+  opacity:1!important;
+  grid-template-columns:minmax(230px,.7fr) minmax(360px,1.3fr)!important;
+  gap:var(--ui-space-3)!important;
+  align-items:center!important;
+  min-height:0!important;
+  margin:0 0 10px!important;
+  padding:12px 14px!important;
+  transform:none!important;
+  border:1px solid rgba(185,169,235,.16)!important;
+  border-radius:var(--ui-radius-md)!important;
+  background:rgba(14,17,25,.46)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.035),0 10px 30px rgba(0,0,0,.10)!important;
+}
+.policy-local-mac-copy,
+.policy-local-mac-outlet,
+.policy-local-mac .source-head,
+.policy-health-overview,
+.policy-health-overview>div,
+.health-legend{
+  visibility:visible!important;
+  opacity:1!important;
+}
+.policy-local-mac-copy{
+  display:block!important;
+  min-width:0!important;
+}
+.policy-local-mac-copy .source-head{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:10px!important;
+  margin:0 0 4px!important;
+}
+.policy-local-mac-copy h2{
+  margin:1px 0 0!important;
+  color:#f1edf6!important;
+  font-size:14px!important;
+  line-height:1.25!important;
+}
+.policy-local-mac-copy p{
+  margin:0!important;
+  color:rgba(218,211,228,.58)!important;
+  font-size:var(--ui-type-meta)!important;
+  line-height:1.4!important;
+}
+.policy-local-mac-outlet{display:block!important;min-width:0!important}
+.policy-health-overview{
+  position:relative!important;
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(100px,.55fr)) minmax(260px,1.6fr)!important;
+  gap:1px!important;
+  min-height:0!important;
+  margin:0 0 10px!important;
+  overflow:hidden!important;
+  transform:none!important;
+  border:1px solid rgba(185,169,235,.14)!important;
+  border-radius:12px!important;
+  background:rgba(185,169,235,.12)!important;
+}
+.policy-health-overview>div{
+  display:grid!important;
+  align-content:center!important;
+  min-height:58px!important;
+  padding:9px 12px!important;
+  background:rgba(13,16,23,.76)!important;
+}
+.policy-health-overview small{font-size:8px!important;color:rgba(213,205,224,.48)!important}
+.policy-health-overview strong{font-size:16px!important;line-height:1.1!important}
+.policy-health-overview span{font-size:8px!important;color:rgba(213,205,224,.48)!important}
+.health-legend{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+  gap:10px!important;
+}
+.policy-controls-sticky{margin-bottom:10px!important}
+.policy-health-list{gap:10px!important}
+.policy-health-group{margin:0!important}
+.policy-group-head{padding:10px 12px!important}
+.proxy-node-grid{padding:10px!important;gap:8px!important}
+html[data-theme="light"] .policy-local-mac,
+html[data-theme="light"] .policy-health-overview>div{background:rgba(255,255,255,.68)!important}
+html[data-theme="light"] .policy-local-mac-copy h2{color:#342f3a!important}
+html[data-theme="light"] .policy-local-mac-copy p{color:#756d7e!important}
+
+/* Connectivity: the overview existed in DOM but could become visually empty. */
+.connectivity-overview{
+  position:relative!important;
+  display:grid!important;
+  visibility:visible!important;
+  opacity:1!important;
+  grid-template-columns:minmax(0,1.45fr) minmax(300px,.85fr)!important;
+  min-height:0!important;
+  margin:10px 0 12px!important;
+  overflow:hidden!important;
+  transform:none!important;
+  border:1px solid rgba(185,169,235,.15)!important;
+  border-radius:var(--ui-radius-md)!important;
+  background:rgba(14,17,25,.48)!important;
+}
+.connectivity-score,
+.connectivity-metrics,
+.baseline-control,
+.connectivity-score>* ,
+.connectivity-metrics>* ,
+.baseline-control>*{
+  visibility:visible!important;
+  opacity:1!important;
+}
+.connectivity-score{
+  display:flex!important;
+  align-items:center!important;
+  gap:14px!important;
+  min-height:82px!important;
+  padding:12px 14px!important;
+  background:linear-gradient(135deg,rgba(31,53,47,.72),rgba(18,20,29,.76))!important;
+}
+.score-orb{width:62px!important;height:62px!important;flex-basis:62px!important}
+.connectivity-score h2{margin:3px 0!important;font-size:14px!important}
+.connectivity-score p{font-size:var(--ui-type-meta)!important}
+.connectivity-metrics{
+  display:grid!important;
+  grid-template-columns:repeat(3,1fr)!important;
+  background:rgba(13,16,23,.76)!important;
+}
+.connectivity-metrics>span{min-height:58px!important;padding:9px!important}
+.connectivity-metrics strong{font-size:15px!important}
+.baseline-control{
+  grid-column:1/-1!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:12px!important;
+  min-height:48px!important;
+  padding:9px 12px!important;
+  border-top:1px solid rgba(255,255,255,.06)!important;
+  background:rgba(12,15,21,.68)!important;
+}
+.baseline-control strong{font-size:10px!important}
+.baseline-control small{font-size:8px!important}
+.probe-scope{margin-bottom:10px!important}
+.connectivity-category{margin-top:10px!important}
+html[data-theme="light"] .connectivity-overview,
+html[data-theme="light"] .connectivity-score,
+html[data-theme="light"] .connectivity-metrics,
+html[data-theme="light"] .baseline-control{background:rgba(255,255,255,.68)!important}
+
+/* Diagnostics: summary cards must occupy their visible space. */
+.diagnostic-summary-grid{
+  position:relative!important;
+  display:grid!important;
+  visibility:visible!important;
+  opacity:1!important;
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:8px!important;
+  min-height:0!important;
+  margin:0 0 12px!important;
+  transform:none!important;
+}
+.diagnostic-summary-card{
+  display:grid!important;
+  visibility:visible!important;
+  opacity:1!important;
+  gap:3px!important;
+  min-height:76px!important;
+  padding:11px 12px!important;
+  border:1px solid rgba(185,169,235,.14)!important;
+  border-radius:12px!important;
+  background:rgba(14,17,25,.52)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.035),0 10px 28px rgba(0,0,0,.09)!important;
+}
+.diagnostic-summary-card small{font-size:8px!important;letter-spacing:.06em!important}
+.diagnostic-summary-card strong{font-size:17px!important;line-height:1.15!important}
+.diagnostic-summary-card span{font-size:8px!important;line-height:1.35!important}
+.diagnostic-doctor-section{margin-top:0!important}
+.diagnostic-doctor-head{margin-bottom:8px!important}
+.doctor-check-list,.provider-status-list,.diagnostic-log-list{gap:8px!important}
+html[data-theme="light"] .diagnostic-summary-card{background:rgba(255,255,255,.68)!important}
+
+/* QNAP network/settings: these are settings, not tall media cards. */
+.qnap-host-policy-grid,
+.qnap-runtime-grid{
+  align-items:start!important;
+  gap:10px!important;
+}
+.qnap-host-policy-grid .source-import-card,
+.qnap-runtime-grid .source-import-card{
+  min-height:0!important;
+  height:auto!important;
+  padding:12px!important;
+  gap:8px!important;
+  border-radius:12px!important;
+}
+.qnap-host-policy-grid .source-import-card:before,
+.qnap-runtime-grid .source-import-card:before{display:none!important}
+.qnap-host-policy-grid .sidebar-switch,
+.qnap-runtime-grid .sidebar-switch{
+  min-height:0!important;
+  padding:7px 8px!important;
+}
+.qnap-host-takeover-section>.ok-notice,
+.qnap-host-takeover-section>.notice{
+  position:relative!important;
+  inset:auto!important;
+  display:block!important;
+  min-height:0!important;
+  margin-top:8px!important;
+  transform:none!important;
+}
+.qnap-host-takeover-section .inventory{margin:8px 0!important}
+.qnap-runtime-section .notice,
+.qnap-advanced-section .notice{margin-top:8px!important}
+.qnap-deployment-section p{margin:0!important}
+
+/* Sources and management ------------------------------------------------ */
+.source-import-panel>.section-title,
+.source-library>.section-title{margin-bottom:10px!important}
+.source-library.section{margin-top:20px!important}
+.source-import-grid{gap:12px!important}
+.source-import-card{padding:16px!important}
+.source-grid{gap:12px!important}
+.source-card{padding:16px!important}
+.qnap-remote-management .section-title-row{
+  align-items:flex-start!important;
+  gap:12px!important;
+  margin-bottom:10px!important;
+}
+.qnap-remote-management .eyebrow{font-size:8px!important}
+.qnap-remote-management .remote-management-usage{margin-top:10px!important}
+
+/* Responsive ------------------------------------------------------------- */
+@media(max-width:1100px){
+  .workspace-canvas{padding-inline:22px!important}
+  .policy-health-overview{grid-template-columns:repeat(3,1fr)!important}
+  .health-legend{grid-column:1/-1!important;min-height:44px!important}
+  .connectivity-overview{grid-template-columns:1fr!important}
+  .connectivity-metrics{grid-column:1!important}
+  .diagnostic-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+}
+@media(max-width:860px){
+  .workspace-canvas{padding:10px 14px calc(76px + env(safe-area-inset-bottom))!important}
+  .page-header{padding:10px 11px!important}
+  .page-header h1{font-size:20px!important}
+  .section{padding:14px!important}
+  .policy-local-mac{grid-template-columns:1fr!important}
+  .baseline-control{align-items:flex-start!important;flex-direction:column!important}
+}
+@media(max-width:600px){
+  .diagnostic-summary-grid{grid-template-columns:1fr 1fr!important}
+  .policy-health-overview{grid-template-columns:repeat(3,1fr)!important}
+  .policy-health-overview>div{padding:8px!important}
+  .source-import-card,.source-card{padding:14px!important}
+}

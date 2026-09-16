@@ -14,6 +14,7 @@ import { DiagnosticsPage } from './pages/DiagnosticsPage'
 import { TrafficAnalysisPage } from './pages/TrafficAnalysisPage'
 import { NetworkPage } from './pages/NetworkPage'
 import { QNAPNetworkPage } from './pages/QNAPNetworkPage'
+import { QNAPManagementPage } from './pages/QNAPManagementPage'
 import { PoliciesPage, type PoliciesViewState } from './pages/PoliciesPage'
 import { SourcesPage } from './pages/SourcesPage'
 import { QNAPSourcesPage } from './pages/QNAPSourcesPage'
@@ -22,29 +23,33 @@ import { operationStatusUnknownMessage } from './operations'
 import type { Overview } from './types'
 import { activateLanguage, cacheRequestedLanguage, initialRequestedLanguage, isRequestedLanguage, prepareLanguage, t, type RequestedLanguage } from './i18n'
 
-type Page = 'dashboard' | 'network' | 'sources' | 'devices' | 'policies' | 'connectivity' | 'diagnostics' | 'traffic'
+type Page = 'dashboard' | 'network' | 'sources' | 'devices' | 'policies' | 'management' | 'connectivity' | 'diagnostics' | 'traffic'
 type Theme = 'dark' | 'light'
 type NetworkNavigationTarget = 'none' | 'control' | 'bottom'
+type NavGroup = 'control' | 'observe'
+type NavItem = { id: Page; label: string; group: NavGroup; qnapOnly?: boolean }
 
 const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
 const releaseTag = import.meta.env.VITE_OPENSURGE_RELEASE_TAG
 
-const nav = [
-  { id: 'dashboard', label: '总览' },
-  { id: 'network', label: '网络设置' },
-  { id: 'sources', label: '代理与规则源' },
-  { id: 'devices', label: '设备' },
-  { id: 'policies', label: '策略' },
-  { id: 'connectivity', label: '连通性' },
-  { id: 'diagnostics', label: '诊断' },
-  { id: 'traffic', label: '流量分析' },
-] as const satisfies ReadonlyArray<{ id: Page; label: string }>
+const nav: readonly NavItem[] = [
+  { id: 'dashboard', label: '总览', group: 'control' },
+  { id: 'network', label: '网络设置', group: 'control' },
+  { id: 'sources', label: '代理与规则源', group: 'control' },
+  { id: 'devices', label: '设备', group: 'control' },
+  { id: 'policies', label: '策略', group: 'control' },
+  { id: 'management', label: '管理', group: 'control', qnapOnly: true },
+  { id: 'connectivity', label: '连通性', group: 'observe' },
+  { id: 'diagnostics', label: '诊断', group: 'observe' },
+  { id: 'traffic', label: '流量分析', group: 'observe' },
+]
 
-const commandItems = nav.map(item => ({ id: item.id, label: item.label, icon: item.id }))
+const availableNav = nav.filter(item => !item.qnapOnly || qnapBuild)
+const commandItems = availableNav.map(item => ({ id: item.id, label: item.label, icon: item.id }))
 
 function currentPage(): Page {
   const candidate = window.location.pathname.split('/').filter(Boolean)[0] as Page | undefined
-  return nav.some(item => item.id === candidate) ? candidate! : 'dashboard'
+  return availableNav.some(item => item.id === candidate) ? candidate! : 'dashboard'
 }
 
 function initialTheme(): Theme {
@@ -223,7 +228,7 @@ export function App() {
   }
 
   const selectCommandItem = (id: string) => {
-    const target = nav.find(item => item.id === id)
+    const target = availableNav.find(item => item.id === id)
     if (!target) return
     setCommandOpen(false)
     go(target.id)
@@ -267,8 +272,10 @@ export function App() {
     policiesScrollPosition.current = scrollY
   }, [])
 
-  const activeItem = nav.find(item => item.id === page) ?? nav[0]
+  const activeItem = availableNav.find(item => item.id === page) ?? availableNav[0]
   const gatewayStatus = statusLabel(overview?.status.gateway, overview?.status.runtime_state)
+  const controlNav = availableNav.filter(item => item.group === 'control')
+  const observeNav = availableNav.filter(item => item.group === 'observe')
 
   return <div className={`app-shell ${sidebarCompact ? 'sidebar-compact' : ''} ${sidebarOpen ? 'mobile-nav-open' : ''}`}>
     <div className="app-wallpaper" aria-hidden="true"><span className="wallpaper-orb one" /><span className="wallpaper-orb two" /><span className="wallpaper-orb three" /></div>
@@ -281,11 +288,11 @@ export function App() {
       <div className="sidebar-nav-scroll">
         <small className="nav-section-label">CONTROL</small>
         <nav aria-label="OpenSurge sections">
-          {nav.slice(0, 5).map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} title={t(item.label)} onClick={() => go(item.id)}><span className="nav-icon"><ShellIcon name={item.id} /></span><span className="nav-label">{t(item.label)}</span></button>)}
+          {controlNav.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} title={t(item.label)} onClick={() => go(item.id)}><span className="nav-icon"><ShellIcon name={item.id} /></span><span className="nav-label">{t(item.label)}</span></button>)}
         </nav>
         <small className="nav-section-label secondary">OBSERVE</small>
         <nav aria-label="OpenSurge observability">
-          {nav.slice(5).map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} title={t(item.label)} onClick={() => go(item.id)}><span className="nav-icon"><ShellIcon name={item.id} /></span><span className="nav-label">{t(item.label)}</span></button>)}
+          {observeNav.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} title={t(item.label)} onClick={() => go(item.id)}><span className="nav-icon"><ShellIcon name={item.id} /></span><span className="nav-label">{t(item.label)}</span></button>)}
         </nav>
       </div>
       <div className="sidebar-controls">
@@ -318,7 +325,7 @@ export function App() {
           {!qnapBuild && overview?.recovery.required && needsNetworkRecoveryWarning(overview.recovery.stage) && <RecoveryBanner recovery={overview.recovery.stage} onOpen={() => go('network', 'control')} />}
           {error && <div className="error-banner" role="alert"><span>!</span><p>{error}</p><button onClick={() => void refresh()}>{t('重试')}</button></div>}
           <PageErrorBoundary key={page}>
-            {page === 'dashboard' && <DashboardPage overview={overview} onOpenNetwork={action => go('network', action === 'cleanup' ? 'control' : action === 'stop' ? 'bottom' : 'none')} />}
+            {page === 'dashboard' && <DashboardPage overview={overview} onChanged={refresh} onOpenNetwork={action => go('network', action === 'cleanup' ? 'control' : action === 'stop' ? 'bottom' : 'none')} />}
             {page === 'network' && (qnapBuild
               ? <QNAPNetworkPage overview={overview} onChanged={refresh} onNavigate={() => go('sources')} onNotify={notify} />
               : <NetworkPage overview={overview} onChanged={refresh} onNavigate={() => go('devices')} onNotify={notify} />)}
@@ -327,6 +334,7 @@ export function App() {
               : <SourcesPage overview={overview} onChanged={refresh} onNotify={notify} />)}
             {page === 'devices' && <DevicesPage overview={overview} onChanged={refresh} onNavigate={go} onDirtyChange={setDevicesDirty} onNotify={notify} />}
             {page === 'policies' && <PoliciesPage overview={overview} onChanged={refresh} viewState={policiesViewState} onViewStateChange={updatePoliciesViewState} restoreScrollY={policiesScrollPosition.current} onScrollPositionChange={updatePoliciesScrollPosition} />}
+            {page === 'management' && qnapBuild && <QNAPManagementPage />}
             {page === 'connectivity' && <ConnectivityPage overview={overview} onChanged={refresh} />}
             {page === 'diagnostics' && <DiagnosticsPage overview={overview} />}
             {page === 'traffic' && <TrafficAnalysisPage />}
