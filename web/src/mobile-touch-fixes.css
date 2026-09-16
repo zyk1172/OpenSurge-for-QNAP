@@ -1,0 +1,12 @@
+@media (max-width: 860px) {
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-height: 0;
+  }
+
+  .config-switch input,
+  .ipv6-readiness-ack > input,
+  .sidebar-switch input {
+    min-height: 0;
+  }
+}
