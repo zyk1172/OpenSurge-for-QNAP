@@ -1,0 +1,1046 @@
+/* Mobile-first refinements for the Control Center v3 shell.
+ * Loaded after the desktop design system so these rules stay isolated to
+ * touch-sized viewports without changing the desktop layout.
+ */
+
+@media (max-width: 860px) {
+  :root {
+    --os-mobile-gutter: 16px;
+    --os-mobile-radius: 14px;
+    --os-mobile-touch: 44px;
+  }
+
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-width: 0;
+    min-height: 100%;
+  }
+
+  html {
+    overscroll-behavior-y: none;
+    background: var(--os-bg);
+  }
+
+  body {
+    min-height: 100dvh;
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    touch-action: manipulation;
+  }
+
+  button,
+  input,
+  select,
+  textarea,
+  summary {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button,
+  input,
+  select {
+    min-height: var(--os-mobile-touch);
+  }
+
+  textarea {
+    min-height: 118px;
+  }
+
+  input,
+  select,
+  textarea {
+    max-width: 100%;
+    font-size: 16px;
+  }
+
+  .app-shell,
+  .app-shell.sidebar-compact {
+    min-height: 100dvh;
+  }
+
+  .mobile-nav-backdrop {
+    background: rgba(5, 7, 12, .64);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+
+  .sidebar {
+    width: min(86vw, 326px);
+    max-width: 326px;
+    padding-top: max(14px, env(safe-area-inset-top));
+    padding-right: 14px;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+    padding-left: 14px;
+    border-right-color: color-mix(in srgb, var(--os-border) 80%, transparent);
+    border-radius: 0 22px 22px 0;
+    background: color-mix(in srgb, var(--os-surface) 96%, transparent);
+    box-shadow: 28px 0 70px rgba(0, 0, 0, .42);
+  }
+
+  .sidebar-brand-row {
+    min-height: 58px;
+    padding: 4px 4px 10px;
+    border-bottom: 1px solid var(--os-border-soft);
+  }
+
+  .sidebar .brand {
+    gap: 11px;
+    min-width: 0;
+    padding: 4px;
+  }
+
+  .sidebar .brand-mark {
+    width: 38px;
+    height: 38px;
+  }
+
+  .sidebar .brand strong {
+    font-size: 15px;
+    letter-spacing: -.01em;
+  }
+
+  .sidebar .brand small {
+    margin-top: 1px;
+    font-size: 10px;
+  }
+
+  .sidebar-nav-scroll {
+    margin: 0 -4px;
+    padding: 14px 4px 10px;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+  }
+
+  .sidebar-nav-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sidebar .nav-section-label {
+    margin: 6px 9px 7px;
+    color: var(--os-text-3);
+    font-size: 9px;
+    letter-spacing: .14em;
+  }
+
+  .sidebar .nav-section-label.secondary {
+    margin-top: 18px;
+  }
+
+  .sidebar nav {
+    gap: 4px;
+  }
+
+  .sidebar nav button {
+    min-height: 46px;
+    gap: 12px;
+    padding: 9px 11px;
+    border-radius: 12px;
+    font-size: 13px;
+  }
+
+  .sidebar nav button .nav-icon {
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+  }
+
+  .sidebar nav button.active {
+    box-shadow: inset 3px 0 var(--os-accent);
+  }
+
+  .sidebar-controls {
+    gap: 9px;
+    padding: 12px 5px;
+    border-top: 1px solid var(--os-border-soft);
+  }
+
+  .sidebar .sidebar-switch {
+    min-height: 44px;
+    padding: 8px 9px;
+    border: 1px solid var(--os-border-soft);
+    border-radius: 11px;
+    background: var(--os-surface-2);
+  }
+
+  .sidebar-status {
+    min-height: 56px;
+    margin: 0 4px;
+    padding: 10px 9px;
+    border: 1px solid var(--os-border-soft);
+    border-radius: 12px;
+    background: var(--os-surface-2);
+  }
+
+  .workspace {
+    min-height: 100dvh;
+  }
+
+  .workspace-toolbar {
+    min-height: 62px;
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-right: var(--os-mobile-gutter);
+    padding-bottom: 8px;
+    padding-left: var(--os-mobile-gutter);
+    border-bottom-color: var(--os-border-soft);
+    background: color-mix(in srgb, var(--os-bg) 89%, transparent);
+    backdrop-filter: blur(18px) saturate(1.15);
+    -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  }
+
+  .workspace-toolbar-start {
+    min-width: 0;
+    gap: 10px;
+  }
+
+  .mobile-menu-button,
+  .workspace-toolbar .language-selector,
+  .toolbar-theme-toggle,
+  .toolbar-gateway-status {
+    width: var(--os-mobile-touch);
+    min-width: var(--os-mobile-touch);
+    height: var(--os-mobile-touch);
+    min-height: var(--os-mobile-touch);
+    border-radius: 12px;
+  }
+
+  .mobile-menu-button {
+    background: var(--os-surface-2);
+  }
+
+  .workspace-context {
+    min-width: 0;
+  }
+
+  .workspace-context strong {
+    display: block;
+    max-width: min(42vw, 250px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+  }
+
+  .workspace-toolbar-end {
+    flex: 0 0 auto;
+    gap: 7px;
+  }
+
+  .workspace-canvas {
+    width: 100%;
+    max-width: none;
+    padding: 20px var(--os-mobile-gutter) calc(64px + env(safe-area-inset-bottom));
+  }
+
+  .page-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: end;
+    min-height: 0;
+    margin-bottom: 18px;
+    padding: 0 2px;
+  }
+
+  .page-header > div {
+    min-width: 0;
+  }
+
+  .page-header small {
+    font-size: 9px;
+    letter-spacing: .13em;
+  }
+
+  .page-header h1 {
+    margin: 5px 0 6px;
+    font-size: clamp(23px, 6vw, 28px);
+    line-height: 1.08;
+  }
+
+  .page-header p {
+    max-width: 100%;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .page-header > button,
+  .page-header > .primary,
+  .page-header > .danger {
+    min-height: 44px;
+    align-self: end;
+  }
+
+  .section,
+  .gateway-card,
+  .metric,
+  .this-mac,
+  .device-card,
+  .policy-list article,
+  .gateway-health-card,
+  .live-rate-card,
+  .activity-card,
+  .traffic-trend-card {
+    border-radius: var(--os-mobile-radius);
+  }
+
+  .section {
+    margin-top: 14px;
+    padding: 18px;
+  }
+
+  .section-title {
+    min-width: 0;
+  }
+
+  .section-title h2 {
+    font-size: 17px;
+    line-height: 1.25;
+  }
+
+  .section-title p {
+    margin-top: 5px;
+    margin-bottom: 15px;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .notice,
+  .ok-notice,
+  .recovery-banner {
+    border-radius: 12px;
+  }
+
+  .recovery-banner {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .recovery-banner > button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .hero-grid,
+  .service-grid,
+  .inventory,
+  .source-import-grid,
+  .mode-grid,
+  .dashboard-monitor-grid,
+  .registration-body,
+  .policy-local-mac,
+  .connectivity-overview,
+  .bypass-client-guide-grid,
+  .ipv6-card-step,
+  .ipv6-runtime {
+    grid-template-columns: 1fr !important;
+  }
+
+  .hero-grid,
+  .service-grid,
+  .inventory,
+  .source-import-grid,
+  .mode-grid {
+    gap: 10px;
+  }
+
+  .inventory > span,
+  .inventory > div {
+    min-width: 0;
+    padding: 12px 13px;
+    border-radius: 11px;
+  }
+
+  .inventory strong,
+  .inventory code,
+  .inventory span {
+    overflow-wrap: anywhere;
+  }
+
+  .source-import-card {
+    min-width: 0;
+    padding: 14px;
+    border-radius: 12px;
+  }
+
+  .source-import-card label,
+  .section label {
+    min-width: 0;
+  }
+
+  .section input:not([type="checkbox"]):not([type="radio"]),
+  .section select,
+  .section textarea,
+  dialog input:not([type="checkbox"]):not([type="radio"]),
+  dialog select,
+  dialog textarea {
+    width: 100%;
+  }
+
+  .mode {
+    min-height: 74px;
+    padding: 14px;
+    border-radius: 12px;
+  }
+
+  .mode h3 {
+    font-size: 14px;
+  }
+
+  .mode p {
+    margin-top: 4px;
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .diagnostic-doctor-head,
+  .traffic-section-heading,
+  .registration-picker-heading,
+  .ipv6-card-header,
+  .bypass-client-guide > header,
+  .policy-group-head,
+  .trend-card-header,
+  .traffic-rule-dialog header {
+    gap: 12px;
+  }
+
+  .source-actions,
+  .editor-footer,
+  .policy-toolbar,
+  .traffic-analysis-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .source-actions > button,
+  .source-actions > .primary,
+  .source-actions > .danger,
+  .editor-footer > button {
+    min-height: 44px;
+  }
+
+  .editor-footer {
+    position: sticky;
+    z-index: 7;
+    bottom: 8px;
+    margin: 18px -6px -6px;
+    padding: 8px;
+    border: 1px solid var(--os-border);
+    border-radius: 13px;
+    background: color-mix(in srgb, var(--os-surface) 92%, transparent);
+    box-shadow: 0 10px 32px rgba(0, 0, 0, .28);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  .editor-footer > span {
+    flex: 1 1 100%;
+    order: 2;
+  }
+
+  .traffic-table-wrap,
+  .traffic-live-list,
+  .policy-group-nav,
+  .outlet-options {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  .traffic-table-wrap {
+    margin-inline: -4px;
+    border-radius: 12px;
+    scrollbar-width: thin;
+  }
+
+  .traffic-table {
+    min-width: 680px;
+  }
+
+  .traffic-table th,
+  .traffic-table td {
+    padding: 11px 12px;
+  }
+
+  .traffic-summary {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+
+  .traffic-analysis-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+
+  .traffic-analysis-summary > article {
+    padding: 13px;
+    border-radius: 12px;
+  }
+
+  .traffic-analysis-summary strong {
+    font-size: 20px;
+  }
+
+  .traffic-analysis-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .traffic-analysis-toolbar input {
+    min-width: 0;
+  }
+
+  .traffic-live-list {
+    margin-inline: -4px;
+  }
+
+  .traffic-live-head,
+  .traffic-live-row {
+    min-width: 740px;
+  }
+
+  .policy-health-overview {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .policy-health-overview > .health-legend {
+    grid-column: 1 / -1;
+    min-height: 54px;
+    justify-content: flex-start;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .policy-controls-sticky {
+    top: calc(62px + env(safe-area-inset-top));
+    margin-inline: -4px;
+    border-radius: 13px;
+  }
+
+  .policy-group-nav-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .policy-group-nav-step {
+    display: none;
+  }
+
+  .policy-group-nav-viewport {
+    overflow: visible;
+  }
+
+  .policy-group-nav {
+    padding: 2px 3px 5px;
+    scroll-snap-type: x proximity;
+  }
+
+  .policy-group-nav button {
+    scroll-snap-align: start;
+    min-height: 38px;
+  }
+
+  .proxy-node-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 10px;
+  }
+
+  .policy-group-head {
+    align-items: flex-start;
+    padding: 14px;
+  }
+
+  .group-health-summary {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+  }
+
+  .probe-scope {
+    grid-template-columns: 1fr;
+    gap: 7px;
+    margin-bottom: 14px;
+  }
+
+  .connectivity-score {
+    padding: 17px;
+  }
+
+  .connectivity-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .baseline-control {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .baseline-control > button {
+    width: 100%;
+  }
+
+  .registration-body {
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .registration-body .lease-picker {
+    padding: 13px;
+  }
+
+  .section-toggle {
+    min-height: 58px;
+    padding: 14px;
+  }
+
+  .ipv6-card-header,
+  .ipv6-result-heading,
+  .bypass-client-guide > header {
+    align-items: flex-start;
+  }
+
+  .ipv6-mode-options {
+    grid-template-columns: 1fr;
+  }
+
+  .ipv6-mode-options button {
+    min-height: 62px;
+  }
+
+  .ipv6-dns-step .config-switch,
+  .ipv6-readiness-ack {
+    justify-self: stretch;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .ipv6-result dl,
+  .ipv6-readiness ul,
+  .ipv6-runtime dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bypass-client-guide-grid dl > div {
+    grid-template-columns: 86px minmax(0, 1fr);
+  }
+
+  .outlet-dialog {
+    inset: auto 0 0 0;
+    transform: none;
+    width: 100%;
+    max-width: none;
+    max-height: min(88dvh, 760px);
+    border-width: 1px 0 0;
+    border-radius: 22px 22px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -24px 70px rgba(0, 0, 0, .42), 0 0 0 100vmax rgba(2, 4, 8, .68);
+  }
+
+  .outlet-dialog-head {
+    padding: 18px var(--os-mobile-gutter) 14px;
+  }
+
+  .outlet-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 12px var(--os-mobile-gutter);
+  }
+
+  .outlet-toolbar button {
+    width: 100%;
+  }
+
+  .outlet-options {
+    grid-template-columns: 1fr;
+    max-height: calc(88dvh - 208px);
+    padding: 12px var(--os-mobile-gutter) 18px;
+  }
+
+  .outlet-option {
+    min-height: 70px;
+  }
+
+  .traffic-rule-dialog-backdrop {
+    align-items: flex-end;
+    justify-content: stretch;
+  }
+
+  .traffic-rule-dialog {
+    width: 100%;
+    height: auto;
+    max-height: 90dvh;
+    padding: 18px var(--os-mobile-gutter) calc(18px + env(safe-area-inset-bottom));
+    border: 1px solid var(--os-border);
+    border-width: 1px 0 0;
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -22px 60px rgba(0, 0, 0, .38);
+  }
+
+  .operation-notifications {
+    right: var(--os-mobile-gutter);
+    bottom: calc(var(--os-mobile-gutter) + env(safe-area-inset-bottom));
+    left: var(--os-mobile-gutter);
+    width: auto;
+    max-width: none;
+  }
+
+  .operation-notification {
+    width: 100%;
+    border-radius: 13px;
+  }
+
+  .device-traffic-layout,
+  .device-traffic-layout.expanded {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .device-traffic-layout > * {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  :root {
+    --os-mobile-gutter: 12px;
+  }
+
+  .workspace-toolbar {
+    min-height: 58px;
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .workspace-toolbar-start {
+    gap: 8px;
+  }
+
+  .mobile-menu-button,
+  .workspace-toolbar .language-selector,
+  .toolbar-theme-toggle {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+    border-radius: 11px;
+  }
+
+  .workspace-context strong {
+    max-width: 34vw;
+    font-size: 13px;
+  }
+
+  .workspace-canvas {
+    padding-top: 16px;
+    padding-bottom: calc(52px + env(safe-area-inset-bottom));
+  }
+
+  .page-header {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .page-header h1 {
+    font-size: 23px;
+  }
+
+  .page-header p {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+
+  .page-header > button,
+  .page-header > .primary,
+  .page-header > .danger {
+    width: 100%;
+  }
+
+  .section {
+    margin-top: 11px;
+    padding: 15px;
+  }
+
+  .section-title p {
+    margin-bottom: 13px;
+  }
+
+  .notice,
+  .ok-notice {
+    padding: 12px 13px;
+  }
+
+  .gateway-health-card,
+  .live-rate-card,
+  .activity-card,
+  .traffic-trend-card {
+    padding: 16px;
+  }
+
+  .gateway-health-main {
+    align-items: flex-start;
+  }
+
+  .gateway-health-identity {
+    gap: 12px;
+  }
+
+  .gateway-health-main .orb {
+    width: 48px;
+    height: 48px;
+  }
+
+  .gateway-health-main h2 {
+    font-size: 21px;
+  }
+
+  .gateway-health-meta {
+    grid-template-columns: 1fr;
+    flex-basis: 112px;
+    gap: 5px;
+  }
+
+  .gateway-service-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+
+  .gateway-service-state {
+    min-height: 34px;
+  }
+
+  .live-rate-card {
+    min-height: 180px;
+  }
+
+  .rate-reading strong {
+    font-size: 34px;
+  }
+
+  .activity-total {
+    font-size: 38px;
+  }
+
+  .activity-breakdown {
+    gap: 0;
+  }
+
+  .activity-breakdown span {
+    padding-inline: 9px;
+  }
+
+  .trend-card-header p {
+    white-space: normal;
+  }
+
+  .trend-chart svg {
+    height: 128px;
+  }
+
+  .service-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .service {
+    min-height: 62px;
+    padding: 13px;
+  }
+
+  .inventory {
+    grid-template-columns: 1fr !important;
+  }
+
+  .source-actions,
+  .editor-footer {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .source-actions > *,
+  .editor-footer > button,
+  .editor-footer > .primary,
+  .editor-footer > .danger {
+    width: 100%;
+  }
+
+  .editor-footer > span {
+    order: 2;
+    text-align: center;
+  }
+
+  .diagnostic-doctor-head,
+  .traffic-section-heading,
+  .registration-picker-heading,
+  .ipv6-card-header,
+  .bypass-client-guide > header,
+  .policy-group-head,
+  .traffic-rule-dialog header {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .diagnostic-doctor-head > button,
+  .traffic-section-heading > button,
+  .registration-picker-heading > button,
+  .policy-group-head > button {
+    width: 100%;
+  }
+
+  .traffic-analysis-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .traffic-analysis-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .traffic-analysis-toolbar > * {
+    width: 100%;
+  }
+
+  .traffic-live-head,
+  .traffic-live-row {
+    min-width: 680px;
+  }
+
+  .traffic-domain-row,
+  .traffic-override-row,
+  .traffic-log-row {
+    border-radius: 10px;
+  }
+
+  .traffic-domain-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .policy-health-overview {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-radius: 12px;
+  }
+
+  .policy-health-overview > div {
+    min-height: 74px;
+    padding: 12px 10px;
+  }
+
+  .policy-health-overview strong {
+    font-size: 20px;
+  }
+
+  .policy-local-mac {
+    padding: 14px;
+  }
+
+  .proxy-node-grid {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .proxy-node {
+    min-height: 66px;
+  }
+
+  .group-health-summary {
+    align-items: flex-start;
+  }
+
+  .connectivity-score {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 13px;
+    padding: 15px;
+  }
+
+  .score-orb {
+    width: 64px;
+    height: 64px;
+  }
+
+  .connectivity-metrics {
+    grid-column: 1 / -1;
+  }
+
+  .connectivity-metrics > span {
+    padding: 13px 7px;
+  }
+
+  .connectivity-metrics strong {
+    font-size: 14px;
+  }
+
+  .ipv6-card-step,
+  .ipv6-runtime {
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .ipv6-result dl,
+  .ipv6-readiness ul,
+  .ipv6-runtime dl {
+    grid-template-columns: 1fr;
+  }
+
+  .bypass-client-guide-grid dl > div {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+
+  .outlet-dialog-head h2 {
+    font-size: 19px;
+  }
+
+  .outlet-options {
+    max-height: calc(88dvh - 220px);
+  }
+
+  .option-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .dialog-footnote {
+    padding-inline: var(--os-mobile-gutter);
+  }
+
+  .operation-notifications {
+    right: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    left: 10px;
+  }
+}
+
+@media (max-width: 860px) and (orientation: landscape) and (max-height: 560px) {
+  .sidebar {
+    width: min(58vw, 320px);
+  }
+
+  .workspace-toolbar {
+    min-height: 54px;
+    padding-top: max(5px, env(safe-area-inset-top));
+    padding-bottom: 5px;
+  }
+
+  .workspace-canvas {
+    padding-top: 14px;
+  }
+
+  .outlet-dialog,
+  .traffic-rule-dialog {
+    max-height: 94dvh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) and (max-width: 860px) {
+  .sidebar,
+  .mobile-nav-backdrop,
+  .policy-group-nav button,
+  .proxy-node,
+  .mode {
+    transition: none !important;
+  }
+}
