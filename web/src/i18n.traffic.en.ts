@@ -57,6 +57,7 @@ export const trafficEnglishMessages: Record<string, string> = {
   'AI 分流分析': 'AI routing analysis',
   'AI 读取相同的连接证据、策略组和覆盖层；正常路径不应被当成异常。': 'AI reads the same connection evidence, policy groups, and override layer. Normal routes should not be treated as anomalies.',
   '当前连接、规则命中、实际出口链和脱敏日志': 'Current connections, matched rules, observed egress chains, and redacted logs',
+  '读取当前连接、命中规则、实际出口链和脱敏日志': 'Read current connections, matched rules, observed egress chains, and redacted logs',
   '解释策略组当前选择': 'Explain current policy-group selections',
   '正常 DIRECT、DNS、LAN 和策略组换节点不是异常；只基于可验证证据提出修正。': 'Normal DIRECT, DNS, LAN, and policy-group node changes are not anomalies. Suggest corrections only from verifiable evidence.',
   '规则确认后再写入覆盖层，并重新应用当前来源。': 'Write to the override layer only after the rule is confirmed, then reapply the current source.',
