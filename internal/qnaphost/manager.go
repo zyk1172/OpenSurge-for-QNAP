@@ -308,11 +308,12 @@ func (m *Manager) statusLocked(ctx context.Context) Status {
 	priorities := m.hostPrioritiesLocked()
 	status.HostRulePriorities = &priorities
 	dnsUDP, dnsTCP, mainPriority, proxyPriority := priorities.strings()
+	hostSource := "from " + hostIP
 	hostRules, hostRulesErr := m.runHost(ctx, nil, "ip", "-4", "rule", "show")
 	hostRoutes, hostRoutesErr := m.runHost(ctx, nil, "ip", "-4", "route", "show", "table", routeTableID)
 	rulesInstalled := hostRulesErr == nil && hostRoutesErr == nil &&
-		ruleLineContains(hostRules, mainPriority, "lookup main", "suppress_prefixlength 0") &&
-		ruleLineContains(hostRules, proxyPriority, "lookup "+routeTableID) &&
+		ruleLineContains(hostRules, mainPriority, hostSource, "iif lo", "lookup main", "suppress_prefixlength 0") &&
+		ruleLineContains(hostRules, proxyPriority, hostSource, "iif lo", "lookup "+routeTableID) &&
 		strings.Contains(string(hostRoutes), "default via "+cfg.Gateway.LANIP) &&
 		strings.Contains(string(hostRoutes), "proto "+routeProtocol)
 	if rulesInstalled {
@@ -327,8 +328,8 @@ func (m *Manager) statusLocked(ctx context.Context) Status {
 		containerRules, containerRulesErr := m.runContainer(ctx, nil, "ip", "-4", "rule", "show")
 		containerRoutes, containerRoutesErr := m.runContainer(ctx, nil, "ip", "-4", "route", "show", "table", containerDNSRouteTableID)
 		hostDNSRules := hostRulesErr == nil &&
-			ruleLineContains(hostRules, dnsUDP, "ipproto udp", "dport 53", "lookup "+routeTableID) &&
-			ruleLineContains(hostRules, dnsTCP, "ipproto tcp", "dport 53", "lookup "+routeTableID)
+			ruleLineContains(hostRules, dnsUDP, hostSource, "iif lo", "ipproto udp", "dport 53", "lookup "+routeTableID) &&
+			ruleLineContains(hostRules, dnsTCP, hostSource, "iif lo", "ipproto tcp", "dport 53", "lookup "+routeTableID)
 		containerDNSRules := containerRulesErr == nil && containerRoutesErr == nil &&
 			ruleLineContains(containerRules, containerDNSUDPRulePriority, hostIP, "ipproto udp", "dport 53", "lookup "+containerDNSRouteTableID) &&
 			ruleLineContains(containerRules, containerDNSTCPRulePriority, hostIP, "ipproto tcp", "dport 53", "lookup "+containerDNSRouteTableID) &&
@@ -553,16 +554,16 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 		return fmt.Errorf("install NAS host proxy route: %w", err)
 	}
 	_, _, mainPriority, proxyPriority := priorities.strings()
-	if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", mainPriority, "iif", "lo", "table", "main", "suppress_prefixlength", "0"); err != nil {
+	if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", mainPriority, "from", hostIP+"/32", "iif", "lo", "table", "main", "suppress_prefixlength", "0"); err != nil {
 		_ = m.disableLocked(ctx)
 		return fmt.Errorf("preserve QNAP non-default routes: %w", err)
 	}
-	if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", proxyPriority, "iif", "lo", "table", routeTableID); err != nil {
+	if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", proxyPriority, "from", hostIP+"/32", "iif", "lo", "table", routeTableID); err != nil {
 		_ = m.disableLocked(ctx)
-		return fmt.Errorf("install NAS local-origin policy rule: %w", err)
+		return fmt.Errorf("install NAS source-scoped local-origin policy rule: %w", err)
 	}
 	if needsDNS {
-		if err := m.installHostDNSPolicyLocked(ctx); err != nil {
+		if err := m.installHostDNSPolicyLocked(ctx, hostIP); err != nil {
 			_ = m.disableLocked(ctx)
 			return err
 		}
@@ -591,7 +592,7 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) installHostDNSPolicyLocked(ctx context.Context) error {
+func (m *Manager) installHostDNSPolicyLocked(ctx context.Context, hostIP string) error {
 	priorities := m.hostPrioritiesLocked()
 	dnsUDP, dnsTCP, _, _ := priorities.strings()
 	for _, rule := range []struct {
@@ -601,7 +602,7 @@ func (m *Manager) installHostDNSPolicyLocked(ctx context.Context) error {
 		{priority: dnsUDP, proto: "udp"},
 		{priority: dnsTCP, proto: "tcp"},
 	} {
-		if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", rule.priority, "iif", "lo", "ipproto", rule.proto, "dport", "53", "table", routeTableID); err != nil {
+		if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", rule.priority, "from", hostIP+"/32", "iif", "lo", "ipproto", rule.proto, "dport", "53", "table", routeTableID); err != nil {
 			return fmt.Errorf("install NAS %s DNS policy rule: %w", strings.ToUpper(rule.proto), err)
 		}
 	}
