@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,7 +17,14 @@ import (
 
 const (
 	procIPv4Forward = "/proc/sys/net/ipv4/ip_forward"
-	procConfDir      = "/proc/sys/net/ipv4/conf"
+	procConfDir     = "/proc/sys/net/ipv4/conf"
+
+	// These are the fixed container-side selectors used by the QNAP Host
+	// Takeover manager for NAS DNS. They are intentionally separate from the
+	// dynamically selected host-side priorities.
+	qnapHostDNSRouteTableID uint32 = 20243
+	qnapHostDNSUDPPriority  uint32 = 20239
+	qnapHostDNSTCPPriority  uint32 = 20240
 )
 
 func readProcSys(path string) (string, error) {
@@ -192,6 +200,54 @@ func ruleStringField(rule ipRule, keys ...string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// isOwnedQNAPHostDNSRule recognises the two narrower policy rules installed by
+// the QNAP Host Takeover manager. In the default QNAP layout they run
+// immediately before the same-LAN catch-all rule so NAS DNS traffic can use
+// table 20243 while all other ingress traffic continues to use the normal
+// OpenSurge table.
+//
+// Keep this match exact. A generic `iif eth0` exception would weaken the
+// ownership preflight and could allow an unrelated policy rule to divert
+// traffic without OpenSurge proving who owns it.
+func isOwnedQNAPHostDNSRule(rule ipRule, cfg platform.NetworkConfig) bool {
+	if !cfg.SameLAN {
+		return false
+	}
+	priority, priorityOK := ruleField(rule, "priority")
+	if !priorityOK || (priority != qnapHostDNSUDPPriority && priority != qnapHostDNSTCPPriority) {
+		return false
+	}
+	table, tableOK := ruleField(rule, "table")
+	if !tableOK || table != qnapHostDNSRouteTableID {
+		return false
+	}
+	iif, iifOK := ruleStringField(rule, "iif", "iifname")
+	if !iifOK || iif != cfg.LANInterface {
+		return false
+	}
+	source, sourceOK := ruleStringField(rule, "src")
+	if !sourceOK || source == "all" || source == "0.0.0.0/0" || !isSingleIPv4Source(source) {
+		return false
+	}
+	protocol, protocolOK := ruleStringField(rule, "ipproto")
+	if !protocolOK || (protocol != "tcp" && protocol != "udp") {
+		return false
+	}
+	destinationPort, destinationPortOK := ruleField(rule, "dport")
+	return destinationPortOK && destinationPort == 53
+}
+
+func isSingleIPv4Source(source string) bool {
+	source = strings.TrimSpace(source)
+	if strings.HasSuffix(source, "/32") {
+		source = strings.TrimSuffix(source, "/32")
+	} else if strings.Contains(source, "/") {
+		return false
+	}
+	ip := net.ParseIP(source)
+	return ip != nil && ip.To4() != nil
 }
 
 func ruleMatchesConfig(rule ipRule, cfg platform.RoutingConfig) bool {
@@ -389,6 +445,9 @@ func (b *Backend) validateOwnership(ctx context.Context, cfg platform.NetworkCon
 		return err
 	}
 	for _, rule := range rules {
+		if isOwnedQNAPHostDNSRule(rule, cfg) {
+			continue
+		}
 		priority, priorityOK := ruleField(rule, "priority")
 		table, tableOK := ruleField(rule, "table")
 		mark, markOK := ruleField(rule, "fwmark")
