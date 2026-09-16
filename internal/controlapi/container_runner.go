@@ -25,7 +25,8 @@ func (r ContainerRunner) Run(ctx context.Context, action, configPath string) err
 	if action == "restart-dnsmasq" {
 		return gateway.RestartDNSMasqConfig(ctx, configPath)
 	}
-	if action == "start" || action == "reload" {
+	profileAwareLifecycle := action == "start" || action == "reload" || action == "restart-mihomo"
+	if profileAwareLifecycle {
 		cfg, err := config.Load(configPath)
 		if err != nil {
 			return err
@@ -49,17 +50,20 @@ func (r ContainerRunner) Run(ctx context.Context, action, configPath string) err
 			return fmt.Errorf("persist gateway stop intent: %w", err)
 		}
 	}
-	if action == "reload" {
-		// A global profile overlay is an input to the generated effective Mihomo
-		// profile, not the profile itself. Reconcile that persisted input before
-		// the ordinary lifecycle reload so a Hosts/rules/provider edit made via
-		// the Control API or an external atomic file update cannot restart the
-		// previous effective profile and falsely report success.
-		reloaded, err := r.reloadLatestPersistedProfile(ctx, configPath)
+	if profileAwareLifecycle {
+		// The persisted overlay is desired configuration, while cfg.Mihomo.Profile
+		// is only a materialized effective profile. Reconcile them before every
+		// lifecycle action that can start Mihomo. start materializes without a
+		// premature data-plane transition; reload/restart-mihomo may reuse the
+		// existing ApplyProfile transaction when a running gateway is present.
+		reconciled, err := r.reconcileLatestPersistedProfile(ctx, configPath, action == "start")
 		if err != nil {
 			return err
 		}
-		if reloaded {
+		if reconciled.Reloaded {
+			// ApplyProfile already performed the authoritative full gateway reload.
+			// This is also the safe promotion path for restart-mihomo when its desired
+			// profile changed; otherwise restart-mihomo keeps its narrow semantics.
 			return nil
 		}
 	}
