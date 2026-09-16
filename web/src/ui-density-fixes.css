@@ -1,0 +1,173 @@
+/* OpenSurge desktop density and clipping corrections.
+ * Loaded after the glass theme so legacy fixed-width span rules cannot clip
+ * navigation labels or force Chinese control text into vertical stacks.
+ */
+
+/* The command palette remains available from Cmd/Ctrl+K, but the large
+   search entry no longer occupies permanent toolbar space. */
+.global-search-trigger{display:none!important}
+
+/* Restore horizontal text sizing overridden by the legacy sidebar rules. */
+.sidebar nav button .nav-label{
+  width:auto!important;
+  min-width:0!important;
+  flex:1 1 auto!important;
+  font-size:13px!important;
+  line-height:1.25!important;
+  text-align:left!important;
+  white-space:nowrap!important;
+  word-break:keep-all!important;
+  writing-mode:horizontal-tb!important;
+}
+.sidebar nav button .nav-icon{
+  width:21px!important;
+  height:21px!important;
+  flex:0 0 21px!important;
+  font-size:inherit!important;
+  text-align:center!important;
+}
+.sidebar-controls .theme-toggle span{
+  width:auto!important;
+  min-width:0!important;
+  flex:1 1 auto!important;
+  text-align:left!important;
+  white-space:nowrap!important;
+  word-break:keep-all!important;
+  writing-mode:horizontal-tb!important;
+}
+.sidebar-controls .language-selector-copy,
+.sidebar-controls .language-selector-copy strong,
+.sidebar-controls .language-selector-copy small,
+.sidebar-status strong,
+.sidebar-status small{
+  writing-mode:horizontal-tb!important;
+  word-break:keep-all!important;
+}
+
+/* Denser desktop application shell. */
+.sidebar{padding:13px 11px 13px!important}
+.sidebar-brand-row{min-height:54px!important;padding:0 3px 10px!important}
+.brand{gap:10px!important;padding:5px 7px!important}
+.brand-mark{width:36px!important;height:36px!important;flex-basis:36px!important}
+.sidebar-nav-scroll{padding:6px 2px 9px!important}
+.sidebar nav{gap:3px!important}
+.sidebar nav+nav{margin-top:10px!important}
+.sidebar nav button{
+  min-height:39px!important;
+  padding:6px 10px!important;
+  border-radius:10px!important;
+}
+.sidebar-controls{gap:6px!important;padding:8px 2px 7px!important}
+.sidebar-controls .language-selector,
+.sidebar-controls .theme-toggle,
+.sidebar-switch{min-height:39px!important;border-radius:11px!important}
+.sidebar-controls .language-selector{height:41px!important;padding:4px 29px 4px 7px!important}
+.sidebar-controls .language-selector-icon{width:26px!important;height:26px!important}
+.sidebar-controls .theme-toggle{height:39px!important;padding:0 10px!important;gap:9px!important}
+.sidebar-status{min-height:45px!important;padding:8px 9px 1px!important}
+
+.workspace-toolbar{
+  min-height:50px!important;
+  padding:8px 24px 4px!important;
+}
+.workspace-toolbar-start{flex:0 1 auto!important}
+.workspace-toolbar-end{margin-left:auto!important}
+.toolbar-page-label{
+  min-height:34px!important;
+  padding:0 10px!important;
+  border-radius:10px!important;
+  white-space:nowrap!important;
+}
+.toolbar-gateway-status{
+  width:34px!important;
+  height:34px!important;
+  border-radius:10px!important;
+}
+.workspace-canvas{padding:8px 28px 68px!important}
+
+/* Keep page titles and lifecycle controls in the first viewport. */
+.page-header{
+  margin:0 0 12px!important;
+  padding:3px 2px 4px!important;
+  gap:16px!important;
+}
+.page-header h1{
+  margin:0 0 4px!important;
+  font-size:27px!important;
+  line-height:1.1!important;
+}
+.page-header p{font-size:11px!important;line-height:1.45!important}
+.dashboard-header-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  flex:0 0 auto;
+  gap:8px;
+}
+.dashboard-header-actions button{
+  min-width:82px;
+  white-space:nowrap!important;
+  word-break:keep-all!important;
+}
+.dashboard-header-actions .gateway-reload-button{
+  border:1px solid rgba(255,255,255,.12)!important;
+  background:rgba(18,19,29,.44)!important;
+  color:var(--os-text-2)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.04)!important;
+}
+.dashboard-header-actions .gateway-reload-button:hover:not(:disabled){
+  border-color:rgba(180,156,255,.30)!important;
+  color:var(--os-text)!important;
+  background:rgba(29,27,44,.58)!important;
+}
+html[data-theme="light"] .dashboard-header-actions .gateway-reload-button{
+  background:rgba(255,255,255,.62)!important;
+  border-color:rgba(70,60,93,.12)!important;
+  color:#5e5869!important;
+}
+
+/* Common controls: reduce excess height and protect short Chinese labels. */
+.primary,.danger,.actions button,.page-header button,
+button.primary,button.danger,.source-action-button{
+  min-height:34px!important;
+  padding:6px 12px!important;
+  line-height:1.2!important;
+  white-space:nowrap!important;
+  word-break:keep-all!important;
+  writing-mode:horizontal-tb!important;
+}
+.source-action-button{min-height:36px!important}
+.source-actions button{min-height:34px!important;padding-block:6px!important}
+.segmented{padding:3px!important}
+.segmented button{padding:5px 10px!important;line-height:1.2!important;white-space:nowrap!important}
+.policy-controls-sticky{padding:5px!important;margin-bottom:10px!important}
+.policy-toolbar{gap:9px!important;margin-bottom:3px!important;padding:2px!important}
+.policy-search input{padding:7px 10px!important;line-height:1.2!important}
+.policy-group-nav-shell{grid-template-columns:28px minmax(0,1fr) 28px!important;gap:4px!important;padding:1px!important}
+.policy-group-nav-step{width:28px!important;height:28px!important}
+.policy-group-nav button{padding:6px 10px!important;line-height:1.2!important;white-space:nowrap!important}
+
+/* Prevent a narrow flex/grid track from turning button labels into one
+   character per line on other existing control surfaces. */
+:where(.page-header,.actions,.source-actions,.policy-toolbar,.segmented,.overlay-save-bar,.overlay-preview-row) button{
+  word-break:keep-all;
+  overflow-wrap:normal;
+  writing-mode:horizontal-tb;
+}
+
+@media (max-width:860px){
+  .workspace-toolbar{min-height:54px!important;padding:8px 14px 4px!important}
+  .workspace-canvas{padding:12px 16px 62px!important}
+  .sidebar{padding:14px 12px 14px!important}
+  .sidebar nav button{min-height:42px!important}
+  .sidebar-controls .language-selector,
+  .sidebar-controls .theme-toggle,
+  .sidebar-switch{min-height:42px!important}
+}
+
+@media (max-width:600px){
+  .page-header{gap:10px!important;margin-bottom:12px!important}
+  .page-header h1{font-size:23px!important}
+  .dashboard-header-actions{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .dashboard-header-actions button{width:100%;min-width:0}
+}
