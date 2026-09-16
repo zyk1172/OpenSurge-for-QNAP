@@ -17,7 +17,31 @@ import (
 
 const maxProfileOverlaySize = 2 << 20
 
+type profileOverlayHostsResponse struct {
+	SchemaVersion    int    `json:"schema_version"`
+	Revision         string `json:"revision"`
+	Enabled          bool   `json:"enabled"`
+	UseHosts         bool   `json:"use_hosts"`
+	UseSystemHosts   bool   `json:"use_system_hosts"`
+	StandardHosts    string `json:"standard_hosts"`
+	NativeHostsYAML  string `json:"native_hosts_yaml"`
+	Desired          bool   `json:"desired"`
+	Applied          bool   `json:"applied"`
+}
+
+type profileOverlayHostsUpdateRequest struct {
+	Enabled         *bool   `json:"enabled,omitempty"`
+	UseHosts        *bool   `json:"use_hosts,omitempty"`
+	UseSystemHosts  *bool   `json:"use_system_hosts,omitempty"`
+	StandardHosts   *string `json:"standard_hosts,omitempty"`
+	NativeHostsYAML *string `json:"native_hosts_yaml,omitempty"`
+}
+
 func (s *Server) handleProfileOverlay(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("view") == "hosts" {
+		s.handleProfileOverlayHosts(w, r)
+		return
+	}
 	if r.Method == http.MethodGet {
 		response, err := s.profileOverlayResponse()
 		if err != nil {
@@ -77,6 +101,124 @@ func (s *Server) handleProfileOverlay(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("ETag", `"`+response.Revision+`"`)
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleProfileOverlayHosts(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		response, err := s.profileOverlayHostsResponse()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "profile_overlay_hosts_failed", err.Error())
+			return
+		}
+		w.Header().Set("ETag", `"`+response.Revision+`"`)
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
+
+	_, document, currentRevision, err := s.loadProfileOverlay()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "profile_overlay_hosts_failed", err.Error())
+		return
+	}
+	match := strings.Trim(r.Header.Get("If-Match"), `"`)
+	if match == "" || match != currentRevision {
+		writeError(w, http.StatusConflict, "revision_conflict", "global profile overlay changed while hosts were being edited; reload and try again")
+		return
+	}
+	var request profileOverlayHostsUpdateRequest
+	if err := decodeJSON(r, &request, maxProfileOverlaySize); err != nil {
+		writeError(w, http.StatusBadRequest, "profile_overlay_hosts_invalid", err.Error())
+		return
+	}
+	if request.Enabled == nil && request.UseHosts == nil && request.UseSystemHosts == nil && request.StandardHosts == nil && request.NativeHostsYAML == nil {
+		writeError(w, http.StatusBadRequest, "profile_overlay_hosts_invalid", "provide at least one hosts setting to update")
+		return
+	}
+
+	currentRaw, _ := document.DNS.Merge["hosts-file"].(string)
+	standard, native, err := mihomo.SplitProfileHostsInputs(currentRaw)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "profile_overlay_hosts_invalid", err.Error())
+		return
+	}
+	if request.Enabled != nil {
+		document.Enabled = *request.Enabled
+	}
+	if request.StandardHosts != nil {
+		standard = *request.StandardHosts
+	}
+	if request.NativeHostsYAML != nil {
+		native = *request.NativeHostsYAML
+	}
+	combined := mihomo.JoinProfileHostsInputs(standard, native)
+	if strings.TrimSpace(combined) == "" {
+		delete(document.DNS.Merge, "hosts-file")
+	} else {
+		document.DNS.Merge["hosts-file"] = combined
+		if request.UseHosts == nil {
+			if _, exists := document.DNS.Merge["use-hosts"]; !exists {
+				document.DNS.Merge["use-hosts"] = true
+			}
+		}
+	}
+	if request.UseHosts != nil {
+		document.DNS.Merge["use-hosts"] = *request.UseHosts
+	}
+	if request.UseSystemHosts != nil {
+		document.DNS.Merge["use-system-hosts"] = *request.UseSystemHosts
+	}
+
+	data, err := mihomo.RenderProfileOverlay(document)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "profile_overlay_hosts_invalid", err.Error())
+		return
+	}
+	if len(data) > maxProfileOverlaySize {
+		writeError(w, http.StatusRequestEntityTooLarge, "profile_overlay_too_large", "global profile overlay exceeds 2 MiB")
+		return
+	}
+	if err := s.store.SaveProfileOverlay(data); err != nil {
+		writeError(w, http.StatusInternalServerError, "profile_overlay_save_failed", err.Error())
+		return
+	}
+	response, err := s.profileOverlayHostsResponse()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "profile_overlay_hosts_failed", err.Error())
+		return
+	}
+	w.Header().Set("ETag", `"`+response.Revision+`"`)
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) profileOverlayHostsResponse() (profileOverlayHostsResponse, error) {
+	full, err := s.profileOverlayResponse()
+	if err != nil {
+		return profileOverlayHostsResponse{}, err
+	}
+	raw, _ := full.Document.DNS.Merge["hosts-file"].(string)
+	standard, native, err := mihomo.SplitProfileHostsInputs(raw)
+	if err != nil {
+		return profileOverlayHostsResponse{}, err
+	}
+	useHosts := true
+	if value, ok := full.Document.DNS.Merge["use-hosts"].(bool); ok {
+		useHosts = value
+	}
+	useSystemHosts := true
+	if value, ok := full.Document.DNS.Merge["use-system-hosts"].(bool); ok {
+		useSystemHosts = value
+	}
+	return profileOverlayHostsResponse{
+		SchemaVersion:   SchemaVersion,
+		Revision:        full.Revision,
+		Enabled:         full.Document.Enabled,
+		UseHosts:        useHosts,
+		UseSystemHosts:  useSystemHosts,
+		StandardHosts:   standard,
+		NativeHostsYAML: native,
+		Desired:         full.Desired,
+		Applied:         full.Applied,
+	}, nil
 }
 
 func (s *Server) handleSourcePreview(w http.ResponseWriter, r *http.Request) {
