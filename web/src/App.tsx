@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, authenticationRequiredEvent, RequestError } from './api'
+import { CommandPalette } from './components/CommandPalette'
 import { PageErrorBoundary } from './components/PageErrorBoundary'
 import { OperationNotifications, type OperationNotification, type OperationNotificationItem } from './components/OperationNotifications'
 import { OperationProgress } from './components/OperationProgress'
@@ -38,6 +39,8 @@ const nav = [
   { id: 'diagnostics', label: '诊断' },
   { id: 'traffic', label: '流量分析' },
 ] as const satisfies ReadonlyArray<{ id: Page; label: string }>
+
+const commandItems = nav.map(item => ({ id: item.id, label: item.label, icon: item.id }))
 
 function currentPage(): Page {
   const candidate = window.location.pathname.split('/').filter(Boolean)[0] as Page | undefined
@@ -86,6 +89,7 @@ export function App() {
   const [notifications, setNotifications] = useState<OperationNotificationItem[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCompact, setSidebarCompact] = useState(initialSidebarCompact)
+  const [commandOpen, setCommandOpen] = useState(false)
   const notificationID = useRef(0)
   const sleepPreventionGeneration = useRef(0)
   const languageGeneration = useRef(0)
@@ -108,6 +112,16 @@ export function App() {
     activateLanguage(language)
     cacheRequestedLanguage(language)
   }, [language])
+
+  useEffect(() => {
+    const openCommandPalette = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'k') return
+      event.preventDefault()
+      setCommandOpen(current => !current)
+    }
+    window.addEventListener('keydown', openCommandPalette)
+    return () => window.removeEventListener('keydown', openCommandPalette)
+  }, [])
 
   const commitLanguage = useCallback(async (nextLanguage: RequestedLanguage) => {
     await prepareLanguage(nextLanguage)
@@ -182,6 +196,7 @@ export function App() {
       if (pageRef.current === 'policies' && next !== 'policies') policiesScrollPosition.current = window.scrollY
       setPage(next)
       setSidebarOpen(false)
+      setCommandOpen(false)
     }
     window.addEventListener('popstate', onPop)
     return () => {
@@ -205,6 +220,13 @@ export function App() {
     if (page === 'policies' && next !== 'policies') policiesScrollPosition.current = window.scrollY
     history.pushState({}, '', `/${next}${networkNavigationHash(networkTarget)}`)
     setPage(next)
+  }
+
+  const selectCommandItem = (id: string) => {
+    const target = nav.find(item => item.id === id)
+    if (!target) return
+    setCommandOpen(false)
+    go(target.id)
   }
 
   const setSleepPrevention = async (enabled: boolean) => {
@@ -249,6 +271,7 @@ export function App() {
   const gatewayStatus = statusLabel(overview?.status.gateway, overview?.status.runtime_state)
 
   return <div className={`app-shell ${sidebarCompact ? 'sidebar-compact' : ''} ${sidebarOpen ? 'mobile-nav-open' : ''}`}>
+    <div className="app-wallpaper" aria-hidden="true"><span className="wallpaper-orb one" /><span className="wallpaper-orb two" /><span className="wallpaper-orb three" /></div>
     <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />
     <aside className="sidebar">
       <div className="sidebar-brand-row">
@@ -266,6 +289,8 @@ export function App() {
         </nav>
       </div>
       <div className="sidebar-controls">
+        <LanguageSelector language={language} changing={languageChanging} onChange={next => void changeLanguage(next)} />
+        <button type="button" className="theme-toggle sidebar-theme-toggle" aria-pressed={theme === 'light'} aria-label={t(theme === 'dark' ? '切换为浅色模式' : '切换为深色模式')} onClick={() => setTheme(current => current === 'dark' ? 'light' : 'dark')}><ShellIcon name={theme === 'dark' ? 'sun' : 'moon'} /><span>{t(theme === 'dark' ? '浅色模式' : '深色模式')}</span></button>
         {!qnapBuild && <>
           <label className={`sidebar-switch ${overview?.sleep_prevention?.active ? 'active' : ''}`} title={t('阻止空闲睡眠和合盖睡眠。合盖运行可能明显增加耗电与发热，请勿放入不通风的包内。')}><input type="checkbox" checked={overview?.sleep_prevention?.active ?? false} disabled={!overview || sleepPreventionChanging} onChange={event => void setSleepPrevention(event.target.checked)} /><span><strong>{t(sleepPreventionChanging ? '正在切换…' : '合盖保持运行')}</strong><small>{t(overview?.sleep_prevention?.active ? '系统睡眠已临时禁用' : '默认关闭 · 本次运行有效')}</small></span></label>
           {overview?.sleep_prevention?.error && <small className="sidebar-control-error" role="status">{overview.sleep_prevention.error}</small>}
@@ -277,12 +302,15 @@ export function App() {
       <header className="workspace-toolbar">
         <div className="workspace-toolbar-start">
           <button type="button" className="mobile-menu-button" aria-label="Open navigation" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}><ShellIcon name="menu" /></button>
-          <div className="workspace-context"><small>OpenSurge / {qnapBuild ? 'QNAP' : 'Mac'}</small><strong>{t(activeItem.label)}</strong></div>
+          <button type="button" className="global-search-trigger" aria-label={t('打开快速跳转')} onClick={() => setCommandOpen(true)}>
+            <ShellIcon name="search" />
+            <span className="global-search-copy"><strong>{t('搜索页面、功能或状态…')}</strong><small>{t(activeItem.label)}</small></span>
+            <kbd>⌘ K</kbd>
+          </button>
         </div>
         <div className="workspace-toolbar-end">
+          <span className="toolbar-page-label">{t(activeItem.label)}</span>
           <div className="toolbar-gateway-status" title={gatewayStatus} aria-label={gatewayStatus}><StatusDot status={overview?.status.gateway ?? 'unreachable'} /></div>
-          <LanguageSelector language={language} changing={languageChanging} onChange={next => void changeLanguage(next)} />
-          <button type="button" className="theme-toggle toolbar-theme-toggle" aria-pressed={theme === 'light'} aria-label={t(theme === 'dark' ? '切换为浅色模式' : '切换为深色模式')} onClick={() => setTheme(current => current === 'dark' ? 'light' : 'dark')}><ShellIcon name={theme === 'dark' ? 'sun' : 'moon'} /><span className="toolbar-theme-label">{t(theme === 'dark' ? '浅色模式' : '深色模式')}</span></button>
         </div>
       </header>
       <div className="workspace-canvas">
@@ -306,6 +334,7 @@ export function App() {
         </>}
       </div>
     </main>
+    <CommandPalette open={commandOpen} activeID={page} items={commandItems} onClose={() => setCommandOpen(false)} onSelect={selectCommandItem} />
     {!authenticationRequired && <OperationProgress onOpenDiagnostics={() => go('diagnostics')} />}
     <OperationNotifications notifications={notifications} onDismiss={dismissNotification} />
   </div>
