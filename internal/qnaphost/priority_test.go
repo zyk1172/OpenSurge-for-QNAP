@@ -7,7 +7,7 @@ import (
 
 func TestChooseHostPrioritiesBeatsQNAPSourceRule(t *testing.T) {
 	rules := []byte("0: from all lookup local\n20010: from 192.168.2.240 lookup 20010\n32766: from all lookup main\n")
-	priorities, err := chooseHostPriorities(rules, "192.168.2.240")
+	priorities, err := chooseHostPriorities(rules, "192.168.2.240", true)
 	if err != nil {
 		t.Fatalf("chooseHostPriorities: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestChooseHostPrioritiesBeatsQNAPSourceRule(t *testing.T) {
 
 func TestChooseHostPrioritiesSkipsOccupiedSlots(t *testing.T) {
 	rules := []byte("0: from all lookup local\n19999: from all lookup 123\n20010: from 192.168.2.240 lookup 20010\n")
-	priorities, err := chooseHostPriorities(rules, "192.168.2.240")
+	priorities, err := chooseHostPriorities(rules, "192.168.2.240", true)
 	if err != nil {
 		t.Fatalf("chooseHostPriorities: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestChooseHostPrioritiesSkipsOccupiedSlots(t *testing.T) {
 
 func TestChooseHostPrioritiesRefusesProtectedLowRange(t *testing.T) {
 	rules := []byte("0: from all lookup local\n1002: from 192.168.2.240 lookup 20010\n")
-	_, err := chooseHostPriorities(rules, "192.168.2.240")
+	_, err := chooseHostPriorities(rules, "192.168.2.240", true)
 	if err == nil || !strings.Contains(err.Error(), "protected low-priority") {
 		t.Fatalf("expected protected low-priority error, got %v", err)
 	}
