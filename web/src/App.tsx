@@ -280,7 +280,7 @@ export function App() {
           <div className="workspace-context"><small>OpenSurge / {qnapBuild ? 'QNAP' : 'Mac'}</small><strong>{t(activeItem.label)}</strong></div>
         </div>
         <div className="workspace-toolbar-end">
-          <div className="toolbar-gateway-status"><StatusDot status={overview?.status.gateway ?? 'unreachable'} /><span>{gatewayStatus}</span></div>
+          <div className="toolbar-gateway-status" title={gatewayStatus} aria-label={gatewayStatus}><StatusDot status={overview?.status.gateway ?? 'unreachable'} /></div>
           <LanguageSelector language={language} changing={languageChanging} onChange={next => void changeLanguage(next)} />
           <button type="button" className="theme-toggle toolbar-theme-toggle" aria-pressed={theme === 'light'} aria-label={t(theme === 'dark' ? '切换为浅色模式' : '切换为深色模式')} onClick={() => setTheme(current => current === 'dark' ? 'light' : 'dark')}><ShellIcon name={theme === 'dark' ? 'sun' : 'moon'} /><span className="toolbar-theme-label">{t(theme === 'dark' ? '浅色模式' : '深色模式')}</span></button>
         </div>
