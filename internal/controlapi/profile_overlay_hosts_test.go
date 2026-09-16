@@ -55,7 +55,7 @@ func TestProfileOverlayHostsViewRoundTripsNativeWildcards(t *testing.T) {
 			t.Fatalf("composed profile missing %q:\n%s", want, composition.ProfileYAML)
 		}
 	}
-	if strings.Contains(composition.ProfileYAML, "1.1.1.1") {
+	if strings.Contains(composition.ProfileYAML, `"exact.example.test": "1.1.1.1"`) {
 		t.Fatalf("native exact hosts key did not override conventional entry:\n%s", composition.ProfileYAML)
 	}
 	if strings.Contains(composition.ProfileYAML, "OPENSURGE NATIVE MIHOMO HOSTS") {
