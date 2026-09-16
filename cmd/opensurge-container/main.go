@@ -140,7 +140,7 @@ func newControl(configPath, storeDir, controlAddr string) (*controlapi.Server, *
 		ConfigPath:        configPath,
 		Addr:              controlAddr,
 		StoreDir:          storeDir,
-		Runner:            controlapi.ContainerRunner{},
+		Runner:            controlapi.ContainerRunner{StoreDir: storeDir},
 		DiscoverNetwork:   linuxnetwork.Discover,
 		DiscoverDefault:   linuxnetwork.DiscoverDefault,
 		ListInterfaces:    linuxnetwork.ListInterfaces,
