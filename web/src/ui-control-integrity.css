@@ -1,0 +1,354 @@
+/* Final interaction-integrity layer.
+ *
+ * Keep control affordances visible after the glass redesign, prevent shared
+ * decorative card rules from inflating settings controls, and make status
+ * surfaces communicate actual runtime state rather than static instructions.
+ */
+
+/* Page command surface --------------------------------------------------- */
+.page-header{
+  position:relative!important;
+  z-index:2!important;
+  display:flex!important;
+  visibility:visible!important;
+  opacity:1!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  min-height:72px!important;
+  margin:0 0 14px!important;
+  padding:13px 15px!important;
+  overflow:visible!important;
+  border:1px solid rgba(255,255,255,.09)!important;
+  border-radius:16px!important;
+  background:rgba(15,17,26,.34)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.04),0 10px 34px rgba(0,0,0,.12)!important;
+  -webkit-backdrop-filter:blur(18px) saturate(140%);
+  backdrop-filter:blur(18px) saturate(140%);
+}
+html[data-theme="light"] .page-header{
+  background:rgba(255,255,255,.56)!important;
+  border-color:rgba(70,60,93,.10)!important;
+}
+.page-header>div:first-child{min-width:0!important;flex:1 1 auto!important}
+.page-header h1{
+  display:block!important;
+  visibility:visible!important;
+  opacity:1!important;
+  margin:0 0 4px!important;
+  font-size:24px!important;
+  line-height:1.12!important;
+}
+.page-header p{
+  display:block!important;
+  visibility:visible!important;
+  opacity:1!important;
+  max-width:760px!important;
+  font-size:10px!important;
+  line-height:1.45!important;
+}
+.page-header button,
+.dashboard-header-actions,
+.source-head,
+.group-health-summary,
+.category-summary{
+  visibility:visible!important;
+  opacity:1!important;
+}
+.dashboard-header-actions{
+  display:flex!important;
+  flex:0 0 auto!important;
+  align-items:center!important;
+  justify-content:flex-end!important;
+  gap:7px!important;
+}
+.dashboard-header-actions button{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  min-width:88px!important;
+  min-height:34px!important;
+  height:34px!important;
+  padding:0 12px!important;
+  border-radius:9px!important;
+  white-space:nowrap!important;
+  writing-mode:horizontal-tb!important;
+}
+.dashboard-header-actions button:disabled{opacity:.46!important}
+
+/* Generic desktop controls must stay compact and horizontal. */
+:where(.page-header,.source-actions,.actions,.dialog-actions,.category-summary,.group-health-summary,.sticky-save,.overlay-save-bar,.policy-toolbar,.diagnostic-doctor-head) button{
+  min-height:32px!important;
+  height:auto;
+  padding:6px 11px!important;
+  line-height:1.15!important;
+  white-space:nowrap!important;
+  word-break:keep-all!important;
+  overflow-wrap:normal!important;
+  writing-mode:horizontal-tb!important;
+}
+
+/* QNAP NAS host takeover ------------------------------------------------- */
+/* QNAPNetworkPage reused source-import-card for settings. The MoviePilot
+   source cards intentionally have a 250px minimum height; a settings card
+   must not inherit that decorative source-browser sizing. */
+.section:has(.source-import-card > .sidebar-switch) .source-import-grid{
+  align-items:start!important;
+  gap:12px!important;
+}
+.section:has(.source-import-card > .sidebar-switch) .source-import-card{
+  min-height:0!important;
+  height:auto!important;
+  padding:14px 15px!important;
+  gap:9px!important;
+  border-radius:14px!important;
+  background:rgba(14,18,25,.42)!important;
+}
+html[data-theme="light"] .section:has(.source-import-card > .sidebar-switch) .source-import-card{
+  background:rgba(255,255,255,.60)!important;
+}
+.section:has(.source-import-card > .sidebar-switch) .source-import-card:before{display:none!important}
+.section:has(.source-import-card > .sidebar-switch) .source-import-card label:not(.sidebar-switch){gap:5px!important}
+.section:has(.source-import-card > .sidebar-switch) .source-import-card select{
+  min-height:36px!important;
+  height:36px!important;
+  padding:0 34px 0 10px!important;
+  border-radius:9px!important;
+}
+.section:has(.source-import-card > .sidebar-switch) .source-import-card .muted{
+  margin:3px 0 0!important;
+  font-size:10px!important;
+  line-height:1.48!important;
+}
+.section:has(.source-import-card > .sidebar-switch) .sidebar-switch{
+  width:100%!important;
+  min-height:0!important;
+  height:auto!important;
+  padding:8px 9px!important;
+  gap:9px!important;
+  border-radius:10px!important;
+  background:rgba(255,255,255,.045)!important;
+}
+.section:has(.source-import-card > .sidebar-switch) .sidebar-switch input{
+  flex:0 0 32px!important;
+  width:32px!important;
+  height:18px!important;
+  min-height:18px!important;
+}
+.section:has(.source-import-card > .sidebar-switch) .sidebar-switch span strong{
+  font-size:11px!important;
+  line-height:1.2!important;
+}
+.section:has(.source-import-card > .sidebar-switch) .sidebar-switch span small{
+  margin-top:2px!important;
+  font-size:8px!important;
+  line-height:1.35!important;
+}
+/* Detected Tailscale and takeover runtime state are two distinct status
+   blocks. Give each its own flow box so glass/notice rules cannot overlap. */
+.section:has(.source-import-card > .sidebar-switch) > .ok-notice,
+.section:has(.source-import-card > .sidebar-switch) > .notice{
+  position:relative!important;
+  inset:auto!important;
+  clear:both!important;
+  display:block!important;
+  width:100%!important;
+  min-height:0!important;
+  margin:10px 0 0!important;
+  padding:11px 13px!important;
+  border-radius:11px!important;
+  transform:none!important;
+}
+.section:has(.source-import-card > .sidebar-switch) > .ok-notice + .ok-notice,
+.section:has(.source-import-card > .sidebar-switch) > .ok-notice + .notice,
+.section:has(.source-import-card > .sidebar-switch) > .notice + .ok-notice,
+.section:has(.source-import-card > .sidebar-switch) > .notice + .notice{margin-top:8px!important}
+.section:has(.source-import-card > .sidebar-switch) > :is(.ok-notice,.notice) .inventory{
+  margin:8px 0 0!important;
+  gap:6px!important;
+}
+.section:has(.source-import-card > .sidebar-switch) > :is(.ok-notice,.notice) p{
+  margin:4px 0 0!important;
+  font-size:10px!important;
+  line-height:1.45!important;
+}
+.section:has(.source-import-card > .sidebar-switch) .source-actions{
+  margin-top:10px!important;
+  padding-top:0!important;
+  flex-wrap:wrap!important;
+}
+
+/* Policy workspaces ------------------------------------------------------ */
+.policy-health-list{gap:12px!important}
+.policy-health-group{
+  display:block!important;
+  visibility:visible!important;
+  opacity:1!important;
+  overflow:hidden!important;
+  border:1px solid rgba(185,169,235,.16)!important;
+  border-radius:15px!important;
+  background:rgba(14,17,25,.48)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.035),0 12px 34px rgba(0,0,0,.12)!important;
+  -webkit-backdrop-filter:blur(15px) saturate(135%);
+  backdrop-filter:blur(15px) saturate(135%);
+}
+html[data-theme="light"] .policy-health-group{background:rgba(255,255,255,.64)!important;border-color:rgba(70,60,93,.10)!important}
+.policy-group-head{
+  display:flex!important;
+  visibility:visible!important;
+  opacity:1!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:16px!important;
+  padding:13px 15px!important;
+  border-bottom:1px solid rgba(255,255,255,.07)!important;
+  background:linear-gradient(110deg,rgba(139,92,246,.08),rgba(55,205,174,.035),rgba(255,255,255,.018))!important;
+}
+.policy-group-head>div:first-child{min-width:0!important}
+.group-health-summary{
+  display:flex!important;
+  flex:0 0 auto!important;
+  align-items:center!important;
+  gap:9px!important;
+}
+.group-health-summary button{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  min-width:72px!important;
+  min-height:31px!important;
+  padding:5px 10px!important;
+  border:1px solid rgba(181,157,249,.24)!important;
+  border-radius:8px!important;
+  background:rgba(139,92,246,.13)!important;
+  color:#d8cbff!important;
+  font-size:9px!important;
+  font-weight:800!important;
+}
+.group-health-summary button:not(:disabled):hover{background:rgba(139,92,246,.22)!important}
+.group-health-summary button:disabled{opacity:.42!important}
+html[data-theme="light"] .group-health-summary button{background:rgba(124,77,240,.08)!important;color:#6442b8!important}
+.proxy-node-grid{padding:12px!important}
+
+/* Connectivity ----------------------------------------------------------- */
+.probe-scope{
+  display:grid!important;
+  visibility:visible!important;
+  opacity:1!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:9px!important;
+  margin:0 0 12px!important;
+}
+.probe-scope button,.probe-scope a{
+  min-height:58px!important;
+  padding:9px 11px!important;
+  border-color:rgba(255,255,255,.09)!important;
+  background:rgba(14,18,25,.40)!important;
+  -webkit-backdrop-filter:blur(14px);
+  backdrop-filter:blur(14px);
+}
+.connectivity-overview{
+  margin:12px 0 14px!important;
+  border-color:rgba(255,255,255,.10)!important;
+  background:rgba(20,21,31,.42)!important;
+  box-shadow:0 12px 32px rgba(0,0,0,.10)!important;
+}
+.connectivity-category{
+  display:block!important;
+  visibility:visible!important;
+  opacity:1!important;
+  margin-top:12px!important;
+  overflow:hidden!important;
+  border:1px solid rgba(185,169,235,.15)!important;
+  border-radius:15px!important;
+  background:rgba(14,17,25,.48)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.035),0 12px 34px rgba(0,0,0,.11)!important;
+  -webkit-backdrop-filter:blur(15px) saturate(135%);
+  backdrop-filter:blur(15px) saturate(135%);
+}
+html[data-theme="light"] .connectivity-category{background:rgba(255,255,255,.64)!important;border-color:rgba(70,60,93,.10)!important}
+.connectivity-category-head{
+  display:grid!important;
+  visibility:visible!important;
+  opacity:1!important;
+  grid-template-columns:auto minmax(0,1fr) auto!important;
+  align-items:center!important;
+  gap:11px!important;
+  padding:11px 13px!important;
+  border-bottom:1px solid rgba(255,255,255,.07)!important;
+  background:linear-gradient(110deg,rgba(55,205,174,.065),rgba(139,92,246,.055),rgba(255,255,255,.018))!important;
+}
+.category-summary{
+  display:flex!important;
+  flex:0 0 auto!important;
+  align-items:center!important;
+  gap:9px!important;
+}
+.category-summary button{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  min-width:58px!important;
+  min-height:31px!important;
+  padding:5px 9px!important;
+  border:1px solid rgba(94,218,183,.22)!important;
+  border-radius:8px!important;
+  background:rgba(48,172,142,.12)!important;
+  color:#99e8cf!important;
+  font-size:9px!important;
+  font-weight:800!important;
+}
+.category-summary button:disabled{opacity:.42!important}
+.connectivity-grid{padding:11px!important}
+
+/* State-driven badges ---------------------------------------------------- */
+/* These three badges were permanent instructional labels. Actual device
+   pending/applied state already comes from dirty + DevicesResponse.drift in
+   the sticky save/reload bar, so do not present a permanent warning badge. */
+.device-routing-mode .effect-badge.restart,
+.registration-form .effect-badge.restart,
+.rule-library-heading>.effect-badge.restart{display:none!important}
+/* Keep the real PendingReloadBar state badge visible. */
+.sticky-save.needs-reload .effect-badge.restart{display:inline-flex!important}
+
+/* Sources / overlay ------------------------------------------------------ */
+.profile-overlay-controls{flex:0 0 auto!important}
+.overlay-status{white-space:nowrap!important}
+.source-actions{flex-wrap:wrap!important}
+
+/* Avoid decorative source-card dimensions leaking into unrelated controls. */
+:where(.sidebar-switch,.overlay-switch,.config-switch){writing-mode:horizontal-tb!important}
+:where(.sidebar-switch,.overlay-switch,.config-switch) span{word-break:keep-all;overflow-wrap:normal}
+
+@media (max-width:1100px){
+  .page-header{align-items:flex-start!important}
+  .probe-scope{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+  .category-summary>span{display:none}
+}
+
+@media (max-width:860px){
+  .page-header{
+    min-height:0!important;
+    padding:12px!important;
+    border-radius:14px!important;
+  }
+  :where(.page-header,.source-actions,.actions,.dialog-actions,.category-summary,.group-health-summary,.sticky-save,.overlay-save-bar,.policy-toolbar,.diagnostic-doctor-head) button{
+    min-height:44px!important;
+    padding:8px 12px!important;
+  }
+  .dashboard-header-actions button{height:44px!important;min-height:44px!important}
+  .section:has(.source-import-card > .sidebar-switch) .source-import-card{padding:12px!important}
+  .section:has(.source-import-card > .sidebar-switch) .sidebar-switch{min-height:44px!important}
+  .group-health-summary button,.category-summary button{min-height:40px!important}
+}
+
+@media (max-width:720px){
+  .page-header{display:grid!important;gap:10px!important}
+  .dashboard-header-actions{width:100%!important;display:grid!important;grid-template-columns:1fr 1fr!important}
+  .dashboard-header-actions button{width:100%!important;min-width:0!important}
+  .probe-scope{grid-template-columns:1fr!important}
+  .connectivity-category-head{grid-template-columns:auto minmax(0,1fr)!important}
+  .category-summary{grid-column:1/-1!important;justify-content:space-between!important}
+  .category-summary>span{display:block}
+  .policy-group-head{align-items:flex-start!important;flex-direction:column!important}
+  .group-health-summary{width:100%!important;justify-content:space-between!important}
+}

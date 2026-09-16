@@ -78,9 +78,10 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
     setMessage('')
     try {
       await api.applySource(selected.id, revision)
-      const sourceResponse = await api.sources()
+      const [sourceResponse, profileOverlay] = await Promise.all([api.sources(), api.profileOverlay()])
       setSources(sourceResponse.sources ?? [])
       setRevision(sourceResponse.revision)
+      setOverlay(profileOverlay)
       const persisted = sourceResponse.sources?.find(item => item.id === selected.id)
       if (!persisted || (!persisted.desired && !persisted.applied)) {
         throw new Error(t('后端返回成功，但重新读取后没有发现 desired/运行版本标记；本次操作未被视为成功。'))
