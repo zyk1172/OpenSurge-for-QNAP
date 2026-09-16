@@ -3,7 +3,8 @@ import { registerEnglishMessages } from './i18n'
 export const profileOverlayEnglishMessages: Record<string, string> = {
   'Hosts 条目': 'Hosts entries',
   'Hosts 与本地解析': 'Hosts & local resolution',
-  '导入标准 Hosts 文件生成 mihomo hosts 映射，并控制是否读取容器系统 Hosts。': 'Import standard Hosts entries or write native mihomo Hosts mappings, and control whether container system Hosts are also read.',
+  '导入标准 Hosts 文件生成 mihomo hosts 映射，并控制是否读取容器系统 Hosts。': 'Import a standard Hosts file into mihomo hosts mappings and control whether container system Hosts are also read.',
+  '既支持传统 Hosts 文件，也支持可使用通配符的 Mihomo 原生 hosts 映射。': 'Use either a traditional Hosts file or native Mihomo hosts mappings with wildcard support.',
   '使用配置 Hosts': 'Use configured Hosts',
   '对应 mihomo dns.use-hosts；关闭后保留已导入内容，但 DNS 不使用这些映射。': 'Maps to mihomo dns.use-hosts. When disabled, configured entries are preserved but DNS does not use them.',
   '读取系统 Hosts': 'Read system Hosts',
