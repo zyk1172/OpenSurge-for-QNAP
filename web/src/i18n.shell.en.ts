@@ -10,6 +10,9 @@ export const shellEnglishMessages: Record<string, string> = {
   '没有匹配的页面': 'No matching pages',
   '搜索页面、功能或状态…': 'Search pages, features, or status…',
   '打开快速跳转': 'Open quick navigation',
+  '重启网关': 'Restart gateway',
+  '正在重启…': 'Restarting…',
+  '网关重启失败': 'Gateway restart failed',
 }
 
 registerEnglishMessages(shellEnglishMessages)
