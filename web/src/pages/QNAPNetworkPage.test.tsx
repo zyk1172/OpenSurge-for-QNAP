@@ -2,15 +2,14 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ConfigFile, ControlConfig, NetworkDefaults, Overview } from '../types'
+import type { ControlConfig, NetworkDefaults, Overview } from '../types'
 
 vi.mock('../api', () => ({
   api: {
     config: vi.fn(),
-    configFile: vi.fn(),
     networkDefaults: vi.fn(),
     gateway: vi.fn(),
-    saveConfigFile: vi.fn(),
+    saveConfig: vi.fn(),
   },
   request: vi.fn(),
   waitForOperation: vi.fn(async () => ({ id: 'operation', kind: 'start', state: 'succeeded' })),
@@ -58,72 +57,112 @@ const overview: Overview = {
   sleep_prevention: { enabled: false, active: false },
 }
 
-const hostRouting = {
-  schema_version: 1, supported: true, desired: false, enabled: false, gateway_ready: false,
-  host_ipv4: '192.168.2.240', gateway_ipv4: '192.168.2.241', fallback_gateway: '192.168.2.1', dns_redirect: false, checked_at: '2026-09-16T00:00:00Z',
+type HostRoutingFixture = {
+  schema_version: number
+  supported: boolean
+  desired: boolean
+  enabled: boolean
+  gateway_ready: boolean
+  host_ipv4: string
+  host_interface: string
+  gateway_ipv4: string
+  fallback_gateway: string
+  dns_redirect: boolean
+  dns_mode: 'auto' | 'opensurge' | 'host'
+  protect_tailscale: boolean
+  tailscale_detected: boolean
+  tailscale_interface: string
+  tailscale_dns_protected: boolean
+  tailscale_routes_protected: boolean
+  checked_at: string
 }
 
-let currentFile: ConfigFile
+let hostRouting: HostRoutingFixture = {
+  schema_version: 2,
+  supported: true,
+  desired: false,
+  enabled: false,
+  gateway_ready: false,
+  host_ipv4: '192.168.2.240',
+  host_interface: 'br0',
+  gateway_ipv4: '192.168.2.241',
+  fallback_gateway: '192.168.2.1',
+  dns_redirect: false,
+  dns_mode: 'auto',
+  protect_tailscale: true,
+  tailscale_detected: true,
+  tailscale_interface: 'tailscale0',
+  tailscale_dns_protected: true,
+  tailscale_routes_protected: true,
+  checked_at: '2026-09-16T00:00:00Z',
+}
 
-describe('QNAPNetworkPage configuration file editor', () => {
+describe('QNAPNetworkPage host takeover coexistence controls', () => {
   afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
   beforeEach(() => {
-    currentFile = {
-      schema_version: 1,
-      path: '/data/config/opensurge.yaml',
-      revision: 'file-revision',
-      content: 'gateway:\n  upstream_gateway: "192.168.2.1"\n\nmihomo:\n  secret: "<redacted>"\n\nupstream_proxy:\n  password: "<redacted>"\n',
-      protected_fields: ['mihomo.secret', 'upstream_proxy.password'],
+    hostRouting = {
+      ...hostRouting,
+      desired: false,
+      enabled: false,
+      gateway_ready: false,
+      dns_redirect: false,
+      dns_mode: 'auto',
+      protect_tailscale: true,
     }
     vi.mocked(api.config).mockResolvedValue(config)
-    vi.mocked(api.configFile).mockImplementation(async () => currentFile)
     vi.mocked(api.networkDefaults).mockResolvedValue(networkDefaults)
     vi.mocked(api.gateway).mockImplementation(async action => ({ id: action, kind: action, state: 'running' }))
-    vi.mocked(api.saveConfigFile).mockImplementation(async (content, revision) => {
-      currentFile = { ...currentFile, content, revision: `${revision}-saved` }
-      return currentFile
+    vi.mocked(api.saveConfig).mockResolvedValue(config)
+    vi.mocked(request).mockImplementation(async (_path, init) => {
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(String(init.body)) as { enabled: boolean; dns_mode: 'auto' | 'opensurge' | 'host'; protect_tailscale: boolean }
+        hostRouting = {
+          ...hostRouting,
+          desired: body.enabled,
+          enabled: body.enabled,
+          gateway_ready: body.enabled,
+          dns_mode: body.dns_mode,
+          protect_tailscale: body.protect_tailscale,
+          dns_redirect: body.enabled && body.dns_mode !== 'host',
+        }
+      }
+      return hostRouting
     })
-    vi.mocked(request).mockResolvedValue(hostRouting)
     vi.mocked(waitForOperation).mockResolvedValue({ id: 'operation', kind: 'start', state: 'succeeded' })
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ enabled: false, api_base: '/api/remote/v1', capabilities: '/api/remote/v1/capabilities' }) })))
   })
 
-  it('loads the redacted file and saves an edited upstream gateway with revision proof', async () => {
-    const onChanged = vi.fn(async () => {})
-    const onNotify = vi.fn()
-    render(<QNAPNetworkPage overview={overview} onChanged={onChanged} onNavigate={() => {}} onNotify={onNotify} />)
+  it('shows NAS Tailscale state and removes the raw OpenSurge config-file editor', async () => {
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={() => {}} />)
 
-    const editor = await screen.findByRole('textbox', { name: 'OpenSurge 配置文件内容' }) as HTMLTextAreaElement
-    expect(editor.value).toContain('upstream_gateway: "192.168.2.1"')
-    expect(editor.value).toContain('secret: "<redacted>"')
-    expect(editor.value).not.toContain('mihomo-secret-value')
-
-    await userEvent.clear(editor)
-    await userEvent.type(editor, 'gateway:\n  upstream_gateway: "192.168.2.254"\n\nmihomo:\n  secret: "<redacted>"\n\nupstream_proxy:\n  password: "<redacted>"\n')
-    await userEvent.click(screen.getByRole('button', { name: '保存配置文件' }))
-
-    await waitFor(() => expect(api.saveConfigFile).toHaveBeenCalledWith(expect.stringContaining('192.168.2.254'), 'file-revision'))
-    expect(api.gateway).not.toHaveBeenCalled()
-    expect(await screen.findByText('配置文件已保存；敏感字段保持不变。')).toBeTruthy()
-    expect(onChanged).toHaveBeenCalled()
-    expect(onNotify).toHaveBeenCalledWith(expect.objectContaining({ tone: 'success', title: '配置文件已保存' }))
+    expect(await screen.findByText('检测到 NAS 本机 Tailscale')).toBeTruthy()
+    expect(screen.getAllByText('已保留给 Tailscale')).toHaveLength(2)
+    expect(screen.queryByRole('textbox', { name: 'OpenSurge 配置文件内容' })).toBeNull()
+    expect(screen.getByText('OpenSurge 控制面配置不再作为通用 YAML 编辑器')).toBeTruthy()
   })
 
-  it('stops and restarts a running gateway around a file save', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => true))
-    const onChanged = vi.fn(async () => {})
+  it('persists DNS mode and Tailscale protection through the host-routing endpoint', async () => {
     const onNotify = vi.fn()
-    const runningOverview = { ...overview, status: { ...overview.status, gateway: 'running' as const } }
-    render(<QNAPNetworkPage overview={runningOverview} onChanged={onChanged} onNavigate={() => {}} onNotify={onNotify} />)
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={onNotify} />)
 
-    const editor = await screen.findByRole('textbox', { name: 'OpenSurge 配置文件内容' }) as HTMLTextAreaElement
-    await userEvent.clear(editor)
-    await userEvent.type(editor, 'gateway:\n  upstream_gateway: "192.168.2.254"\n\nmihomo:\n  secret: "<redacted>"\n\nupstream_proxy:\n  password: "<redacted>"\n')
-    await userEvent.click(screen.getByRole('button', { name: '保存配置文件并重启' }))
+    const mode = await screen.findByRole('combobox', { name: 'NAS DNS 接管模式' })
+    await userEvent.selectOptions(mode, 'host')
+    const coexistence = screen.getByRole('checkbox', { name: /Tailscale 共存保护/ })
+    await userEvent.click(coexistence)
+    await userEvent.click(screen.getByRole('button', { name: '保存接管策略' }))
 
-    await waitFor(() => expect(api.gateway).toHaveBeenNthCalledWith(1, 'stop'))
-    await waitFor(() => expect(api.gateway).toHaveBeenNthCalledWith(2, 'start'))
-    expect(await screen.findByText('配置文件已保存并重新启动网关。')).toBeTruthy()
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/api/v1/qnap-host-routing', expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ enabled: false, dns_mode: 'host', protect_tailscale: false }),
+    })))
+    expect(onNotify).toHaveBeenCalledWith(expect.objectContaining({ tone: 'success', title: 'NAS 接管策略已保存' }))
+  })
+
+  it('opens Profile Overlay through the proxy and rule sources page', async () => {
+    const onNavigate = vi.fn()
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={onNavigate} onNotify={() => {}} />)
+    await userEvent.click(await screen.findByRole('button', { name: '打开代理与规则源' }))
+    expect(onNavigate).toHaveBeenCalledTimes(1)
   })
 })

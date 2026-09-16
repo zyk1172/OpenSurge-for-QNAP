@@ -255,7 +255,7 @@ export function App() {
         <PageErrorBoundary key={page}>
           {page === 'dashboard' && <DashboardPage overview={overview} onOpenNetwork={action => go('network', action === 'cleanup' ? 'control' : action === 'stop' ? 'bottom' : 'none')} />}
           {page === 'network' && (qnapBuild
-            ? <QNAPNetworkPage overview={overview} onChanged={refresh} onNavigate={() => go('devices')} onNotify={notify} />
+            ? <QNAPNetworkPage overview={overview} onChanged={refresh} onNavigate={() => go('sources')} onNotify={notify} />
             : <NetworkPage overview={overview} onChanged={refresh} onNavigate={() => go('devices')} onNotify={notify} />)}
           {page === 'sources' && (qnapBuild
             ? <QNAPSourcesPage overview={overview} onChanged={refresh} onNotify={notify} />

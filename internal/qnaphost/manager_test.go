@@ -2,6 +2,7 @@ package qnaphost
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -51,39 +52,94 @@ func TestDetectHostUsesMountedNetworkNamespaceRoute(t *testing.T) {
 	}
 }
 
-func TestIntentPersistsOptInWithoutTouchingQTSConfig(t *testing.T) {
+func TestIntentPersistsOptInAndDefaultCoexistencePolicy(t *testing.T) {
 	manager := &Manager{statePath: filepath.Join(t.TempDir(), stateFileName), runner: &fakeRunner{}}
 	manager.mu.Lock()
 	if err := manager.writeIntentLocked(true); err != nil {
 		manager.mu.Unlock()
 		t.Fatalf("writeIntentLocked: %v", err)
 	}
-	enabled, err := manager.readIntentLocked()
+	state, err := manager.readStateLocked()
 	manager.mu.Unlock()
 	if err != nil {
-		t.Fatalf("readIntentLocked: %v", err)
+		t.Fatalf("readStateLocked: %v", err)
 	}
-	if !enabled {
+	if !state.Enabled {
 		t.Fatal("expected persisted NAS host takeover intent")
+	}
+	if state.DNSMode != DNSModeAuto || !state.ProtectTailscale {
+		t.Fatalf("unexpected default coexistence policy: %+v", state)
+	}
+}
+
+func TestReadStateMigratesV2ToTailscaleSafeDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), stateFileName)
+	payload := `{"schema_version":2,"enabled":true,"host_priorities":{"dns_udp":19996,"dns_tcp":19997,"main":19998,"proxy":19999}}`
+	if err := os.WriteFile(path, []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager := &Manager{statePath: path, runner: &fakeRunner{}}
+	state, err := manager.readStateLocked()
+	if err != nil {
+		t.Fatalf("readStateLocked: %v", err)
+	}
+	if state.SchemaVersion != hostRoutingStateSchema || state.DNSMode != DNSModeAuto || !state.ProtectTailscale {
+		t.Fatalf("migration did not select safe defaults: %+v", state)
+	}
+}
+
+func TestChooseHostPrioritiesKeepsFromAllVPNRulesAhead(t *testing.T) {
+	rules := []byte(strings.Join([]string{
+		"0: from all lookup local",
+		"5210: from all fwmark 0x80000/0xff0000 lookup main",
+		"5230: from all fwmark 0x80000/0xff0000 lookup default",
+		"5250: from all fwmark 0x80000/0xff0000 unreachable",
+		"5270: from all lookup 52",
+		"20010: from 192.168.2.240 lookup 20010",
+		"32766: from all lookup main",
+	}, "\n"))
+
+	priorities, err := chooseHostPriorities(rules, "192.168.2.240", true)
+	if err != nil {
+		t.Fatalf("chooseHostPriorities: %v", err)
+	}
+	if priorities.DNSUDP <= 5270 {
+		t.Fatalf("OpenSurge must stay after protected VPN rules, got %+v", priorities)
+	}
+	if priorities.Proxy >= 20010 {
+		t.Fatalf("OpenSurge must stay before QTS host-source rule, got %+v", priorities)
+	}
+}
+
+func TestChooseHostPrioritiesCanExplicitlyOverrideFromAllRules(t *testing.T) {
+	rules := []byte("0: from all lookup local\n5270: from all lookup 52\n20010: from 192.168.2.240 lookup 20010\n")
+	priorities, err := chooseHostPriorities(rules, "192.168.2.240", false)
+	if err != nil {
+		t.Fatalf("chooseHostPriorities: %v", err)
+	}
+	if priorities.Proxy >= 5270 {
+		t.Fatalf("explicit override should be allocated before from-all rule: %+v", priorities)
+	}
+}
+
+func TestChooseHostPrioritiesFailsWhenNoSafeGapExists(t *testing.T) {
+	rules := []byte("0: from all lookup local\n5000: from 192.168.2.240 lookup 5000\n5270: from all lookup 52\n")
+	_, err := chooseHostPriorities(rules, "192.168.2.240", true)
+	if err == nil || !strings.Contains(err.Error(), "protected host/VPN rules") {
+		t.Fatalf("expected safe-gap failure, got %v", err)
 	}
 }
 
 func TestEnsurePolicySlotsFreeTreatsMissingRouteTablesAsEmpty(t *testing.T) {
 	runner := &fakeRunner{steps: []fakeRunnerStep{
 		{output: []byte("0: from all lookup local\n")},
-		{
-			output: []byte("Error: ipv4: FIB table does not exist. Dump terminated\n"),
-			err:    errors.New("ip route exited with status 2"),
-		},
+		{output: []byte("Error: ipv4: FIB table does not exist. Dump terminated\n"), err: errors.New("ip route exited with status 2")},
 		{output: []byte("0: from all lookup local\n20241: from all iif eth0 lookup 20241\n")},
-		{
-			output: []byte("Error: ipv4: FIB table does not exist. Dump terminated\n"),
-			err:    errors.New("ip route exited with status 2"),
-		},
+		{output: []byte("Error: ipv4: FIB table does not exist. Dump terminated\n"), err: errors.New("ip route exited with status 2")},
 	}}
 	manager := &Manager{netNSPath: "/run/test-host-netns", runner: runner}
 
-	if err := manager.ensurePolicySlotsFreeLocked(context.Background()); err != nil {
+	if err := manager.ensurePolicySlotsFreeLocked(context.Background(), true); err != nil {
 		t.Fatalf("ensurePolicySlotsFreeLocked: %v", err)
 	}
 	if len(runner.calls) != 4 {
@@ -91,6 +147,20 @@ func TestEnsurePolicySlotsFreeTreatsMissingRouteTablesAsEmpty(t *testing.T) {
 	}
 	if !strings.Contains(runner.calls[2], "ip -4 rule show") || strings.Contains(runner.calls[2], "nsenter") {
 		t.Fatalf("container policy inspection should stay in the container namespace: %q", runner.calls[2])
+	}
+}
+
+func TestEnsurePolicySlotsFreeHostDNSModeSkipsContainerDNSSlots(t *testing.T) {
+	runner := &fakeRunner{steps: []fakeRunnerStep{
+		{output: []byte("0: from all lookup local\n")},
+		{output: []byte("Error: ipv4: FIB table does not exist. Dump terminated\n"), err: errors.New("ip route exited with status 2")},
+	}}
+	manager := &Manager{netNSPath: "/run/test-host-netns", runner: runner}
+	if err := manager.ensurePolicySlotsFreeLocked(context.Background(), false); err != nil {
+		t.Fatalf("ensurePolicySlotsFreeLocked: %v", err)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("host DNS preservation should not inspect container DNS slots: %#v", runner.calls)
 	}
 }
 
@@ -102,7 +172,7 @@ func TestEnsurePolicySlotsFreeRejectsContainerDNSPriorityCollision(t *testing.T)
 	}}
 	manager := &Manager{netNSPath: "/run/test-host-netns", runner: runner}
 
-	err := manager.ensurePolicySlotsFreeLocked(context.Background())
+	err := manager.ensurePolicySlotsFreeLocked(context.Background(), true)
 	if err == nil || !strings.Contains(err.Error(), containerDNSUDPRulePriority) {
 		t.Fatalf("expected DNS priority collision, got %v", err)
 	}
@@ -209,12 +279,35 @@ func configForDNSPolicyTest() config.Config {
 	return cfg
 }
 
+func TestHostRoutingEndpointPersistsPolicyFields(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), stateFileName)
+	manager := &Manager{statePath: statePath, runner: &fakeRunner{}}
+	nextCalled := false
+	handler := manager.Handler("internal-token", http.HandlerFunc(func(http.ResponseWriter, *http.Request) { nextCalled = true }))
+
+	req := httptest.NewRequest(http.MethodPut, Endpoint, strings.NewReader(`{"enabled":false,"dns_mode":"host","protect_tailscale":false}`))
+	req.Header.Set("Authorization", "Bearer internal-token")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if nextCalled {
+		t.Fatal("request unexpectedly reached next handler")
+	}
+	var status Status
+	if err := json.Unmarshal(recorder.Body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.DNSMode != DNSModeHost || status.ProtectTailscale {
+		t.Fatalf("unexpected status policy: %+v", status)
+	}
+}
+
 func TestRemoteManagementCannotMutateHostNetworkNamespace(t *testing.T) {
 	manager := &Manager{}
 	nextCalled := false
-	handler := manager.Handler("internal-token", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		nextCalled = true
-	}))
+	handler := manager.Handler("internal-token", http.HandlerFunc(func(http.ResponseWriter, *http.Request) { nextCalled = true }))
 
 	req := httptest.NewRequest(http.MethodPut, Endpoint, strings.NewReader(`{"enabled":true}`))
 	req.Header.Set("Authorization", "Bearer internal-token")
