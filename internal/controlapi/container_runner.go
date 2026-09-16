@@ -18,9 +18,10 @@ import (
 // reconfigure QTS, a Virtual Switch, or the NAS interface as if it were a Mac.
 type ContainerRunner struct {
 	DirectRunner
+	StoreDir string
 }
 
-func (ContainerRunner) Run(ctx context.Context, action, configPath string) error {
+func (r ContainerRunner) Run(ctx context.Context, action, configPath string) error {
 	if action == "restart-dnsmasq" {
 		return gateway.RestartDNSMasqConfig(ctx, configPath)
 	}
@@ -48,10 +49,24 @@ func (ContainerRunner) Run(ctx context.Context, action, configPath string) error
 			return fmt.Errorf("persist gateway stop intent: %w", err)
 		}
 	}
+	if action == "reload" {
+		// A global profile overlay is an input to the generated effective Mihomo
+		// profile, not the profile itself. Reconcile that persisted input before
+		// the ordinary lifecycle reload so a Hosts/rules/provider edit made via
+		// the Control API or an external atomic file update cannot restart the
+		// previous effective profile and falsely report success.
+		reloaded, err := r.reloadLatestPersistedProfile(ctx, configPath)
+		if err != nil {
+			return err
+		}
+		if reloaded {
+			return nil
+		}
+	}
 	return (DirectRunner{}).Run(ctx, action, configPath)
 }
 
-func (ContainerRunner) StartPolicyWorkspace(ctx context.Context, configPath string, input PolicyWorkspaceInput) error {
+func (r ContainerRunner) StartPolicyWorkspace(ctx context.Context, configPath string, input PolicyWorkspaceInput) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
