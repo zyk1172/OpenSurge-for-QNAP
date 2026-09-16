@@ -10,7 +10,7 @@ import (
 	"open-mihomo-gateway/internal/mihomo"
 )
 
-func TestPrepareContainerProfileReloadRecomposesExternallyChangedOverlay(t *testing.T) {
+func TestPrepareContainerProfileReconcileRecomposesExternallyChangedOverlay(t *testing.T) {
 	configPath, storeDir, sourceDigest := writeContainerProfileReloadFixture(t)
 
 	document := mihomo.DefaultProfileOverlayDocument()
@@ -24,12 +24,12 @@ func TestPrepareContainerProfileReloadRecomposesExternallyChangedOverlay(t *test
 		t.Fatal(err)
 	}
 
-	candidate, err := prepareContainerProfileReload(configPath, storeDir)
+	candidate, err := prepareContainerProfileReconcile(configPath, storeDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if candidate == nil {
-		t.Fatal("changed persisted overlay should produce a reload candidate")
+		t.Fatal("changed persisted overlay should produce a reconciliation candidate")
 	}
 	if candidate.SourceDigest != sourceDigest {
 		t.Fatalf("source digest = %q, want %q", candidate.SourceDigest, sourceDigest)
@@ -48,7 +48,54 @@ func TestPrepareContainerProfileReloadRecomposesExternallyChangedOverlay(t *test
 	}
 }
 
-func TestPrepareContainerProfileReloadLeavesMatchingOverlayOnOrdinaryReloadPath(t *testing.T) {
+func TestPrepareContainerProfileReconcileLeavesMatchingEffectiveProfileUnchanged(t *testing.T) {
+	configPath, storeDir, sourceDigest := writeContainerProfileReloadFixture(t)
+	document := mihomo.DefaultProfileOverlayDocument()
+	document.Enabled = true
+	document.DNS.Merge["hosts-file"] = "104.18.45.150 ptcafe.club\n"
+	overlay, err := mihomo.RenderProfileOverlay(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(storeDir)
+	if err := store.SaveProfileOverlay(overlay); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, actualSourceDigest, err := rawProfileSourceForReconcile(cfg, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actualSourceDigest != sourceDigest {
+		t.Fatalf("source digest = %q, want %q", actualSourceDigest, sourceDigest)
+	}
+	composition, err := mihomo.ComposeProfileOverlay(source, document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.Mihomo.Profile, []byte(composition.ProfileYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Mihomo.ProfileSourceDigest = sourceDigest
+	cfg.Mihomo.ProfileOverlayDigest = mihomo.ProfileOverlayDigest(overlay)
+	if err := writeAtomic(configPath, []byte(config.Render(cfg)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	candidate, err := prepareContainerProfileReconcile(configPath, storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate != nil {
+		t.Fatalf("matching effective profile should not be recomposed: %#v", candidate)
+	}
+}
+
+func TestPrepareContainerProfileReconcileRepairsMatchingMetadataWithStaleProfile(t *testing.T) {
 	configPath, storeDir, _ := writeContainerProfileReloadFixture(t)
 	document := mihomo.DefaultProfileOverlayDocument()
 	document.Enabled = true
@@ -65,21 +112,26 @@ func TestPrepareContainerProfileReloadLeavesMatchingOverlayOnOrdinaryReloadPath(
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Simulate metadata drift: the config claims the newest overlay revision was
+	// applied while the effective profile file still contains the old source.
 	cfg.Mihomo.ProfileOverlayDigest = mihomo.ProfileOverlayDigest(overlay)
 	if err := writeAtomic(configPath, []byte(config.Render(cfg)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	candidate, err := prepareContainerProfileReload(configPath, storeDir)
+	candidate, err := prepareContainerProfileReconcile(configPath, storeDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if candidate != nil {
-		t.Fatalf("matching overlay should not be recomposed: %#v", candidate)
+	if candidate == nil {
+		t.Fatal("stale effective profile must be reconciled even when metadata matches")
+	}
+	if !strings.Contains(string(candidate.Payload), "ptcafe.club") {
+		t.Fatalf("reconciled payload is missing latest Hosts entry:\n%s", candidate.Payload)
 	}
 }
 
-func TestPrepareContainerProfileReloadFailsClosedWithoutRawSource(t *testing.T) {
+func TestPrepareContainerProfileReconcileFailsClosedWithoutRawSource(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config", "opensurge.yaml")
 	storeDir := filepath.Join(dir, "control")
@@ -119,20 +171,20 @@ func TestPrepareContainerProfileReloadFailsClosedWithoutRawSource(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	candidate, err := prepareContainerProfileReload(configPath, storeDir)
+	candidate, err := prepareContainerProfileReconcile(configPath, storeDir)
 	if err == nil || candidate != nil || !strings.Contains(err.Error(), "raw source") {
 		t.Fatalf("expected fail-closed missing source error, candidate=%#v err=%v", candidate, err)
 	}
 }
 
-func TestPrepareContainerProfileReloadRejectsInvalidExternalOverlay(t *testing.T) {
+func TestPrepareContainerProfileReconcileRejectsInvalidExternalOverlay(t *testing.T) {
 	configPath, storeDir, _ := writeContainerProfileReloadFixture(t)
 	if err := os.WriteFile(filepath.Join(storeDir, "global-profile-overlay.yaml"), []byte("enabled: true\ndns: [\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	candidate, err := prepareContainerProfileReload(configPath, storeDir)
+	candidate, err := prepareContainerProfileReconcile(configPath, storeDir)
 	if err == nil || candidate != nil || !strings.Contains(err.Error(), "stored global profile overlay is invalid") {
-		t.Fatalf("invalid external overlay should block reload, candidate=%#v err=%v", candidate, err)
+		t.Fatalf("invalid external overlay should block lifecycle reconciliation, candidate=%#v err=%v", candidate, err)
 	}
 }
 

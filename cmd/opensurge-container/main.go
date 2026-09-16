@@ -49,7 +49,7 @@ func main() {
 
 	switch *component {
 	case "recover":
-		recovered, err := gateway.RecoverConfigAfterContainerRestart(ctx, *configPath)
+		recovered, err := controlapi.RecoverContainerConfigAfterRestart(ctx, *configPath, *storeDir)
 		if err != nil {
 			fatal(fmt.Errorf("automatic gateway recovery failed: %w", err))
 		}
