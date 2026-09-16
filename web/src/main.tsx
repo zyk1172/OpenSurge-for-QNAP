@@ -16,6 +16,7 @@ import './mobile-touch-fixes.css'
 import './moviepilot-glass-v4.css'
 import './ui-density-fixes.css'
 import './ui-control-integrity.css'
+import './ui-layout-system.css'
 
 const productTarget = (import.meta.env.VITE_OPENSURGE_TARGET ?? 'mac').trim().toLowerCase()
 document.documentElement.dataset.productTarget = productTarget
