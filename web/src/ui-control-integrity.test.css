@@ -1,0 +1,5 @@
+/* This file intentionally contains no production styles.
+ * It documents the high-risk regression selectors covered by ui-control-integrity.css
+ * for repository-level grep/inspection and can be removed once visual regression
+ * tooling is introduced.
+ */
