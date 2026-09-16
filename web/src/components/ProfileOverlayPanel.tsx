@@ -117,7 +117,6 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
         <div><small>ADVANCED · GLOBAL EXTENSION</small><h2>{t('高级：全局附加配置')}</h2><p>{t('既可以跨订阅保留个人规则与节点，也可以不导入订阅而独立组成完整策略。')}</p></div>
         <div className="profile-overlay-controls"><span className={`overlay-status ${statusTone}`}>{status}</span><i aria-hidden="true">⌄</i></div>
       </summary>
-
       <div className="profile-overlay-body">
         <div className="overlay-enable-row">
           <div><strong>{t('全局应用')}</strong><small>{t('保存先产生草稿；有来源时与来源组合，无来源时与 OpenSurge 内置最小配置组合。')}</small></div>
@@ -320,17 +319,24 @@ function splitHostsInputs(value: unknown) {
   const begin = content.indexOf(nativeHostsBegin)
   const end = content.indexOf(nativeHostsEnd)
   if (begin < 0 || end < 0 || end < begin) return { standard: content, native: '' }
-  const nativeStart = begin + nativeHostsBegin.length
-  return {
-    standard: `${content.slice(0, begin)}${content.slice(end + nativeHostsEnd.length)}`.trimEnd(),
-    native: content.slice(nativeStart, end).trim(),
-  }
+
+  let standardBefore = content.slice(0, begin)
+  if (standardBefore.endsWith('\n\n')) standardBefore = standardBefore.slice(0, -2)
+  const standardAfter = content.slice(end + nativeHostsEnd.length)
+
+  let native = content.slice(begin + nativeHostsBegin.length, end)
+  if (native.startsWith('\r\n')) native = native.slice(2)
+  else if (native.startsWith('\n')) native = native.slice(1)
+  if (native.endsWith('\r\n')) native = native.slice(0, -2)
+  else if (native.endsWith('\n')) native = native.slice(0, -1)
+
+  return { standard: `${standardBefore}${standardAfter}`, native }
 }
 
 function joinHostsInputs(standard: string, native: string) {
-  const cleanStandard = standard.replace(/^\uFEFF/, '').trimEnd()
-  const cleanNative = native.replace(/^\uFEFF/, '').trim()
-  if (!cleanNative) return cleanStandard
+  const cleanStandard = standard.replace(/^\uFEFF/, '')
+  const cleanNative = native.replace(/^\uFEFF/, '')
+  if (!cleanNative.trim()) return cleanStandard
   const prefix = cleanStandard ? `${cleanStandard}\n\n` : ''
   return `${prefix}${nativeHostsBegin}\n${cleanNative}\n${nativeHostsEnd}`
 }
