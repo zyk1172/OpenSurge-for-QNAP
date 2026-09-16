@@ -186,6 +186,9 @@ button.primary,button.danger,.source-action-button{
   .sidebar-controls .theme-toggle,
   .sidebar-switch{min-height:42px!important}
   .policy-local-mac{padding:14px!important}
+  .primary,.danger,.actions button,.page-header button,
+  button.primary,button.danger,.source-action-button,
+  .source-actions button{min-height:44px!important;padding:8px 12px!important}
 }
 
 @media (max-width:600px){
