@@ -43,7 +43,6 @@ const (
 	hostRoutingStateSchema       = 3
 	tailscaleInterface           = "tailscale0"
 	tailscaleDNSIPv4             = "100.100.100.100"
-	tailscaleTailnetProbeIPv4    = "100.64.0.1"
 	DNSModeAuto                  = "auto"
 	DNSModeOpenSurge             = "opensurge"
 	DNSModeHost                  = "host"
@@ -348,11 +347,9 @@ func (m *Manager) statusLocked(ctx context.Context) Status {
 	}
 
 	if status.TailscaleDetected {
+		status.TailscaleRoutesProtected = state.ProtectTailscale && hostRulesErr == nil && protectedHostRulesPrecedeOpenSurge(hostRules, priorities)
 		if route, err := m.runHost(ctx, nil, "ip", "-4", "route", "get", tailscaleDNSIPv4, "from", hostIP); err == nil {
 			status.TailscaleDNSProtected = !routeUsesGatewayTable(route, cfg.Gateway.LANIP, routeTableID)
-		}
-		if route, err := m.runHost(ctx, nil, "ip", "-4", "route", "get", tailscaleTailnetProbeIPv4, "from", hostIP); err == nil {
-			status.TailscaleRoutesProtected = !routeUsesGatewayTable(route, cfg.Gateway.LANIP, routeTableID)
 		}
 	}
 	return status
@@ -400,6 +397,20 @@ func ruleMatchesHostSource(line, hostIP string, includeFromAll bool) bool {
 	}
 	_, network, err := net.ParseCIDR(value)
 	return err == nil && network.Contains(host)
+}
+
+func protectedHostRulesPrecedeOpenSurge(hostRules []byte, priorities hostPolicyPriorities) bool {
+	for _, line := range strings.Split(string(hostRules), "\n") {
+		priority, ok := parseRulePriority(line)
+		if !ok || priority < minimumHostPriority || priority >= priorities.DNSUDP {
+			continue
+		}
+		source := ruleSource(line)
+		if source == "all" || source == "0.0.0.0/0" {
+			return true
+		}
+	}
+	return false
 }
 
 func chooseHostPriorities(hostRules []byte, hostIP string, protectForeignFromAll bool) (hostPolicyPriorities, error) {
