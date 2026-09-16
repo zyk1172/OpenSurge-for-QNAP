@@ -5,6 +5,7 @@ import { OperationNotifications, type OperationNotification, type OperationNotif
 import { OperationProgress } from './components/OperationProgress'
 import { LanguageSelector } from './components/LanguageSelector'
 import { RecoveryBanner, StatusDot } from './components/Common'
+import { ShellIcon } from './components/ShellIcon'
 import { DashboardPage } from './pages/DashboardPage'
 import { ConnectivityPage } from './pages/ConnectivityPage'
 import { DevicesPage } from './pages/DevicesPage'
@@ -28,15 +29,15 @@ const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
 const releaseTag = import.meta.env.VITE_OPENSURGE_RELEASE_TAG
 
 const nav = [
-  { id: 'dashboard', label: '总览', icon: '◈' },
-  { id: 'network', label: '网络设置', icon: '⌁' },
-  { id: 'sources', label: '代理与规则源', icon: '◎' },
-  { id: 'devices', label: '设备', icon: '▣' },
-  { id: 'policies', label: '策略', icon: '⇄' },
-  { id: 'connectivity', label: '连通性', icon: '◌' },
-  { id: 'diagnostics', label: '诊断', icon: '⌘' },
-  { id: 'traffic', label: '流量分析', icon: '≋' },
-] as const satisfies ReadonlyArray<{ id: Page; label: string; icon: string }>
+  { id: 'dashboard', label: '总览' },
+  { id: 'network', label: '网络设置' },
+  { id: 'sources', label: '代理与规则源' },
+  { id: 'devices', label: '设备' },
+  { id: 'policies', label: '策略' },
+  { id: 'connectivity', label: '连通性' },
+  { id: 'diagnostics', label: '诊断' },
+  { id: 'traffic', label: '流量分析' },
+] as const satisfies ReadonlyArray<{ id: Page; label: string }>
 
 function currentPage(): Page {
   const candidate = window.location.pathname.split('/').filter(Boolean)[0] as Page | undefined
@@ -47,6 +48,10 @@ function initialTheme(): Theme {
   const stored = window.localStorage.getItem('opensurge-theme')
   if (stored === 'dark' || stored === 'light') return stored
   return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+}
+
+function initialSidebarCompact() {
+  return window.localStorage.getItem('opensurge-sidebar') === 'compact'
 }
 
 function focusGatewayControl(target: Exclude<NetworkNavigationTarget, 'none'>) {
@@ -79,6 +84,8 @@ export function App() {
   const [policiesViewState, setPoliciesViewState] = useState<PoliciesViewState>({ search: '', scope: 'global', activeGroup: null })
   const [sleepPreventionChanging, setSleepPreventionChanging] = useState(false)
   const [notifications, setNotifications] = useState<OperationNotificationItem[]>([])
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarCompact, setSidebarCompact] = useState(initialSidebarCompact)
   const notificationID = useRef(0)
   const sleepPreventionGeneration = useRef(0)
   const languageGeneration = useRef(0)
@@ -92,6 +99,10 @@ export function App() {
     document.documentElement.dataset.theme = theme
     window.localStorage.setItem('opensurge-theme', theme)
   }, [theme])
+
+  useEffect(() => {
+    window.localStorage.setItem('opensurge-sidebar', sidebarCompact ? 'compact' : 'expanded')
+  }, [sidebarCompact])
 
   useEffect(() => {
     activateLanguage(language)
@@ -170,6 +181,7 @@ export function App() {
       if (pageRef.current === 'devices' && next !== 'devices') setDevicesDirty(false)
       if (pageRef.current === 'policies' && next !== 'policies') policiesScrollPosition.current = window.scrollY
       setPage(next)
+      setSidebarOpen(false)
     }
     window.addEventListener('popstate', onPop)
     return () => {
@@ -180,6 +192,7 @@ export function App() {
   }, [authenticationRequired, refresh])
 
   const go = (next: Page, networkTarget: NetworkNavigationTarget = 'none') => {
+    setSidebarOpen(false)
     if (next === page) {
       if (networkTarget !== 'none') {
         history.replaceState({}, '', `/${next}${networkNavigationHash(networkTarget)}`)
@@ -232,41 +245,66 @@ export function App() {
     policiesScrollPosition.current = scrollY
   }, [])
 
-  return <div className="app-shell">
+  const activeItem = nav.find(item => item.id === page) ?? nav[0]
+  const gatewayStatus = statusLabel(overview?.status.gateway, overview?.status.runtime_state)
+
+  return <div className={`app-shell ${sidebarCompact ? 'sidebar-compact' : ''} ${sidebarOpen ? 'mobile-nav-open' : ''}`}>
+    <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />
     <aside className="sidebar">
-      <div className="brand"><img className="brand-mark" src="/opensurge-icon.png" alt="" aria-hidden="true" /><div><strong>OpenSurge</strong><small>{qnapBuild ? 'for QNAP' : 'for Mac'}</small></div></div>
-      <nav aria-label="OpenSurge sections">
-        {nav.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => go(item.id)}><span aria-hidden="true">{item.icon}</span>{t(item.label)}</button>)}
-      </nav>
+      <div className="sidebar-brand-row">
+        <div className="brand"><img className="brand-mark" src="/opensurge-icon.png" alt="" aria-hidden="true" /><div><strong>OpenSurge</strong><small>{qnapBuild ? 'for QNAP' : 'for Mac'}</small></div></div>
+        <button type="button" className="sidebar-collapse" aria-label="Toggle compact navigation" aria-pressed={sidebarCompact} onClick={() => setSidebarCompact(current => !current)}><ShellIcon name="collapse" /></button>
+      </div>
+      <div className="sidebar-nav-scroll">
+        <small className="nav-section-label">CONTROL</small>
+        <nav aria-label="OpenSurge sections">
+          {nav.slice(0, 5).map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} title={t(item.label)} onClick={() => go(item.id)}><span className="nav-icon"><ShellIcon name={item.id} /></span><span className="nav-label">{t(item.label)}</span></button>)}
+        </nav>
+        <small className="nav-section-label secondary">OBSERVE</small>
+        <nav aria-label="OpenSurge observability">
+          {nav.slice(5).map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} title={t(item.label)} onClick={() => go(item.id)}><span className="nav-icon"><ShellIcon name={item.id} /></span><span className="nav-label">{t(item.label)}</span></button>)}
+        </nav>
+      </div>
       <div className="sidebar-controls">
         {!qnapBuild && <>
           <label className={`sidebar-switch ${overview?.sleep_prevention?.active ? 'active' : ''}`} title={t('阻止空闲睡眠和合盖睡眠。合盖运行可能明显增加耗电与发热，请勿放入不通风的包内。')}><input type="checkbox" checked={overview?.sleep_prevention?.active ?? false} disabled={!overview || sleepPreventionChanging} onChange={event => void setSleepPrevention(event.target.checked)} /><span><strong>{t(sleepPreventionChanging ? '正在切换…' : '合盖保持运行')}</strong><small>{t(overview?.sleep_prevention?.active ? '系统睡眠已临时禁用' : '默认关闭 · 本次运行有效')}</small></span></label>
           {overview?.sleep_prevention?.error && <small className="sidebar-control-error" role="status">{overview.sleep_prevention.error}</small>}
         </>}
-        <LanguageSelector language={language} changing={languageChanging} onChange={next => void changeLanguage(next)} />
-        <button type="button" className="theme-toggle" aria-pressed={theme === 'light'} aria-label={t(theme === 'dark' ? '切换为浅色模式' : '切换为深色模式')} onClick={() => setTheme(current => current === 'dark' ? 'light' : 'dark')}><span aria-hidden="true">{theme === 'dark' ? '☀' : '◐'}</span>{t(theme === 'dark' ? '浅色模式' : '深色模式')}</button>
       </div>
-      <div className="sidebar-status"><StatusDot status={overview?.status.gateway ?? 'unreachable'} /><div><strong>{statusLabel(overview?.status.gateway, overview?.status.runtime_state)}</strong><small>{qnapBuild ? releaseTag : `${releaseTag} Wind Rose`}</small></div></div>
+      <div className="sidebar-status"><StatusDot status={overview?.status.gateway ?? 'unreachable'} /><div><strong>{gatewayStatus}</strong><small>{qnapBuild ? releaseTag : `${releaseTag} Wind Rose`}</small></div></div>
     </aside>
     <main className="workspace">
-      {authenticationRequired ? <section className="session-expired" role="alert"><span aria-hidden="true">!</span><div><h1>{t('Web GUI 与 OpenSurge 的安全连接已过期')}</h1>{qnapBuild ? <p><a href="/auth/">重新登录</a></p> : <p>{t('请点击 macOS 菜单栏中的 OpenSurge 图标，然后选择“打开 OpenSurge 面板”。')}</p>}</div></section> : <>
-        {!qnapBuild && overview?.recovery.required && needsNetworkRecoveryWarning(overview.recovery.stage) && <RecoveryBanner recovery={overview.recovery.stage} onOpen={() => go('network', 'control')} />}
-        {error && <div className="error-banner" role="alert"><span>!</span><p>{error}</p><button onClick={() => void refresh()}>{t('重试')}</button></div>}
-        <PageErrorBoundary key={page}>
-          {page === 'dashboard' && <DashboardPage overview={overview} onOpenNetwork={action => go('network', action === 'cleanup' ? 'control' : action === 'stop' ? 'bottom' : 'none')} />}
-          {page === 'network' && (qnapBuild
-            ? <QNAPNetworkPage overview={overview} onChanged={refresh} onNavigate={() => go('sources')} onNotify={notify} />
-            : <NetworkPage overview={overview} onChanged={refresh} onNavigate={() => go('devices')} onNotify={notify} />)}
-          {page === 'sources' && (qnapBuild
-            ? <QNAPSourcesPage overview={overview} onChanged={refresh} onNotify={notify} />
-            : <SourcesPage overview={overview} onChanged={refresh} onNotify={notify} />)}
-          {page === 'devices' && <DevicesPage overview={overview} onChanged={refresh} onNavigate={go} onDirtyChange={setDevicesDirty} onNotify={notify} />}
-          {page === 'policies' && <PoliciesPage overview={overview} onChanged={refresh} viewState={policiesViewState} onViewStateChange={updatePoliciesViewState} restoreScrollY={policiesScrollPosition.current} onScrollPositionChange={updatePoliciesScrollPosition} />}
-          {page === 'connectivity' && <ConnectivityPage overview={overview} onChanged={refresh} />}
-          {page === 'diagnostics' && <DiagnosticsPage overview={overview} />}
-          {page === 'traffic' && <TrafficAnalysisPage />}
-        </PageErrorBoundary>
-      </>}
+      <header className="workspace-toolbar">
+        <div className="workspace-toolbar-start">
+          <button type="button" className="mobile-menu-button" aria-label="Open navigation" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}><ShellIcon name="menu" /></button>
+          <div className="workspace-context"><small>OpenSurge / {qnapBuild ? 'QNAP' : 'Mac'}</small><strong>{t(activeItem.label)}</strong></div>
+        </div>
+        <div className="workspace-toolbar-end">
+          <div className="toolbar-gateway-status" title={gatewayStatus} aria-label={gatewayStatus}><StatusDot status={overview?.status.gateway ?? 'unreachable'} /></div>
+          <LanguageSelector language={language} changing={languageChanging} onChange={next => void changeLanguage(next)} />
+          <button type="button" className="theme-toggle toolbar-theme-toggle" aria-pressed={theme === 'light'} aria-label={t(theme === 'dark' ? '切换为浅色模式' : '切换为深色模式')} onClick={() => setTheme(current => current === 'dark' ? 'light' : 'dark')}><ShellIcon name={theme === 'dark' ? 'sun' : 'moon'} /><span className="toolbar-theme-label">{t(theme === 'dark' ? '浅色模式' : '深色模式')}</span></button>
+        </div>
+      </header>
+      <div className="workspace-canvas">
+        {authenticationRequired ? <section className="session-expired" role="alert"><span aria-hidden="true">!</span><div><h1>{t('Web GUI 与 OpenSurge 的安全连接已过期')}</h1>{qnapBuild ? <p><a href="/auth/">重新登录</a></p> : <p>{t('请点击 macOS 菜单栏中的 OpenSurge 图标，然后选择“打开 OpenSurge 面板”。')}</p>}</div></section> : <>
+          {!qnapBuild && overview?.recovery.required && needsNetworkRecoveryWarning(overview.recovery.stage) && <RecoveryBanner recovery={overview.recovery.stage} onOpen={() => go('network', 'control')} />}
+          {error && <div className="error-banner" role="alert"><span>!</span><p>{error}</p><button onClick={() => void refresh()}>{t('重试')}</button></div>}
+          <PageErrorBoundary key={page}>
+            {page === 'dashboard' && <DashboardPage overview={overview} onOpenNetwork={action => go('network', action === 'cleanup' ? 'control' : action === 'stop' ? 'bottom' : 'none')} />}
+            {page === 'network' && (qnapBuild
+              ? <QNAPNetworkPage overview={overview} onChanged={refresh} onNavigate={() => go('sources')} onNotify={notify} />
+              : <NetworkPage overview={overview} onChanged={refresh} onNavigate={() => go('devices')} onNotify={notify} />)}
+            {page === 'sources' && (qnapBuild
+              ? <QNAPSourcesPage overview={overview} onChanged={refresh} onNotify={notify} />
+              : <SourcesPage overview={overview} onChanged={refresh} onNotify={notify} />)}
+            {page === 'devices' && <DevicesPage overview={overview} onChanged={refresh} onNavigate={go} onDirtyChange={setDevicesDirty} onNotify={notify} />}
+            {page === 'policies' && <PoliciesPage overview={overview} onChanged={refresh} viewState={policiesViewState} onViewStateChange={updatePoliciesViewState} restoreScrollY={policiesScrollPosition.current} onScrollPositionChange={updatePoliciesScrollPosition} />}
+            {page === 'connectivity' && <ConnectivityPage overview={overview} onChanged={refresh} />}
+            {page === 'diagnostics' && <DiagnosticsPage overview={overview} />}
+            {page === 'traffic' && <TrafficAnalysisPage />}
+          </PageErrorBoundary>
+        </>}
+      </div>
     </main>
     {!authenticationRequired && <OperationProgress onOpenDiagnostics={() => go('diagnostics')} />}
     <OperationNotifications notifications={notifications} onDismiss={dismissNotification} />
