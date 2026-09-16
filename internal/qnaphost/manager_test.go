@@ -219,7 +219,7 @@ func TestInstallDNSPolicyUsesHost20242AndContainerTUNTableWithoutNFTables(t *tes
 	if err := manager.installContainerDNSPolicyLocked(context.Background(), cfg, "192.168.2.240"); err != nil {
 		t.Fatalf("installContainerDNSPolicyLocked: %v", err)
 	}
-	if err := manager.installHostDNSPolicyLocked(context.Background()); err != nil {
+	if err := manager.installHostDNSPolicyLocked(context.Background(), "192.168.2.240"); err != nil {
 		t.Fatalf("installHostDNSPolicyLocked: %v", err)
 	}
 
@@ -231,11 +231,29 @@ func TestInstallDNSPolicyUsesHost20242AndContainerTUNTableWithoutNFTables(t *tes
 		"ip -4 route replace default dev tun0 table " + containerDNSRouteTableID + " proto " + containerDNSRouteProtocol,
 		"ip -4 rule add pref " + containerDNSUDPRulePriority + " from 192.168.2.240/32 iif eth0 ipproto udp dport 53 table " + containerDNSRouteTableID,
 		"ip -4 rule add pref " + containerDNSTCPRulePriority + " from 192.168.2.240/32 iif eth0 ipproto tcp dport 53 table " + containerDNSRouteTableID,
-		"nsenter --net=/run/test-host-netns -- ip -4 rule add pref " + hostDNSUDPRulePriority + " iif lo ipproto udp dport 53 table " + routeTableID,
-		"nsenter --net=/run/test-host-netns -- ip -4 rule add pref " + hostDNSTCPRulePriority + " iif lo ipproto tcp dport 53 table " + routeTableID,
+		"nsenter --net=/run/test-host-netns -- ip -4 rule add pref " + hostDNSUDPRulePriority + " from 192.168.2.240/32 iif lo ipproto udp dport 53 table " + routeTableID,
+		"nsenter --net=/run/test-host-netns -- ip -4 rule add pref " + hostDNSTCPRulePriority + " from 192.168.2.240/32 iif lo ipproto tcp dport 53 table " + routeTableID,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing command %q in:\n%s", want, joined)
+		}
+	}
+}
+
+func TestSourceScopedRulesDoNotMatchSecondaryNICIPv4(t *testing.T) {
+	rules := []byte(strings.Join([]string{
+		mainRulePriority + ": from 192.168.2.240 iif lo lookup main suppress_prefixlength 0",
+		proxyRulePriority + ": from 192.168.2.240 iif lo lookup " + routeTableID,
+		hostDNSUDPRulePriority + ": from 192.168.2.240 iif lo ipproto udp dport 53 lookup " + routeTableID,
+	}, "\n"))
+
+	if !ruleLineContains(rules, mainRulePriority, "from 192.168.2.240", "iif lo", "lookup main") ||
+		!ruleLineContains(rules, proxyRulePriority, "from 192.168.2.240", "iif lo", "lookup "+routeTableID) {
+		t.Fatal("selected OpenSurge-facing NAS IPv4 should match takeover rules")
+	}
+	for _, priority := range []string{mainRulePriority, proxyRulePriority, hostDNSUDPRulePriority} {
+		if ruleLineContains(rules, priority, "from 192.168.1.240") {
+			t.Fatalf("secondary NAS IPv4 unexpectedly matched OpenSurge takeover priority %s", priority)
 		}
 	}
 }
