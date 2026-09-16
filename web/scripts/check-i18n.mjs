@@ -8,6 +8,7 @@ const catalog = [
   readFileSync(new URL('../src/i18n.ts', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/i18n.en.ts', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/i18n.profile-overlay.en.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/i18n.traffic.en.ts', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/i18n.qnap.en.ts', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/i18n.qnap-host.en.ts', import.meta.url), 'utf8'),
 ].join('\n')
