@@ -117,14 +117,14 @@ export function RemoteManagementCard() {
   return <section className="section qnap-remote-management" id="remote-management">
     <div className="section-title-row">
       <div>
-        <p className="eyebrow">{t('远程管理')}</p>
-        <h2>{t('局域网管理令牌')}</h2>
-        <p className="muted">{t('供可信 AI 或自动化客户端调用 QNAP 管理 API；内部 Control Token 不会暴露。')}</p>
+        <p className="eyebrow">{t('API ACCESS')}</p>
+        <h2>{t('局域网 API 令牌')}</h2>
+        <p className="muted">{t('供可信自动化客户端访问管理 API。')}</p>
       </div>
       <span className={`status-badge ${status?.enabled ? 'ok' : ''}`}>{t(status?.enabled ? '已启用' : '未启用')}</span>
     </div>
 
-    {error && <div className="notice warn" role="alert"><strong>{t('远程管理错误')}</strong><p>{error}</p></div>}
+    {error && <div className="notice warn" role="alert"><strong>{t('管理 API 错误')}</strong><p>{error}</p></div>}
 
     <div className="inventory">
       <span><strong>{t('API 地址')}</strong><br /><code>{apiBase}</code></span>
@@ -141,8 +141,8 @@ export function RemoteManagementCard() {
     </div>
 
     {issuedToken && <div className="notice warn" role="status">
-      <strong>{t('请立即复制此令牌，关闭后不再显示。')}</strong>
-      <p>{t('仅保存 SHA-256 摘要；轮换或撤销后旧令牌立即失效。')}</p>
+      <strong>{t('请立即保存令牌；关闭后无法再次查看。')}</strong>
+      <p>{t('轮换或撤销后，旧令牌立即失效。')}</p>
       <div className="remote-token-row">
         <input aria-label={t('远程管理令牌')} readOnly value={issuedToken} onFocus={event => event.currentTarget.select()} />
         <button type="button" onClick={() => void copy('token', issuedToken)}>{copied === 'token' ? t('已复制') : t('复制令牌')}</button>
@@ -150,9 +150,8 @@ export function RemoteManagementCard() {
     </div>}
 
     <div className="notice remote-management-usage">
-      <strong>{t('AI/API 用法')}</strong>
-      <p>{t('使用 Authorization: Bearer <TOKEN> 访问远程 API，并先读取 GET /capabilities。')}</p>
-      <p>{t('仅开放 QNAP 管理面；浏览器 Cookie 和宿主网络修改接口不可用。')}</p>
+      <strong>{t('API 使用')}</strong>
+      <p>{t('使用 Bearer 令牌访问 API；客户端应先读取 /capabilities。')}</p>
     </div>
   </section>
 }
