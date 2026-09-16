@@ -18,13 +18,15 @@ const (
 // SplitProfileHostsInputs separates the backwards-compatible conventional
 // hosts-file text from the optional native Mihomo hosts YAML block persisted in
 // the same overlay field. Existing overlays without the markers are returned
-// unchanged as conventional hosts-file content.
+// unchanged as conventional hosts-file content. Only the structural newlines
+// inserted by JoinProfileHostsInputs are removed; user-entered whitespace is
+// otherwise preserved so the focused API can round-trip editor text exactly.
 func SplitProfileHostsInputs(content string) (string, string, error) {
 	content = strings.TrimPrefix(content, "\ufeff")
 	begin := strings.Index(content, profileHostsNativeBegin)
 	end := strings.Index(content, profileHostsNativeEnd)
 	if begin < 0 && end < 0 {
-		return strings.TrimRight(content, "\r\n"), "", nil
+		return content, "", nil
 	}
 	if begin < 0 || end < 0 || end < begin {
 		return "", "", fmt.Errorf("native Mihomo hosts block markers are incomplete")
@@ -32,19 +34,37 @@ func SplitProfileHostsInputs(content string) (string, string, error) {
 	if strings.Contains(content[begin+len(profileHostsNativeBegin):], profileHostsNativeBegin) || strings.Contains(content[end+len(profileHostsNativeEnd):], profileHostsNativeEnd) {
 		return "", "", fmt.Errorf("native Mihomo hosts block may appear only once")
 	}
-	nativeStart := begin + len(profileHostsNativeBegin)
-	standard := strings.TrimRight(content[:begin]+content[end+len(profileHostsNativeEnd):], "\r\n")
-	native := strings.TrimSpace(content[nativeStart:end])
-	return standard, native, nil
+
+	standardBefore := content[:begin]
+	if strings.HasSuffix(standardBefore, "\n\n") {
+		standardBefore = strings.TrimSuffix(standardBefore, "\n\n")
+	}
+	standardAfter := content[end+len(profileHostsNativeEnd):]
+
+	native := content[begin+len(profileHostsNativeBegin) : end]
+	if strings.HasPrefix(native, "\r\n") {
+		native = native[2:]
+	} else if strings.HasPrefix(native, "\n") {
+		native = native[1:]
+	}
+	if strings.HasSuffix(native, "\r\n") {
+		native = native[:len(native)-2]
+	} else if strings.HasSuffix(native, "\n") {
+		native = native[:len(native)-1]
+	}
+	return standardBefore + standardAfter, native, nil
 }
 
 // JoinProfileHostsInputs persists both editor surfaces without changing the
 // profile-overlay schema. The native block is OpenSurge-only and is consumed
-// before the final top-level Mihomo hosts mapping is rendered.
+// before the final top-level Mihomo hosts mapping is rendered. The two newlines
+// before the marker and one newline around the native block are structural;
+// SplitProfileHostsInputs removes exactly those newlines and preserves all
+// whitespace entered by the user.
 func JoinProfileHostsInputs(standard, native string) string {
-	standard = strings.TrimRight(strings.TrimPrefix(standard, "\ufeff"), "\r\n")
-	native = strings.TrimSpace(strings.TrimPrefix(native, "\ufeff"))
-	if native == "" {
+	standard = strings.TrimPrefix(standard, "\ufeff")
+	native = strings.TrimPrefix(native, "\ufeff")
+	if strings.TrimSpace(native) == "" {
 		return standard
 	}
 	var out strings.Builder
