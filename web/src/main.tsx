@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
+import './navigation-scroll-reset'
 import { activateLanguage, initialRequestedLanguage, prepareLanguage } from './i18n'
 import './i18n.profile-overlay.en'
 import './i18n.traffic.en'
