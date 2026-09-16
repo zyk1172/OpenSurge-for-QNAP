@@ -85,11 +85,26 @@
 }
 .workspace-canvas{padding:8px 28px 68px!important}
 
-/* Keep page titles and lifecycle controls in the first viewport. */
+/* Keep page titles and lifecycle controls in the first viewport. Explicit
+   visibility also protects the page header from older compatibility layers. */
 .page-header{
+  display:flex!important;
+  visibility:visible!important;
+  opacity:1!important;
+  min-height:0!important;
   margin:0 0 12px!important;
   padding:3px 2px 4px!important;
   gap:16px!important;
+}
+.page-header>div{
+  min-width:0!important;
+  visibility:visible!important;
+  opacity:1!important;
+}
+.page-header h1,.page-header p{
+  display:block!important;
+  visibility:visible!important;
+  opacity:1!important;
 }
 .page-header h1{
   margin:0 0 4px!important;
@@ -98,7 +113,9 @@
 }
 .page-header p{font-size:11px!important;line-height:1.45!important}
 .dashboard-header-actions{
-  display:flex;
+  display:flex!important;
+  visibility:visible!important;
+  opacity:1!important;
   align-items:center;
   justify-content:flex-end;
   flex:0 0 auto;
@@ -125,6 +142,11 @@ html[data-theme="light"] .dashboard-header-actions .gateway-reload-button{
   border-color:rgba(70,60,93,.12)!important;
   color:#5e5869!important;
 }
+
+/* Compact dense policy/status surfaces without changing their information. */
+.policy-local-mac{gap:14px!important;margin-bottom:10px!important;padding:12px 14px!important}
+.policy-health-overview{margin-bottom:10px!important}
+.policy-health-overview>div{min-height:72px!important;padding:12px 14px!important}
 
 /* Common controls: reduce excess height and protect short Chinese labels. */
 .primary,.danger,.actions button,.page-header button,
@@ -163,11 +185,12 @@ button.primary,button.danger,.source-action-button{
   .sidebar-controls .language-selector,
   .sidebar-controls .theme-toggle,
   .sidebar-switch{min-height:42px!important}
+  .policy-local-mac{padding:14px!important}
 }
 
 @media (max-width:600px){
-  .page-header{gap:10px!important;margin-bottom:12px!important}
+  .page-header{display:grid!important;gap:10px!important;margin-bottom:12px!important}
   .page-header h1{font-size:23px!important}
-  .dashboard-header-actions{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .dashboard-header-actions{width:100%;display:grid!important;grid-template-columns:1fr 1fr;gap:8px}
   .dashboard-header-actions button{width:100%;min-width:0}
 }
