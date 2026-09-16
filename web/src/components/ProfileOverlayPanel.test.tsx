@@ -87,6 +87,7 @@ describe('ProfileOverlayPanel', () => {
     await userEvent.click(screen.getByRole('heading', { name: 'Advanced: Global Profile Overlay' }))
     expect(panel.open).toBe(true)
     expect(screen.getByText('Hosts & local resolution')).toBeTruthy()
+    expect(screen.getByLabelText('Native Mihomo Hosts (wildcards supported)')).toBeTruthy()
     await userEvent.selectOptions(screen.getByLabelText('Select a source to preview'), 'home')
     await userEvent.click(screen.getByRole('button', { name: 'View composed result' }))
     const dialog = await screen.findByRole('dialog', { name: 'Final configuration preview' })
@@ -121,7 +122,7 @@ describe('ProfileOverlayPanel', () => {
     expect(await screen.findByText(/停止态可在策略页预览或直接启动/)).toBeTruthy()
   })
 
-  it('stores Hosts file text and explicit mihomo Hosts switches in the overlay draft', async () => {
+  it('stores wildcard native Hosts separately from traditional Hosts text in the overlay draft', async () => {
     vi.mocked(api.saveProfileOverlayDocument).mockImplementation(async candidate => ({ ...overlay, document: candidate }))
     render(<ProfileOverlayPanel overlay={overlay} sources={[source]} onSaved={vi.fn()} />)
 
@@ -134,13 +135,31 @@ describe('ProfileOverlayPanel', () => {
     expect(systemHosts).toBeTruthy()
 
     await userEvent.click(systemHosts!)
-    await userEvent.type(screen.getByLabelText('Hosts 文件内容'), '0.0.0.0 ads.example.test\n192.168.2.10 nas.home')
+    await userEvent.type(screen.getByLabelText('Mihomo Hosts 配置（支持通配符）'), "'*.example.com': 192.0.2.10\n'+.example.net': target.example")
+    await userEvent.type(screen.getByLabelText('传统 Hosts 文件内容'), '0.0.0.0 ads.example.test\n192.168.2.10 nas.home')
     await userEvent.click(screen.getByRole('button', { name: '保存附加配置草稿' }))
 
     await waitFor(() => expect(api.saveProfileOverlayDocument).toHaveBeenCalled())
     const saved = vi.mocked(api.saveProfileOverlayDocument).mock.calls[0][0]
+    expect(saved.dns.merge['use-hosts']).toBe(true)
     expect(saved.dns.merge['use-system-hosts']).toBe(false)
-    expect(saved.dns.merge['hosts-file']).toBe('0.0.0.0 ads.example.test\n192.168.2.10 nas.home')
+    const persisted = String(saved.dns.merge['hosts-file'])
+    expect(persisted).toContain('0.0.0.0 ads.example.test')
+    expect(persisted).toContain('# >>> OPENSURGE NATIVE MIHOMO HOSTS >>>')
+    expect(persisted).toContain("'*.example.com': 192.0.2.10")
+    expect(persisted).toContain("'+.example.net': target.example")
+  })
+
+  it('preserves native Hosts when importing a traditional Hosts file', async () => {
+    const seededDocument = structuredClone(document)
+    seededDocument.dns.merge['hosts-file'] = "# >>> OPENSURGE NATIVE MIHOMO HOSTS >>>\n'*.keep.example': 192.0.2.30\n# <<< OPENSURGE NATIVE MIHOMO HOSTS <<<"
+    vi.mocked(api.saveProfileOverlayDocument).mockImplementation(async candidate => ({ ...overlay, document: candidate }))
+    render(<ProfileOverlayPanel overlay={{ ...overlay, document: seededDocument }} sources={[source]} onSaved={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('heading', { name: '高级：全局附加配置' }))
+    expect((screen.getByLabelText('Mihomo Hosts 配置（支持通配符）') as HTMLTextAreaElement).value).toContain('*.keep.example')
+    await userEvent.type(screen.getByLabelText('传统 Hosts 文件内容'), '0.0.0.0 new.example')
+    expect((screen.getByLabelText('Mihomo Hosts 配置（支持通配符）') as HTMLTextAreaElement).value).toContain('*.keep.example')
   })
 
   it('treats the built-in configuration as a complete base when no source exists', async () => {
