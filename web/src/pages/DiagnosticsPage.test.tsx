@@ -31,7 +31,7 @@ describe('DiagnosticsPage environment check', () => {
     expect(await screen.findByRole('button', { name: '运行检查' })).toBeTruthy()
     expect(api.doctorStatus).toHaveBeenCalledTimes(1)
     expect(api.runDoctor).not.toHaveBeenCalled()
-    expect(screen.getByText(/刷新页面不会自动触发/)).toBeTruthy()
+    expect(screen.getByText('按“运行检查”开始完整检查。')).toBeTruthy()
 
     await userEvent.click(screen.getByRole('button', { name: '运行检查' }))
     await waitFor(() => expect(api.runDoctor).toHaveBeenCalledTimes(1))
