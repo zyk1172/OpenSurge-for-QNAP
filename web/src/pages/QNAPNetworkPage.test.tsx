@@ -57,7 +57,27 @@ const overview: Overview = {
   sleep_prevention: { enabled: false, active: false },
 }
 
-let hostRouting = {
+type HostRoutingFixture = {
+  schema_version: number
+  supported: boolean
+  desired: boolean
+  enabled: boolean
+  gateway_ready: boolean
+  host_ipv4: string
+  host_interface: string
+  gateway_ipv4: string
+  fallback_gateway: string
+  dns_redirect: boolean
+  dns_mode: 'auto' | 'opensurge' | 'host'
+  protect_tailscale: boolean
+  tailscale_detected: boolean
+  tailscale_interface: string
+  tailscale_dns_protected: boolean
+  tailscale_routes_protected: boolean
+  checked_at: string
+}
+
+let hostRouting: HostRoutingFixture = {
   schema_version: 2,
   supported: true,
   desired: false,
@@ -68,7 +88,7 @@ let hostRouting = {
   gateway_ipv4: '192.168.2.241',
   fallback_gateway: '192.168.2.1',
   dns_redirect: false,
-  dns_mode: 'auto' as const,
+  dns_mode: 'auto',
   protect_tailscale: true,
   tailscale_detected: true,
   tailscale_interface: 'tailscale0',
