@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"open-mihomo-gateway/internal/config"
@@ -33,7 +34,7 @@ func prepareContainerProfileReload(configPath, storeDir string) (*containerProfi
 		return nil, err
 	}
 	if strings.TrimSpace(storeDir) == "" {
-		return nil, fmt.Errorf("container control store is not configured")
+		storeDir = filepath.Join(filepath.Dir(filepath.Dir(configPath)), "control")
 	}
 	store := NewStore(storeDir)
 	_, document, overlayRevision, err := loadPersistedProfileOverlay(store)
