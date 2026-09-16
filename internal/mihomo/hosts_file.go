@@ -10,13 +10,114 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// parseHostsFileContent parses the conventional hosts-file format:
+const (
+	profileHostsNativeBegin = "# >>> OPENSURGE NATIVE MIHOMO HOSTS >>>"
+	profileHostsNativeEnd   = "# <<< OPENSURGE NATIVE MIHOMO HOSTS <<<"
+)
+
+// SplitProfileHostsInputs separates the backwards-compatible conventional
+// hosts-file text from the optional native Mihomo hosts YAML block persisted in
+// the same overlay field. Existing overlays without the markers are returned
+// unchanged as conventional hosts-file content. Only the structural newlines
+// inserted by JoinProfileHostsInputs are removed; user-entered whitespace is
+// otherwise preserved so the focused API can round-trip editor text exactly.
+func SplitProfileHostsInputs(content string) (string, string, error) {
+	content = strings.TrimPrefix(content, "\ufeff")
+	begin := strings.Index(content, profileHostsNativeBegin)
+	end := strings.Index(content, profileHostsNativeEnd)
+	if begin < 0 && end < 0 {
+		return content, "", nil
+	}
+	if begin < 0 || end < 0 || end < begin {
+		return "", "", fmt.Errorf("native Mihomo hosts block markers are incomplete")
+	}
+	if strings.Contains(content[begin+len(profileHostsNativeBegin):], profileHostsNativeBegin) || strings.Contains(content[end+len(profileHostsNativeEnd):], profileHostsNativeEnd) {
+		return "", "", fmt.Errorf("native Mihomo hosts block may appear only once")
+	}
+
+	standardBefore := content[:begin]
+	if strings.HasSuffix(standardBefore, "\n\n") {
+		standardBefore = strings.TrimSuffix(standardBefore, "\n\n")
+	}
+	standardAfter := content[end+len(profileHostsNativeEnd):]
+
+	native := content[begin+len(profileHostsNativeBegin) : end]
+	if strings.HasPrefix(native, "\r\n") {
+		native = native[2:]
+	} else if strings.HasPrefix(native, "\n") {
+		native = native[1:]
+	}
+	if strings.HasSuffix(native, "\r\n") {
+		native = native[:len(native)-2]
+	} else if strings.HasSuffix(native, "\n") {
+		native = native[:len(native)-1]
+	}
+	return standardBefore + standardAfter, native, nil
+}
+
+// JoinProfileHostsInputs persists both editor surfaces without changing the
+// profile-overlay schema. The native block is OpenSurge-only and is consumed
+// before the final top-level Mihomo hosts mapping is rendered. The two newlines
+// before the marker and one newline around the native block are structural;
+// SplitProfileHostsInputs removes exactly those newlines and preserves all
+// whitespace entered by the user.
+func JoinProfileHostsInputs(standard, native string) string {
+	standard = strings.TrimPrefix(standard, "\ufeff")
+	native = strings.TrimPrefix(native, "\ufeff")
+	if strings.TrimSpace(native) == "" {
+		return standard
+	}
+	var out strings.Builder
+	if standard != "" {
+		out.WriteString(standard)
+		out.WriteString("\n\n")
+	}
+	out.WriteString(profileHostsNativeBegin)
+	out.WriteByte('\n')
+	out.WriteString(native)
+	out.WriteByte('\n')
+	out.WriteString(profileHostsNativeEnd)
+	return out.String()
+}
+
+// ValidateNativeProfileHostsYAML validates the native Mihomo hosts editor
+// payload. The editor accepts either the mapping body or a full `hosts:`
+// wrapper, which makes the same API convenient for both humans and agents.
+func ValidateNativeProfileHostsYAML(content string) error {
+	_, err := parseNativeProfileHostsYAML(content)
+	return err
+}
+
+// parseHostsFileContent accepts the conventional hosts-file format plus the
+// OpenSurge native Mihomo hosts block produced by JoinProfileHostsInputs.
+// Native YAML is merged after conventional entries, so an explicit native key
+// wins when both inputs define the same hostname or wildcard.
+func parseHostsFileContent(content string) (*yaml.Node, error) {
+	standard, native, err := SplitProfileHostsInputs(content)
+	if err != nil {
+		return nil, err
+	}
+	root, err := parseTraditionalHostsFileContent(standard)
+	if err != nil {
+		return nil, err
+	}
+	if native == "" {
+		return root, nil
+	}
+	nativeHosts, err := parseNativeProfileHostsYAML(native)
+	if err != nil {
+		return nil, fmt.Errorf("native Mihomo hosts YAML: %w", err)
+	}
+	return mergeProfileHosts(root, nativeHosts), nil
+}
+
+// parseTraditionalHostsFileContent parses the conventional hosts-file format:
 //
 //   IP hostname [alias ...] # optional comment
 //
 // Blank lines and comments are ignored. Repeated hostnames with different IPs
 // are emitted as a mihomo hosts array; exact duplicate mappings are collapsed.
-func parseHostsFileContent(content string) (*yaml.Node, error) {
+func parseTraditionalHostsFileContent(content string) (*yaml.Node, error) {
 	content = strings.TrimPrefix(content, "\ufeff")
 	entries := map[string][]string{}
 	seen := map[string]map[string]bool{}
@@ -76,6 +177,57 @@ func parseHostsFileContent(content string) (*yaml.Node, error) {
 			values = append(values, quotedStringNode(ip))
 		}
 		root.Content = append(root.Content, sequenceNode(values...))
+	}
+	return root, nil
+}
+
+func parseNativeProfileHostsYAML(content string) (*yaml.Node, error) {
+	content = strings.TrimSpace(strings.TrimPrefix(content, "\ufeff"))
+	if content == "" {
+		return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}, nil
+	}
+	root, err := decodeSingleYAMLMapping([]byte(content))
+	if err != nil {
+		return nil, err
+	}
+	// Accept a pasted full Mihomo snippet as well as the mapping body shown by
+	// the guided editor.
+	if len(root.Content) == 2 && isStringScalar(root.Content[0]) && root.Content[0].Value == "hosts" {
+		root = resolveAlias(root.Content[1])
+		if root == nil || root.Kind != yaml.MappingNode {
+			return nil, fmt.Errorf("hosts must be a mapping")
+		}
+	}
+	if err := validateNodeAliases(root); err != nil {
+		return nil, fmt.Errorf("hosts: %w", err)
+	}
+	for index := 0; index < len(root.Content); index += 2 {
+		key := resolveAlias(root.Content[index])
+		value := resolveAlias(root.Content[index+1])
+		if key == nil || !isStringScalar(key) || strings.TrimSpace(key.Value) == "" {
+			return nil, fmt.Errorf("hosts keys must be non-empty domain strings")
+		}
+		if value == nil {
+			return nil, fmt.Errorf("hosts entry %q has an empty value", key.Value)
+		}
+		switch value.Kind {
+		case yaml.ScalarNode:
+			if !isStringScalar(value) || strings.TrimSpace(value.Value) == "" {
+				return nil, fmt.Errorf("hosts entry %q must be a string or string array", key.Value)
+			}
+		case yaml.SequenceNode:
+			if len(value.Content) == 0 {
+				return nil, fmt.Errorf("hosts entry %q array must not be empty", key.Value)
+			}
+			for _, item := range value.Content {
+				item = resolveAlias(item)
+				if item == nil || !isStringScalar(item) || strings.TrimSpace(item.Value) == "" {
+					return nil, fmt.Errorf("hosts entry %q array must contain only non-empty strings", key.Value)
+				}
+			}
+		default:
+			return nil, fmt.Errorf("hosts entry %q must be a string or string array", key.Value)
+		}
 	}
 	return root, nil
 }

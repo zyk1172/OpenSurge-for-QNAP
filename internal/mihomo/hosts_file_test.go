@@ -32,6 +32,64 @@ func TestParseHostsFileContentRejectsInvalidLines(t *testing.T) {
 	}
 }
 
+func TestNativeHostsYAMLIsMergedAfterTraditionalHosts(t *testing.T) {
+	combined := JoinProfileHostsInputs(
+		"1.1.1.1 exact.example\n0.0.0.0 legacy.example",
+		"'*.example.com': 10.0.0.2\n'+.example.net': 10.0.0.3\nexact.example: 9.9.9.9\nredirect.example: target.example",
+	)
+	standard, native, err := SplitProfileHostsInputs(combined)
+	if err != nil {
+		t.Fatalf("SplitProfileHostsInputs() error = %v", err)
+	}
+	if !strings.Contains(standard, "legacy.example") || !strings.Contains(native, "*.example.com") {
+		t.Fatalf("split inputs lost content: standard=%q native=%q", standard, native)
+	}
+
+	hosts, err := parseHostsFileContent(combined)
+	if err != nil {
+		t.Fatalf("parseHostsFileContent() error = %v", err)
+	}
+	rendered, err := encodeYAMLNode(hosts)
+	if err != nil {
+		t.Fatalf("encodeYAMLNode() error = %v", err)
+	}
+	for _, want := range []string{"*.example.com", "+.example.net", "10.0.0.2", "10.0.0.3", "redirect.example", "target.example", "legacy.example"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("native hosts output missing %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "1.1.1.1") || !strings.Contains(rendered, "9.9.9.9") {
+		t.Fatalf("native hosts must override the same exact key:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "OPENSURGE NATIVE") {
+		t.Fatalf("OpenSurge persistence markers leaked into Mihomo hosts:\n%s", rendered)
+	}
+}
+
+func TestNativeHostsYAMLAcceptsFullHostsWrapper(t *testing.T) {
+	if err := ValidateNativeProfileHostsYAML("hosts:\n  '*.wrapped.example': 192.0.2.10\n  multi.example: [192.0.2.11, 192.0.2.12]\n"); err != nil {
+		t.Fatalf("ValidateNativeProfileHostsYAML() error = %v", err)
+	}
+}
+
+func TestNativeHostsYAMLRejectsInvalidMapping(t *testing.T) {
+	for _, body := range []string{
+		"- not-a-mapping\n",
+		"'*.example.com': {bad: value}\n",
+		"'*.example.com': []\n",
+	} {
+		if err := ValidateNativeProfileHostsYAML(body); err == nil {
+			t.Fatalf("ValidateNativeProfileHostsYAML(%q) unexpectedly succeeded", body)
+		}
+	}
+}
+
+func TestSplitProfileHostsInputsRejectsBrokenMarkers(t *testing.T) {
+	if _, _, err := SplitProfileHostsInputs("1.1.1.1 example.test\n" + profileHostsNativeBegin + "\n'*.example': 2.2.2.2\n"); err == nil {
+		t.Fatal("expected incomplete native hosts marker error")
+	}
+}
+
 func TestProfileHostsRoundTripInjection(t *testing.T) {
 	base := []byte("proxies: []\nrules:\n  - MATCH,DIRECT\nhosts:\n  existing.example: 1.1.1.1\n")
 	hosts, err := profileHostsFromYAML(base)
