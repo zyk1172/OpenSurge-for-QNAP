@@ -203,7 +203,7 @@ export function aggregateTargets(records: TrafficRecord[]): TrafficTargetSummary
     routes: [...group.routes.keys()],
     dominant_route: [...group.routes.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? 'unknown',
     last_seen: group.lastSeen,
-  })).sort((left, right) => (right.upload + right.download) - (left.upload + left.download) || right.connections - left.connections)
+  })).sort((left, right) => Date.parse(right.last_seen) - Date.parse(left.last_seen) || (right.upload + right.download) - (left.upload + left.download) || right.connections - left.connections)
 }
 
 // Compatibility for older imports. This intentionally no longer attaches an
@@ -238,7 +238,7 @@ export function aggregateRuleHits(records: TrafficRecord[], limit = 8): TrafficR
     groups.set(key, current)
   }
   return [...groups.values()]
-    .sort((left, right) => right.connections - left.connections || (right.upload + right.download) - (left.upload + left.download))
+    .sort((left, right) => Date.parse(right.last_seen) - Date.parse(left.last_seen) || right.connections - left.connections || (right.upload + right.download) - (left.upload + left.download))
     .slice(0, limit)
 }
 
