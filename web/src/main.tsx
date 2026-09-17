@@ -10,6 +10,12 @@ import './i18n.qnap.en'
 import './i18n.qnap-host.en'
 import './i18n.layout-audit.en'
 import './i18n.ui-refresh.en'
+import './i18n.cloudflare.en'
+
+// Legacy feature/layout layers remain during migration because they still own
+// page-specific geometry. They are no longer allowed to define the shared
+// visual contract; design-system.css loads last and is the single authority
+// for typography, surfaces, controls, radius, elevation and motion.
 import './styles.css'
 import './qnap-enhancements.css'
 import './control-center-v3.css'
@@ -21,6 +27,7 @@ import './ui-control-integrity.css'
 import './ui-layout-system.css'
 import './moviepilot-ui-v5.css'
 import './moviepilot-ui-v5-fixes.css'
+import './design-system.css'
 
 const productTarget = (import.meta.env.VITE_OPENSURGE_TARGET ?? 'mac').trim().toLowerCase()
 document.documentElement.dataset.productTarget = productTarget
