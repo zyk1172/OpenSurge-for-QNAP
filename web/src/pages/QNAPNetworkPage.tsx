@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, request, waitForOperation } from '../api'
-import { SectionTitle } from '../components/Common'
+import { PageHeader, SectionTitle } from '../components/Common'
 import type { OperationNotification } from '../components/OperationNotifications'
 import type { ControlConfig, NetworkDefaults, Overview } from '../types'
 import { t } from '../i18n'
@@ -31,12 +31,10 @@ type QNAPHostRoutingStatus = {
 export function QNAPNetworkPage({
   overview,
   onChanged,
-  onNavigate,
   onNotify,
 }: {
   overview: Overview | null
   onChanged: () => void | Promise<void>
-  onNavigate: () => void
   onNotify: (notification: OperationNotification) => void
 }) {
   const [draft, setDraft] = useState<ControlConfig | null>(null)
@@ -188,7 +186,20 @@ export function QNAPNetworkPage({
     : draft ? `${draft.gateway.lan_ip}/${draft.gateway.lan_prefix_len}` : '—'
   const router = actual?.snapshot.router || t('Docker/QNET 配置')
 
+  const takeoverLabel = hostRouting?.enabled
+    ? t('NAS 主机接管已启用')
+    : hostRouting?.desired
+      ? t('NAS 主机接管等待网关就绪')
+      : t('NAS 主机接管未启用')
+  const takeoverDetail = hostRouting?.enabled
+    ? t('NAS 公网 IPv4 经 OpenSurge；局域网、Docker 与 QTS 主路由保持不变。')
+    : hostRouting?.desired
+      ? t('网关就绪后自动恢复接管。')
+      : t('QTS 原有路由保持不变。')
+
   return <>
+    <PageHeader eyebrow="QNAP NETWORK" title={t('网络设置')} description={t('查看容器网络，并管理 NAS 主机 IPv4 接管与网关运行参数。')} />
+
     {interrupted && <div className="notice warn" role="status"><strong>{t('网关状态待恢复')}</strong><p>{t('请在“总览”执行安全清理。')}</p></div>}
     {error && <div className="notice warn" role="alert"><strong>{t('操作未完成')}</strong><p>{error}</p></div>}
     {message && <div className="ok-notice" role="status"><strong>{t('操作完成')}</strong><p>{message}</p></div>}
@@ -239,23 +250,14 @@ export function QNAPNetworkPage({
           </article>
         </div>
 
-        <div className={hostRouting.tailscale_detected ? 'ok-notice' : 'notice'}>
-          <strong>{t(hostRouting.tailscale_detected ? '检测到 NAS 本机 Tailscale' : '未检测到 NAS 本机 Tailscale')}</strong>
-          {hostRouting.tailscale_detected ? <div className="inventory">
-            <span><strong>{t('宿主接口')}</strong><br />{hostRouting.tailscale_interface || 'tailscale0'}</span>
-            <span><strong>MagicDNS</strong><br />{hostRouting.tailscale_dns_protected ? t('已保留给 Tailscale') : t('需要检查')}</span>
-            <span><strong>{t('Tailnet 路由')}</strong><br />{hostRouting.tailscale_routes_protected ? t('已保留给 Tailscale') : t('需要检查')}</span>
-          </div> : <p>{t('共存保护会保留，Tailscale 启动后自动生效。')}</p>}
-        </div>
-
-        <div className={hostRouting.enabled ? 'ok-notice' : hostRouting.desired ? 'notice warn' : 'notice'}>
-          <strong>{t(hostRouting.enabled ? 'NAS 主机接管已启用' : hostRouting.desired ? 'NAS 主机接管等待网关就绪' : 'NAS 主机接管未启用')}</strong>
-          <p>{t(hostRouting.enabled
-            ? 'NAS 公网 IPv4 经 OpenSurge；局域网、Docker 与 QTS 主路由保持不变。'
-            : hostRouting.desired
-              ? '网关就绪后自动恢复接管。'
-              : '未启用；QTS 原有路由保持不变。')}</p>
-          {hostRouting.error && <p className="muted">{hostRouting.error}</p>}
+        <div className="qnap-host-status-panel" aria-label={t('NAS 主机接管与 Tailscale 状态')}>
+          <div className="qnap-host-status-main">
+            <span className={`mp-status-light ${hostRouting.enabled ? 'ok' : hostRouting.desired ? 'warn' : ''}`} aria-hidden="true" />
+            <span><strong>{takeoverLabel}</strong><small>{takeoverDetail}</small>{hostRouting.error && <small>{hostRouting.error}</small>}</span>
+          </div>
+          <div><small>{t('Tailscale')}</small><strong>{t(hostRouting.tailscale_detected ? '已检测' : '未检测')}</strong><small>{hostRouting.tailscale_interface || t('共存保护待命')}</small></div>
+          <div><small>MagicDNS</small><strong>{t(hostRouting.tailscale_detected ? hostRouting.tailscale_dns_protected ? '已保护' : '需要检查' : '等待 Tailscale')}</strong><small>{t('保持宿主 VPN 优先级')}</small></div>
+          <div><small>{t('Tailnet 路由')}</small><strong>{t(hostRouting.tailscale_detected ? hostRouting.tailscale_routes_protected ? '已保护' : '需要检查' : '等待 Tailscale')}</strong><small>{t('避免被公网接管覆盖')}</small></div>
         </div>
 
         <div className="source-actions">
@@ -263,7 +265,6 @@ export function QNAPNetworkPage({
           <button type="button" className={hostRouting.desired ? 'danger' : 'primary'} disabled={hostRoutingBusy || (!hostRouting.desired && (!hostRouting.supported || !running || !hostRouting.gateway_ready))} onClick={() => void toggleHostRouting()}>{t(hostRoutingBusy ? '正在切换…' : hostRouting.desired ? '停止 NAS 接管' : '让 NAS 使用 OpenSurge')}</button>
           <button type="button" disabled={hostRoutingBusy} onClick={() => void load()}>{t('刷新状态')}</button>
         </div>
-        <p className="muted compact-note">{t('仅接管 NAS 宿主机 IPv4；不管理 IPv6。')}</p>
       </> : <div className="empty">{t('正在读取 NAS 主机路由能力…')}</div>}
     </section>
 
@@ -276,25 +277,12 @@ export function QNAPNetworkPage({
         </article>
         <article className="source-import-card">
           <label className="sidebar-switch"><input type="checkbox" checked={draft.mihomo.store_fake_ip} onChange={event => patch({ mihomo: { ...draft.mihomo, store_fake_ip: event.target.checked } })} /><span><strong>Store fake-ip</strong><small>{t('持久化 fake-ip 映射')}</small></span></label>
+        </article>
+        <article className="source-import-card">
           <label className="sidebar-switch"><input type="checkbox" checked={draft.transparent.strict_route} onChange={event => patch({ transparent: { ...draft.transparent, strict_route: event.target.checked } })} /><span><strong>TUN strict-route</strong><small>{t('启用 Mihomo TUN strict-route')}</small></span></label>
         </article>
       </div>
-      <div className="notice warn"><strong>{t('IPv6 未接管')}</strong><p>{t('QNAP 数据面仅使用 IPv4；IPv6 继续由现有网络管理。')}</p></div>
       <div className="source-actions"><button type="button" onClick={() => void load()} disabled={saving}>{t('重新读取')}</button><button className="primary" type="button" onClick={() => void saveRuntime()} disabled={saving}>{saving ? t('正在保存…') : t(running ? '保存并重启网关' : '保存运行参数')}</button></div>
     </section>}
-
-    <section className="section qnap-advanced-section">
-      <SectionTitle title="高级代理配置" subtitle="Mihomo 高级项在“代理与规则源”中管理" />
-      <div className="notice">
-        <strong>{t('使用 Profile Overlay')}</strong>
-        <p>{t('规则、Provider、策略组和 DNS 高级项可在“代理与规则源”中编辑并预览。')}</p>
-      </div>
-      <div className="source-actions"><button className="primary" type="button" onClick={onNavigate}>{t('打开代理与规则源')}</button></div>
-    </section>
-
-    <section className="section qnap-deployment-section">
-      <SectionTitle title="部署网络修改" subtitle="需要重建容器" />
-      <p className="muted">{t('QNET 父接口、IPv4、CIDR 或主路由需在 Compose 中修改；复用 /data 即可保留配置。')}</p>
-    </section>
   </>
 }
