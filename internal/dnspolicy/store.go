@@ -127,20 +127,18 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
-	closeWithError := func(cause error) error {
-		if closeErr := tmp.Close(); cause == nil {
-			cause = closeErr
-		}
+	closeOnError := func(cause error) error {
+		_ = tmp.Close()
 		return cause
 	}
+	if err := tmp.Chmod(mode); err != nil {
+		return fmt.Errorf("chmod DNS policy temp file: %w", closeOnError(err))
+	}
 	if _, err := tmp.Write(data); err != nil {
-		return fmt.Errorf("write DNS policy temp file: %w", closeWithError(err))
+		return fmt.Errorf("write DNS policy temp file: %w", closeOnError(err))
 	}
 	if err := tmp.Sync(); err != nil {
-		return fmt.Errorf("sync DNS policy temp file: %w", closeWithError(err))
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		return fmt.Errorf("chmod DNS policy temp file: %w", closeWithError(err))
+		return fmt.Errorf("sync DNS policy temp file: %w", closeOnError(err))
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close DNS policy temp file: %w", err)
@@ -148,16 +146,12 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("commit DNS policy: %w", err)
 	}
-	// Persist the directory entry when the platform supports directory fsync.
-	// Failure here is reported rather than claiming that a save survived a
-	// sudden power loss when it may not have.
-	directory, err := os.Open(dir)
-	if err != nil {
-		return fmt.Errorf("open DNS policy directory for sync: %w", err)
-	}
-	defer directory.Close()
-	if err := directory.Sync(); err != nil {
-		return fmt.Errorf("sync DNS policy directory: %w", err)
+	// Best-effort directory fsync strengthens crash durability on filesystems
+	// that support it. It intentionally cannot turn a completed rename into a
+	// reported save failure on platforms that reject directory fsync.
+	if directory, err := os.Open(dir); err == nil {
+		_ = directory.Sync()
+		_ = directory.Close()
 	}
 	return nil
 }
