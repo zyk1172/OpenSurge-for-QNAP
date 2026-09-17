@@ -137,7 +137,9 @@ func newControl(configPath, storeDir, controlAddr string) (*controlapi.Server, *
 	}
 	hostManager := qnaphost.New(configPath, storeDir)
 	runner := controlapi.ContainerRunner{StoreDir: storeDir}
-	static := controlapi.WrapCloudflareOptimizer(hostManager.Handler(controlToken, webui.Handler()), configPath, storeDir, runner)
+	static := hostManager.Handler(controlToken, webui.Handler())
+	static = controlapi.WrapCloudflareOptimizer(static, configPath, storeDir, runner)
+	static = controlapi.WrapQNAPSourceDelete(static, configPath, storeDir, controlToken)
 	control, err := controlapi.New(controlapi.Options{
 		ConfigPath:        configPath,
 		Addr:              controlAddr,
