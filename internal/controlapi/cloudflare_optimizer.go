@@ -91,6 +91,22 @@ func (a *cloudflareOptimizerAPI) handlePut(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	state, _ := a.loadState()
+	if !hasEnabledOptimizerTargets(cfg.Targets) && len(state.Results) > 0 {
+		previous := append([]cloudflareopt.TargetResult(nil), state.Results...)
+		state.Results = []cloudflareopt.TargetResult{}
+		if err := a.saveState(state); err != nil {
+			writeError(w, http.StatusInternalServerError, "cloudflare_optimizer_save_failed", err.Error())
+			return
+		}
+		if gatewayCfg, err := config.Load(a.configPath); err == nil {
+			if err := a.applyResults(r.Context(), gatewayCfg); err != nil {
+				state.Results = previous
+				_ = a.saveState(state)
+				writeError(w, http.StatusUnprocessableEntity, "cloudflare_optimizer_apply_failed", err.Error())
+				return
+			}
+		}
+	}
 	a.populateNextRun(&state, cfg)
 	_ = a.saveState(state)
 	writeJSON(w, http.StatusOK, cloudflareopt.Response{Config: cfg, State: state})
@@ -116,12 +132,16 @@ func (a *cloudflareOptimizerAPI) runScan(ctx context.Context) (cloudflareopt.Res
 	if err := cloudflareopt.Validate(cfg); err != nil {
 		return cloudflareopt.Response{}, err
 	}
+	if !hasEnabledOptimizerTargets(cfg.Targets) {
+		return cloudflareopt.Response{}, fmt.Errorf("no enabled Cloudflare optimizer targets")
+	}
 
 	gatewayCfg, err := config.Load(a.configPath)
 	if err != nil {
 		return cloudflareopt.Response{}, err
 	}
 	state, _ := a.loadState()
+	previousResults := append([]cloudflareopt.TargetResult(nil), state.Results...)
 	now := time.Now().UTC()
 	state.SchemaVersion = cloudflareopt.SchemaVersion
 	state.Running = true
@@ -154,10 +174,22 @@ func (a *cloudflareOptimizerAPI) runScan(ctx context.Context) (cloudflareopt.Res
 		return cloudflareopt.Response{}, err
 	}
 
-	changed := !sameOptimizerResults(state.Results, output.Results)
+	changed := !sameOptimizerResults(previousResults, output.Results)
 	state.Results = output.Results
 	if changed {
-		if err := a.applyResults(ctx, gatewayCfg, output.Results); err != nil {
+		// Runtime reconciliation reads the persisted state, so publish the new
+		// result atomically before invoking the transactional gateway reload.
+		if err := a.saveState(state); err != nil {
+			finish(err)
+			return cloudflareopt.Response{}, err
+		}
+		if err := a.applyResults(ctx, gatewayCfg); err != nil {
+			state.Results = previousResults
+			_ = a.saveState(state)
+			// Best-effort restore if the failed lifecycle got far enough to observe
+			// the provisional result. The lifecycle itself already rolls its config
+			// transaction back; this second pass restores the optimizer input.
+			_ = a.applyResults(context.Background(), gatewayCfg)
 			finish(err)
 			return cloudflareopt.Response{}, err
 		}
@@ -166,10 +198,7 @@ func (a *cloudflareOptimizerAPI) runScan(ctx context.Context) (cloudflareopt.Res
 	return cloudflareopt.Response{Config: cfg, State: state}, nil
 }
 
-func (a *cloudflareOptimizerAPI) applyResults(ctx context.Context, cfg config.Config, results []cloudflareopt.TargetResult) error {
-	if len(results) == 0 {
-		return nil
-	}
+func (a *cloudflareOptimizerAPI) applyResults(ctx context.Context, cfg config.Config) error {
 	if state, exists := currentBootRuntimeState(cfg); exists && state.ProfileDigest != "" {
 		if err := a.runner.Run(ctx, "reload", a.configPath); err != nil {
 			return fmt.Errorf("apply optimizer results: %w", err)
@@ -186,7 +215,7 @@ func (a *cloudflareOptimizerAPI) schedulerLoop() {
 	defer ticker.Stop()
 	for now := range ticker.C {
 		cfg, err := a.loadConfig()
-		if err != nil || !cfg.Enabled {
+		if err != nil || !cfg.Enabled || !hasEnabledOptimizerTargets(cfg.Targets) {
 			continue
 		}
 		state, err := a.loadState()
@@ -204,7 +233,7 @@ func (a *cloudflareOptimizerAPI) schedulerLoop() {
 }
 
 func (a *cloudflareOptimizerAPI) populateNextRun(state *cloudflareopt.State, cfg cloudflareopt.Config) {
-	if !cfg.Enabled {
+	if !cfg.Enabled || !hasEnabledOptimizerTargets(cfg.Targets) {
 		state.NextRunAt = nil
 		return
 	}
@@ -282,6 +311,15 @@ func LoadCloudflareOptimizerResults(storeDir string) ([]cloudflareopt.TargetResu
 		return nil, err
 	}
 	return append([]cloudflareopt.TargetResult(nil), state.Results...), nil
+}
+
+func hasEnabledOptimizerTargets(targets []cloudflareopt.Target) bool {
+	for _, target := range targets {
+		if target.Enabled {
+			return true
+		}
+	}
+	return false
 }
 
 func sameOptimizerResults(left, right []cloudflareopt.TargetResult) bool {
