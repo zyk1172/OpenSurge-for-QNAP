@@ -14,8 +14,8 @@ import './i18n.cloudflare.en'
 
 // Legacy feature/layout layers remain during migration because they still own
 // page-specific geometry. They are no longer allowed to define the shared
-// visual contract; design-system.css loads last and is the single authority
-// for typography, surfaces, controls, radius, elevation and motion.
+// visual contract. The bridge maps their high-specificity exceptions back to
+// shared tokens, then design-system.css loads last as the visual authority.
 import './styles.css'
 import './qnap-enhancements.css'
 import './control-center-v3.css'
@@ -27,6 +27,7 @@ import './ui-control-integrity.css'
 import './ui-layout-system.css'
 import './moviepilot-ui-v5.css'
 import './moviepilot-ui-v5-fixes.css'
+import './legacy-design-bridge.css'
 import './design-system.css'
 
 const productTarget = (import.meta.env.VITE_OPENSURGE_TARGET ?? 'mac').trim().toLowerCase()
