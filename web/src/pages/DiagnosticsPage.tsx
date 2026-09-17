@@ -63,6 +63,9 @@ export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
   const running = doctorStatus?.state === 'running'
   const checks = doctorStatus?.checks ?? []
   const orderedChecks = useMemo(() => [...checks].sort((left, right) => Number(left.ok) - Number(right.ok)), [checks])
+  const recentOperations = useMemo(() => [...(details?.operations ?? [])]
+    .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at))
+    .slice(0, 5), [details?.operations])
   const failedChecks = checks.filter(check => !check.ok).length
   const connections = details?.connections.connections ?? []
   const providers = overview?.providers.proxy_providers ?? []
@@ -122,7 +125,7 @@ export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
 
     <section className="section">
       <SectionTitle title={t('操作与恢复')} subtitle={t('恢复状态：{{state}}', { state: statusLabel(recoveryState) })} />
-      {details?.operations.length ? details.operations.map(operation => <div className="row" key={operation.id}><StatusDot status={operation.state === 'failed' ? 'degraded' : operation.state === 'succeeded' ? 'running' : 'stopped'} /><div className="grow"><strong>{operationKindLabel(operation.kind)} · {statusLabel(operation.state)}</strong><small>{operation.id} · {operation.updated_at}{operation.error ? ` · ${operation.error}` : ''}</small></div></div>) : <div className="empty">{t('暂无生命周期操作记录')}</div>}
+      {recentOperations.length ? recentOperations.map(operation => <div className="row" key={operation.id}><StatusDot status={operation.state === 'failed' ? 'degraded' : operation.state === 'succeeded' ? 'running' : 'stopped'} /><div className="grow"><strong>{operationKindLabel(operation.kind)} · {statusLabel(operation.state)}</strong><small>{operation.id} · {operation.updated_at}{operation.error ? ` · ${operation.error}` : ''}</small></div></div>) : <div className="empty">{t('暂无生命周期操作记录')}</div>}
     </section>
   </>
 }
