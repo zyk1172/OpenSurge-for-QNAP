@@ -102,12 +102,24 @@ func TestValidateRejectsDuplicateResolver(t *testing.T) {
 	}
 }
 
-func TestValidateDirectFollowRequiresDirectResolver(t *testing.T) {
+func TestValidateDirectFollowRequiresDirectResolverInManagedMode(t *testing.T) {
 	document := DefaultDocument()
+	document.Mode = ModeManaged
+	document.Managed.Nameservers = []string{"1.1.1.1"}
 	document.Managed.DirectNameserverFollowPolicy = true
 	_, err := Normalize(document)
 	if err == nil || !strings.Contains(err.Error(), "direct_nameserver_follow_policy") {
 		t.Fatalf("error = %v, want direct resolver dependency", err)
+	}
+}
+
+func TestInactiveManagedDraftAllowsUnresolvedRuntimeDependencies(t *testing.T) {
+	document := DefaultDocument()
+	document.Managed.DirectNameserverFollowPolicy = true
+	document.Managed.RespectRules = true
+	document.Managed.FallbackLazyQuery = true
+	if _, err := Normalize(document); err != nil {
+		t.Fatalf("inactive managed draft should allow runtime dependencies to remain incomplete: %v", err)
 	}
 }
 
