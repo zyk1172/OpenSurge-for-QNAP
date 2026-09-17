@@ -46,19 +46,19 @@ type Document struct {
 }
 
 type ManagedPolicy struct {
-	DefaultNameservers          []string               `json:"default_nameservers"`
-	Nameservers                 []string               `json:"nameservers"`
-	DirectNameservers           []string               `json:"direct_nameservers"`
-	DirectNameserverFollowPolicy bool                  `json:"direct_nameserver_follow_policy"`
-	ProxyServerNameservers      []string               `json:"proxy_server_nameservers"`
-	Fallback                    []string               `json:"fallback"`
-	NameserverPolicy            []NameserverPolicyRule `json:"nameserver_policy"`
-	FallbackFilter              FallbackFilter         `json:"fallback_filter"`
-	FakeIPFilter                []string               `json:"fake_ip_filter"`
-	FakeIPFilterMode            FakeIPFilterMode       `json:"fake_ip_filter_mode"`
-	RespectRules                bool                   `json:"respect_rules"`
-	CacheAlgorithm              CacheAlgorithm         `json:"cache_algorithm"`
-	PreferH3                    bool                   `json:"prefer_h3"`
+	DefaultNameservers           []string               `json:"default_nameservers"`
+	Nameservers                  []string               `json:"nameservers"`
+	DirectNameservers            []string               `json:"direct_nameservers"`
+	DirectNameserverFollowPolicy bool                   `json:"direct_nameserver_follow_policy"`
+	ProxyServerNameservers       []string               `json:"proxy_server_nameservers"`
+	Fallback                     []string               `json:"fallback"`
+	NameserverPolicy             []NameserverPolicyRule `json:"nameserver_policy"`
+	FallbackFilter               FallbackFilter         `json:"fallback_filter"`
+	FakeIPFilter                 []string               `json:"fake_ip_filter"`
+	FakeIPFilterMode             FakeIPFilterMode       `json:"fake_ip_filter_mode"`
+	RespectRules                 bool                   `json:"respect_rules"`
+	CacheAlgorithm               CacheAlgorithm         `json:"cache_algorithm"`
+	PreferH3                     bool                   `json:"prefer_h3"`
 }
 
 type NameserverPolicyRule struct {
