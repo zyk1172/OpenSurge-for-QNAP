@@ -36,6 +36,7 @@ export function QNAPNetworkPage({
   overview: Overview | null
   onChanged: () => void | Promise<void>
   onNotify: (notification: OperationNotification) => void
+  onNavigate?: () => void
 }) {
   const [draft, setDraft] = useState<ControlConfig | null>(null)
   const [actual, setActual] = useState<NetworkDefaults | null>(null)
