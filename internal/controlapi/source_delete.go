@@ -5,7 +5,42 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+const qnapSourceDeletePrefix = "/api/v1/qnap/sources/"
+
+// WrapQNAPSourceDelete exposes source deletion only on the QNAP container
+// surface. The LAN-facing Web gateway replaces the administrator session with
+// the internal bearer token before forwarding, and direct loopback callers must
+// present the same token. Keeping this wrapper QNAP-specific avoids widening the
+// desktop Control API while still making deletion a real persisted operation.
+func WrapQNAPSourceDelete(next http.Handler, configPath, storeDir, token string) http.Handler {
+	store := NewStore(storeDir)
+	deleteAPI := &Server{
+		configPath:  configPath,
+		store:       store,
+		credentials: NewFileCredentialStore(storeDir),
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || !strings.HasPrefix(r.URL.Path, qnapSourceDeletePrefix) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !secureEqual(strings.TrimSpace(bearer), strings.TrimSpace(token)) {
+			writeError(w, http.StatusUnauthorized, "authentication_required", "internal control token is required")
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, qnapSourceDeletePrefix)
+		if id == "" || strings.Contains(id, "/") {
+			writeError(w, http.StatusBadRequest, "source_invalid", "invalid source id")
+			return
+		}
+		r.SetPathValue("id", id)
+		deleteAPI.handleSourceDelete(w, r)
+	})
+}
 
 func (s *Server) handleSourceDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
