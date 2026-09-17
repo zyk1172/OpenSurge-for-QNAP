@@ -121,23 +121,22 @@ export function RemoteManagementCard() {
         <h2>{t('局域网 API 令牌')}</h2>
         <p className="muted">{t('供可信自动化客户端访问管理 API。')}</p>
       </div>
-      <span className={`status-badge ${status?.enabled ? 'ok' : ''}`}>{t(status?.enabled ? '已启用' : '未启用')}</span>
     </div>
 
     {error && <div className="notice warn" role="alert"><strong>{t('管理 API 错误')}</strong><p>{error}</p></div>}
 
-    <div className="inventory">
-      <span><strong>{t('API 地址')}</strong><br /><code>{apiBase}</code></span>
-      <span><strong>{t('能力清单')}</strong><br /><code>{capabilities}</code></span>
+    <div className="inventory remote-management-grid">
+      <span><strong>{t('API 地址')}</strong><code>{apiBase}</code></span>
       <span><strong>{t('令牌')}</strong><br />{status?.enabled ? <code>{status.token_prefix}…</code> : t('未创建')}</span>
+      <span><strong>{t('能力清单')}</strong><code>{capabilities}</code></span>
       <span><strong>{t('创建时间')}</strong><br />{status?.created_at ? new Date(status.created_at).toLocaleString() : '—'}</span>
     </div>
 
-    <div className="source-actions">
-      <button type="button" onClick={() => void copy('api', apiBase)}>{copied === 'api' ? t('已复制') : t('复制 API 地址')}</button>
+    <div className="source-actions remote-management-actions">
+      <button className="remote-management-status-action" type="button" onClick={() => void copy('api', apiBase)}><span className={`mp-status-light ${status?.enabled ? 'ok' : ''}`} aria-hidden="true" />{copied === 'api' ? t('已复制') : t('复制 API 地址')}</button>
       <button type="button" onClick={() => void copy('agent', connectionBlock)}>{copied === 'agent' ? t('已复制') : t('复制 AI 配置')}</button>
       <button className="primary" type="button" disabled={busy} onClick={() => void rotate()}>{busy ? t('处理中…') : status?.enabled ? t('轮换令牌') : t('创建令牌')}</button>
-      {status?.enabled && <button className="danger" type="button" disabled={busy} onClick={() => void revoke()}>{t('撤销令牌')}</button>}
+      <button className="danger" type="button" disabled={busy || !status?.enabled} onClick={() => void revoke()}>{t('撤销令牌')}</button>
     </div>
 
     {issuedToken && <div className="notice warn" role="status">

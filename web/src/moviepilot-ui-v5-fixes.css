@@ -1,0 +1,152 @@
+/* Final corrective layer for the v5 design system. */
+
+/* v5 sidebar compaction is QNAP-only; preserve the desktop controls. */
+html:not([data-product-target="qnap"]) .sidebar-controls{
+  display:grid!important;
+}
+html:not([data-product-target="qnap"]) .sidebar-status{
+  display:flex!important;
+}
+
+/* Hosts import belongs to the same final helper row as the syntax note. */
+.profile-overlay-panel .overlay-share-form:has(input[type="file"])>div:last-child{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:var(--mp-gap)!important;
+  flex-wrap:wrap!important;
+  padding-top:2px!important;
+}
+.profile-overlay-panel .overlay-share-form:has(input[type="file"])>div:last-child>small{
+  flex:1 1 440px!important;
+  margin:0!important;
+}
+.profile-overlay-panel .overlay-share-form:has(input[type="file"])>div:last-child>label{
+  flex:0 1 320px!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:flex-end!important;
+  gap:10px!important;
+  margin:0!important;
+  min-height:var(--mp-control-h)!important;
+}
+.profile-overlay-panel .overlay-share-form:has(input[type="file"])>div:last-child>label>span{
+  white-space:nowrap!important;
+  margin:0!important;
+}
+.profile-overlay-panel .overlay-share-form:has(input[type="file"])>div:last-child input[type="file"]{
+  min-height:var(--mp-control-h)!important;
+  max-width:210px!important;
+}
+
+/* Manual proxy editor uses the same label/control baseline for every field. */
+.profile-overlay-panel .overlay-resource-form.proxy{
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+}
+.profile-overlay-panel .overlay-resource-form.proxy>label{
+  min-height:66px!important;
+  display:grid!important;
+  grid-template-rows:18px var(--mp-control-h)!important;
+  gap:6px!important;
+  align-items:end!important;
+}
+.profile-overlay-panel .overlay-resource-form.proxy>label>select,
+.profile-overlay-panel .overlay-resource-form.proxy>label>input{
+  height:var(--mp-control-h)!important;
+  min-height:var(--mp-control-h)!important;
+  line-height:var(--mp-control-h)!important;
+  margin:0!important;
+}
+.profile-overlay-panel .overlay-resource-form.proxy>button{
+  height:var(--mp-control-h)!important;
+  align-self:end!important;
+}
+
+/* Remove legacy colored rails and saturated nested panes. */
+.profile-overlay-panel,
+.profile-overlay-panel .overlay-editor-section,
+.profile-overlay-panel .overlay-expert,
+.profile-overlay-panel .overlay-expert-body,
+.profile-overlay-panel .overlay-preview-row,
+.profile-overlay-panel .overlay-share-form,
+.profile-overlay-panel .overlay-manual-proxy{
+  border-left-color:var(--mp-border)!important;
+  border-right-color:var(--mp-border)!important;
+  background-color:var(--mp-surface-soft)!important;
+  background-image:none!important;
+}
+.profile-overlay-panel::before,
+.profile-overlay-panel::after,
+.profile-overlay-panel .overlay-editor-section::before,
+.profile-overlay-panel .overlay-editor-section::after{
+  display:none!important;
+}
+
+/* Final preview selectors follow the global 40px control standard. */
+.profile-overlay-panel .overlay-preview-row select,
+.profile-overlay-panel .overlay-preview-row button{
+  height:var(--mp-control-h)!important;
+  min-height:var(--mp-control-h)!important;
+}
+
+/* All viewport-bound dialogs scroll internally instead of stretching the page. */
+dialog.profile-overlay-preview-dialog>header,
+dialog.profile-overlay-preview-dialog>nav,
+dialog.profile-overlay-preview-dialog>footer,
+dialog.reload-dialog>h2,
+dialog.reload-dialog>p,
+dialog.reload-dialog>.dialog-actions{
+  flex:0 0 auto!important;
+}
+dialog.profile-overlay-preview-dialog>pre,
+dialog.profile-overlay-preview-dialog>.overlay-preview-changes{
+  overflow:auto!important;
+  overscroll-behavior:contain!important;
+}
+dialog.reload-dialog{
+  overflow:auto!important;
+  overscroll-behavior:contain!important;
+}
+
+/* Warning is a first-class notification tone rather than being mislabeled as
+ * success/error. It uses the same restrained surface language as the v5 cards. */
+.operation-notification.warning{
+  border-color:color-mix(in srgb,var(--mp-warning) 42%,var(--mp-border))!important;
+  background:color-mix(in srgb,var(--mp-surface-strong) 90%,var(--mp-warning) 10%)!important;
+}
+.operation-notification.warning .operation-notification-icon{
+  background:color-mix(in srgb,var(--mp-warning) 22%,transparent)!important;
+  color:var(--mp-warning)!important;
+}
+.operation-notification.warning p{
+  color:color-mix(in srgb,var(--mp-text) 70%,var(--mp-warning) 30%)!important;
+}
+
+/* Monitoring text is intentionally larger than ordinary metadata. */
+.traffic-v3-target-table,
+.traffic-v3-rule-list,
+.traffic-v3-log-list,
+.traffic-v3-log-hints,
+.traffic-v3-domain-list,
+.traffic-v3-target-list{
+  font-size:13px!important;
+  line-height:1.55!important;
+}
+.traffic-v3-target-table td,
+.traffic-v3-target-table th,
+.traffic-v3-rule-list :where(span,small,strong),
+.traffic-v3-log-list :where(span,small,strong,code),
+.traffic-v3-log-hints :where(span,small,strong,code){
+  font-size:inherit!important;
+  line-height:inherit!important;
+}
+
+@media(max-width:820px){
+  .profile-overlay-panel .overlay-share-form:has(input[type="file"])>div:last-child>label{
+    flex:1 1 100%!important;
+    justify-content:flex-start!important;
+  }
+  .profile-overlay-panel .overlay-resource-form.proxy{
+    grid-template-columns:1fr!important;
+  }
+}

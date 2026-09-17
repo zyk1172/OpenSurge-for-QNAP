@@ -1,0 +1,53 @@
+import { registerEnglishMessages } from './i18n'
+
+export const uiRefreshEnglishMessages: Record<string, string> = {
+  '教程': 'Guide',
+  '集中说明 QNAP 网络边界、高级代理配置与部署网络修改。': 'Central guidance for QNAP network boundaries, advanced proxy configuration, and deployment network changes.',
+  'QNAP 网络边界': 'QNAP network boundaries',
+  '先确认哪些流量由 OpenSurge 接管': 'Understand which traffic OpenSurge takes over',
+  'IPv6 不由 NAS 主机接管': 'IPv6 is not taken over on the NAS host',
+  '当前 QNAP NAS 主机接管仅处理宿主机公网 IPv4。IPv6 继续由 QTS 与现有网络管理，不会被 OpenSurge 主机接管策略改写。': 'QNAP NAS host takeover currently handles only host public IPv4. IPv6 remains managed by QTS and the existing network and is not rewritten by OpenSurge host-takeover policy.',
+  'Tailscale 共存': 'Tailscale coexistence',
+  '启用共存保护时，Tailscale 接口、MagicDNS 与 Tailnet 路由保持更高优先级；普通公网 IPv4 仍可经过 OpenSurge。': 'With coexistence protection enabled, the Tailscale interface, MagicDNS, and Tailnet routes keep higher priority while normal public IPv4 can still use OpenSurge.',
+  '高级代理配置': 'Advanced proxy configuration',
+  '在“代理与规则源”中统一维护': 'Maintain it under Sources',
+  '规则、Provider、策略组、Hosts 与 DNS 高级项通过全局附加配置维护。它与导入来源组合后生成最终 Mihomo 配置，并在应用前执行校验。': 'Maintain rules, providers, proxy groups, Hosts, and advanced DNS settings through the global overlay. It is composed with the imported source to produce the final Mihomo configuration and is validated before apply.',
+  '配置来源与草稿': 'Configuration sources and drafts',
+  'HTTPS 订阅和本地 YAML 导入后先保存为草稿。选择应用后，OpenSurge 才会把来源与全局附加配置组合为运行配置。': 'HTTPS subscriptions and local YAML files are first saved as drafts. OpenSurge composes the source with the global overlay into the runtime configuration only when you apply it.',
+  'QNET 参数属于容器创建边界': 'QNET settings belong to the container-creation boundary',
+  '需要重建容器的项目': 'Changes that require recreating the container',
+  'QNET 父接口、OpenSurge 静态 IPv4、LAN CIDR 或上游主路由需要在 Compose / Container Station 中修改，运行中的 Web 不直接修改这些 QTS 网络参数。': 'Change the QNET parent interface, OpenSurge static IPv4, LAN CIDR, or upstream router in Compose / Container Station. The running Web UI does not directly rewrite these QTS network settings.',
+  '保留现有配置': 'Keep existing configuration',
+  '重建容器时继续挂载原来的 /data 持久化目录，即可保留 OpenSurge 配置、来源、认证与运行状态记录。': 'When recreating the container, mount the same /data directory to keep OpenSurge configuration, sources, authentication data, and runtime-state records.',
+
+  '切换为 English': 'Switch to English',
+  '切换为简体中文': 'Switch to Simplified Chinese',
+  '快捷控制': 'Quick controls',
+  '中': 'ZH',
+
+  '正在读取优选配置…': 'Loading optimization settings…',
+  '查看容器网络，并管理 NAS 主机 IPv4 接管与网关运行参数。': 'Inspect container networking and manage NAS-host IPv4 takeover and gateway runtime settings.',
+  'NAS 主机接管与 Tailscale 状态': 'NAS host takeover and Tailscale status',
+  '已检测': 'Detected',
+  '未检测': 'Not detected',
+  '共存保护待命': 'Coexistence protection ready',
+  '已保护': 'Protected',
+  '需要检查': 'Needs review',
+  '等待 Tailscale': 'Waiting for Tailscale',
+  '保持宿主 VPN 优先级': 'Preserve host VPN priority',
+  '避免被公网接管覆盖': 'Prevent public-route takeover from overriding it',
+  'QTS 原有路由保持不变。': 'Existing QTS routing remains unchanged.',
+
+  '确定删除 {{name}}？本地快照和保存的订阅凭据也会删除。': 'Delete {{name}}? Its local snapshot and saved subscription credential will also be removed.',
+  '{{name}} 已删除。': '{{name}} deleted.',
+  '来源已删除': 'Source deleted',
+  '来源记录已删除，但清理旧文件时出现提示：{{error}}': 'The source record was deleted, but cleanup reported: {{error}}',
+  '本地快照与保存的订阅凭据已一并清理。': 'The local snapshot and saved subscription credential were removed as well.',
+  '删除来源失败': 'Failed to delete source',
+  '当前运行或下次启动使用中的来源不能直接删除。': 'A source used by the current runtime or next start cannot be deleted directly.',
+  '删除配置来源': 'Delete configuration source',
+  '正在删除…': 'Deleting…',
+  '删除配置': 'Delete configuration',
+}
+
+registerEnglishMessages(uiRefreshEnglishMessages)

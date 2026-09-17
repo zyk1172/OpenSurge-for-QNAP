@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ControlConfig, NetworkDefaults, Overview } from '../types'
@@ -132,13 +132,18 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     vi.mocked(waitForOperation).mockResolvedValue({ id: 'operation', kind: 'start', state: 'succeeded' })
   })
 
-  it('focuses the page on network configuration and keeps Tailscale coexistence visible', async () => {
+  it('focuses the page on network configuration and keeps the unified Tailscale status visible', async () => {
     render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={() => {}} />)
 
-    expect(await screen.findByText('检测到 NAS 本机 Tailscale')).toBeTruthy()
-    expect(screen.getAllByText('已保留给 Tailscale')).toHaveLength(2)
+    const statusPanel = await screen.findByLabelText('NAS 主机接管与 Tailscale 状态')
+    expect(within(statusPanel).getByText('Tailscale')).toBeTruthy()
+    expect(within(statusPanel).getByText('已检测')).toBeTruthy()
+    expect(within(statusPanel).getByText('tailscale0')).toBeTruthy()
+    expect(within(statusPanel).getByText('MagicDNS')).toBeTruthy()
+    expect(within(statusPanel).getByText('Tailnet 路由')).toBeTruthy()
+    expect(within(statusPanel).getAllByText('已保护')).toHaveLength(2)
     expect(screen.queryByRole('textbox', { name: 'OpenSurge 配置文件内容' })).toBeNull()
-    expect(screen.getByText('使用 Profile Overlay')).toBeTruthy()
+    expect(screen.queryByText('使用 Profile Overlay')).toBeNull()
     expect(screen.queryByRole('heading', { name: 'QNAP 网关网络' })).toBeNull()
     expect(screen.queryByRole('button', { name: /启动网关|停止网关/ })).toBeNull()
     expect(screen.queryByText('局域网 API 令牌')).toBeNull()
@@ -161,10 +166,15 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     expect(onNotify).toHaveBeenCalledWith(expect.objectContaining({ tone: 'success', title: 'NAS 接管策略已保存' }))
   })
 
-  it('opens Profile Overlay through the proxy and rule sources page', async () => {
+  it('keeps advanced proxy and deployment shortcuts off the network page', async () => {
     const onNavigate = vi.fn()
     render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={onNavigate} onNotify={() => {}} />)
-    await userEvent.click(await screen.findByRole('button', { name: '打开代理与规则源' }))
-    expect(onNavigate).toHaveBeenCalledTimes(1)
+
+    await screen.findByRole('heading', { name: 'NAS 主机接管' })
+    expect(screen.queryByRole('button', { name: '打开代理与规则源' })).toBeNull()
+    expect(screen.queryByText('高级代理配置')).toBeNull()
+    expect(screen.queryByText('部署网络修改')).toBeNull()
+    expect(screen.queryByText('IPv6 未接管')).toBeNull()
+    expect(onNavigate).not.toHaveBeenCalled()
   })
 })

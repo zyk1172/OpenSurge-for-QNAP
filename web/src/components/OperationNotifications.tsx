@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { t } from '../i18n'
 
 export type OperationNotification = {
-  tone: 'success' | 'error'
+  tone: 'success' | 'warning' | 'error'
   title: string
   message: string
 }

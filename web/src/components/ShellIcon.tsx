@@ -1,4 +1,4 @@
-export type ShellIconName = 'dashboard' | 'network' | 'cloudflare' | 'sources' | 'devices' | 'policies' | 'management' | 'connectivity' | 'diagnostics' | 'traffic' | 'menu' | 'collapse' | 'sun' | 'moon' | 'search'
+export type ShellIconName = 'dashboard' | 'network' | 'cloudflare' | 'sources' | 'devices' | 'policies' | 'management' | 'connectivity' | 'diagnostics' | 'traffic' | 'tutorial' | 'menu' | 'collapse' | 'sun' | 'moon' | 'search'
 
 export function ShellIcon({ name }: { name: ShellIconName }) {
   const common = { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
@@ -12,6 +12,7 @@ export function ShellIcon({ name }: { name: ShellIconName }) {
   if (name === 'connectivity') return <svg {...common}><path d="M5 12a7 7 0 0 1 14 0"/><path d="M8 12a4 4 0 0 1 8 0"/><circle cx="12" cy="12" r="1.2"/><path d="M12 13.5V20"/></svg>
   if (name === 'diagnostics') return <svg {...common}><path d="M4 12h3l2-6 4 12 2-6h5"/><path d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/></svg>
   if (name === 'traffic') return <svg {...common}><path d="M5 19V9M12 19V5M19 19v-7"/><path d="m3 11 5-5 4 3 6-6 3 3"/></svg>
+  if (name === 'tutorial') return <svg {...common}><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11a3 3 0 0 1 3 3v15a3 3 0 0 0-3-3H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H14v15h3.5a2.5 2.5 0 0 1 2.5 2.5z"/></svg>
   if (name === 'menu') return <svg {...common}><path d="M4 7h16M4 12h16M4 17h16"/></svg>
   if (name === 'collapse') return <svg {...common}><path d="M15 5 8 12l7 7"/></svg>
   if (name === 'search') return <svg {...common}><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>

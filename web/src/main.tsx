@@ -9,6 +9,7 @@ import './i18n.shell.en'
 import './i18n.qnap.en'
 import './i18n.qnap-host.en'
 import './i18n.layout-audit.en'
+import './i18n.ui-refresh.en'
 import './styles.css'
 import './qnap-enhancements.css'
 import './control-center-v3.css'
@@ -18,6 +19,8 @@ import './moviepilot-glass-v4.css'
 import './ui-density-fixes.css'
 import './ui-control-integrity.css'
 import './ui-layout-system.css'
+import './moviepilot-ui-v5.css'
+import './moviepilot-ui-v5-fixes.css'
 
 const productTarget = (import.meta.env.VITE_OPENSURGE_TARGET ?? 'mac').trim().toLowerCase()
 document.documentElement.dataset.productTarget = productTarget
