@@ -135,8 +135,12 @@ jobs:
           grep -q "api.gateway(action)" web/src/pages/DashboardPage.tsx
           ! grep -q 'QNAP 网关网络' web/src/pages/QNAPNetworkPage.tsx
           ! grep -q 'runLifecycle' web/src/pages/QNAPNetworkPage.tsx
-          grep -q '部署网络修改' web/src/pages/QNAPNetworkPage.tsx
-          grep -q 'IPv6 未接管' web/src/pages/QNAPNetworkPage.tsx
+          ! grep -q '高级代理配置' web/src/pages/QNAPNetworkPage.tsx
+          ! grep -q '部署网络修改' web/src/pages/QNAPNetworkPage.tsx
+          ! grep -q 'IPv6 未接管' web/src/pages/QNAPNetworkPage.tsx
+          grep -q '高级代理配置' web/src/pages/TutorialPage.tsx
+          grep -q '部署网络修改' web/src/pages/TutorialPage.tsx
+          grep -q 'IPv6 不由 NAS 主机接管' web/src/pages/TutorialPage.tsx
           grep -q '应用并重载网关？' web/src/pages/QNAPSourcesPage.tsx
           grep -q "'本机 Mac': 'OpenSurge 网关'" web/src/i18n.ts
           grep -q "'Mac 本机运行路径': 'OpenSurge 网关路径'" web/src/i18n.ts
