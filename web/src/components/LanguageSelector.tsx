@@ -12,6 +12,18 @@ export function LanguageSelector({ language, changing, onChange }: {
     ? t('系统语言：{{language}}', { language: languageDisplayName(resolved) })
     : languageDisplayName(resolved)
 
+  if (qnapBuild) {
+    const next: RequestedLanguage = resolved === 'zh-Hans' ? 'en' : 'zh-Hans'
+    return <button
+      type="button"
+      className="sidebar-round-control sidebar-language-button"
+      disabled={changing}
+      title={t(resolved === 'zh-Hans' ? '切换为 English' : '切换为简体中文')}
+      aria-label={t(resolved === 'zh-Hans' ? '切换为 English' : '切换为简体中文')}
+      onClick={() => onChange(next)}
+    >{resolved === 'zh-Hans' ? '中' : 'EN'}</button>
+  }
+
   return <label className={`language-selector ${changing ? 'changing' : ''}`}>
     <span className="language-selector-icon" aria-hidden="true">文</span>
     <span className="language-selector-copy">
@@ -20,7 +32,7 @@ export function LanguageSelector({ language, changing, onChange }: {
     </span>
     <span className="language-selector-chevron" aria-hidden="true">⌄</span>
     <select
-      aria-label={t(qnapBuild ? '界面语言' : '选择 OpenSurge Web GUI 和菜单栏使用的语言')}
+      aria-label={t('选择 OpenSurge Web GUI 和菜单栏使用的语言')}
       value={language}
       disabled={changing}
       onChange={event => onChange(event.target.value as RequestedLanguage)}
