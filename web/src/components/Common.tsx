@@ -11,8 +11,28 @@ export function PageHeader({ eyebrow, title, description, action }: { eyebrow: s
   return <header className="page-header"><div><small>{t(eyebrow)}</small><h1>{t(title)}</h1><p>{t(description)}</p></div>{action}</header>
 }
 
+export function Panel({ children, className = '', busy }: { children: ReactNode; className?: string; busy?: boolean }) {
+  return <section className={`ui-panel ${className}`.trim()} aria-busy={busy || undefined}>{children}</section>
+}
+
+export function SectionHeader({ title, subtitle, action, eyebrow }: { title: string; subtitle: string; action?: ReactNode; eyebrow?: string }) {
+  return <div className="ui-section-header"><div>{eyebrow && <small>{t(eyebrow)}</small>}<h2>{t(title)}</h2><p>{t(subtitle)}</p></div>{action}</div>
+}
+
 export function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) {
-  return <div className="section-title"><h2>{t(title)}</h2><p>{t(subtitle)}</p></div>
+  return <div className="section-title ui-section-header"><div><h2>{t(title)}</h2><p>{t(subtitle)}</p></div></div>
+}
+
+export function FormField({ label, hint, children, className = '' }: { label: string; hint?: string; children: ReactNode; className?: string }) {
+  return <label className={`ui-field ${className}`.trim()}><span>{t(label)}</span>{children}{hint && <small>{t(hint)}</small>}</label>
+}
+
+export function TableSurface({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div className={`ui-table-wrap ${className}`.trim()}>{children}</div>
+}
+
+export function ActionBar({ status, children, className = '' }: { status?: ReactNode; children: ReactNode; className?: string }) {
+  return <div className={`ui-action-bar ${className}`.trim()}>{status != null && <span>{status}</span>}{children}</div>
 }
 
 export function Metric({ label, value, note }: { label: string; value: ReactNode; note: string }) {
