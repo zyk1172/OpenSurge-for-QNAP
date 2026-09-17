@@ -2,6 +2,7 @@ package controlapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,7 +29,7 @@ func WrapQNAPSourceDelete(next http.Handler, configPath, storeDir, token string)
 			return
 		}
 		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !secureEqual(strings.TrimSpace(bearer), strings.TrimSpace(token)) {
+		if !sourceDeleteTokenEqual(strings.TrimSpace(bearer), strings.TrimSpace(token)) {
 			writeError(w, http.StatusUnauthorized, "authentication_required", "internal control token is required")
 			return
 		}
@@ -40,6 +41,13 @@ func WrapQNAPSourceDelete(next http.Handler, configPath, storeDir, token string)
 		r.SetPathValue("id", id)
 		deleteAPI.handleSourceDelete(w, r)
 	})
+}
+
+func sourceDeleteTokenEqual(got, want string) bool {
+	if got == "" || want == "" || len(got) != len(want) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
 func (s *Server) handleSourceDelete(w http.ResponseWriter, r *http.Request) {
