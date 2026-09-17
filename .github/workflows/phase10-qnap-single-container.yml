@@ -129,7 +129,8 @@ jobs:
       - name: Guard QNAP product surface against desktop residue
         run: |
           ! grep -Eq 'Finder|合盖|Wi-Fi DHCP|mac_static|applyStatic|restoreMacDHCP|revealSourceSnapshot|nftables 数据面' web/src/pages/QNAPNetworkPage.tsx web/src/pages/QNAPSourcesPage.tsx
-          grep -q 'qnapBuild ? releaseTag' web/src/App.tsx
+          grep -q 'sidebar-bottom-controls' web/src/App.tsx
+          grep -q 'sidebar-round-control' web/src/App.tsx
           grep -q '!qnapBuild && <ServiceState label="PF Anchor"' web/src/components/GatewayHealthCard.tsx
           grep -q 'QNAP 网关总览' web/src/pages/DashboardPage.tsx
           grep -q "api.gateway(action)" web/src/pages/DashboardPage.tsx
