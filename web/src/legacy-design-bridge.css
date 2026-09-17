@@ -1,0 +1,102 @@
+/*
+ * Migration bridge for legacy selectors with high specificity.
+ *
+ * This file MUST NOT introduce visual values of its own. It only redirects
+ * legacy feature selectors to tokens owned by design-system.css so old pages
+ * cannot keep a private radius, type size or control height while they are
+ * gradually migrated to shared React primitives.
+ */
+
+/* QNAP settings cards previously overrode the shared card contract through
+ * :has() selectors with higher specificity than the generic surface rule. */
+.workspace-canvas .section:has(.source-import-card > .sidebar-switch) .source-import-card,
+.workspace-canvas .qnap-host-policy-grid .source-import-card,
+.workspace-canvas .qnap-runtime-grid .source-import-card{
+  border-color:var(--ui-border)!important;
+  border-radius:var(--ui-radius-surface)!important;
+  background:var(--ui-surface-soft)!important;
+  box-shadow:none!important;
+}
+.workspace-canvas .section:has(.source-import-card > .sidebar-switch) .source-import-card select{
+  min-height:var(--ui-control-height)!important;
+  height:var(--ui-control-height)!important;
+  border-radius:var(--ui-radius-control)!important;
+  background:var(--ui-control-surface)!important;
+  color:var(--ui-text)!important;
+}
+.workspace-canvas .section:has(.source-import-card > .sidebar-switch) .sidebar-switch{
+  border-radius:var(--ui-radius-control)!important;
+  background:var(--ui-control-surface)!important;
+}
+.workspace-canvas .section:has(.source-import-card > .sidebar-switch) > :is(.ok-notice,.notice){
+  border-radius:var(--ui-radius-surface)!important;
+}
+
+/* Old status/action controls used several 31–36px private heights. */
+.workspace-canvas :is(.group-health-summary,.category-summary,.diagnostic-doctor-head,.probe-scope,.policy-toolbar,.segmented) button{
+  min-height:var(--ui-control-height)!important;
+  height:auto!important;
+  padding:0 12px!important;
+  border-radius:var(--ui-radius-control)!important;
+  font-size:var(--ui-font-control)!important;
+  font-weight:600!important;
+  line-height:1.2!important;
+}
+
+/* Remove the legacy micro-type scale from ordinary application chrome.
+ * Numeric hero values remain intentionally larger; only labels/help/status
+ * copy is normalized to the shared caption role. */
+.workspace-canvas :is(
+  .gateway-meta small,
+  .gateway-service-state small,
+  .live-rate-card header small,
+  .live-rate-card header em,
+  .rate-meta,
+  .trend-axis,
+  .activity-breakdown small,
+  .policy-health-overview small,
+  .policy-health-overview span,
+  .diagnostic-summary-card small,
+  .diagnostic-summary-card span,
+  .group-health-summary small,
+  .category-summary small
+){
+  font-size:var(--ui-font-caption)!important;
+  line-height:1.4!important;
+}
+
+/* Legacy feature surfaces may keep their layout, but their material contract
+ * resolves through the unified tokens. */
+.workspace-canvas :is(
+  .connectivity-overview,
+  .policy-local-mac,
+  .policy-health-overview,
+  .policy-health-group,
+  .connectivity-category,
+  .diagnostic-summary-card,
+  .gateway-card,
+  .metric,
+  .gateway-health-card,
+  .live-rate-card,
+  .activity-card,
+  .traffic-trend-card,
+  .profile-overlay-panel,
+  .qnap-network-card
+){
+  border-color:var(--ui-border)!important;
+  border-radius:var(--ui-radius-surface)!important;
+}
+
+/* Shared field geometry wins over old feature-specific 34/36px controls. */
+.workspace-canvas :is(.overlay-resource-form,.overlay-preview-row,.registration-form,.policy-search,.source-form,.qnap-runtime-grid,.qnap-host-policy-grid) :is(input:not([type="checkbox"]):not([type="radio"]),select){
+  min-height:var(--ui-control-height)!important;
+  height:var(--ui-control-height)!important;
+  border-radius:var(--ui-radius-control)!important;
+  font-size:var(--ui-font-control)!important;
+}
+
+@media(max-width:860px){
+  .workspace-canvas :is(.group-health-summary,.category-summary,.diagnostic-doctor-head,.probe-scope,.policy-toolbar,.segmented) button{
+    min-height:var(--ui-control-height)!important;
+  }
+}
