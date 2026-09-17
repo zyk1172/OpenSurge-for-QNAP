@@ -8,6 +8,7 @@ import { LanguageSelector } from './components/LanguageSelector'
 import { RecoveryBanner, StatusDot } from './components/Common'
 import { ShellIcon } from './components/ShellIcon'
 import { DashboardPage } from './pages/DashboardPage'
+import { CloudflareOptimizerPage } from './pages/CloudflareOptimizerPage'
 import { ConnectivityPage } from './pages/ConnectivityPage'
 import { DevicesPage } from './pages/DevicesPage'
 import { DiagnosticsPage } from './pages/DiagnosticsPage'
@@ -23,7 +24,7 @@ import { operationStatusUnknownMessage } from './operations'
 import type { Overview } from './types'
 import { activateLanguage, cacheRequestedLanguage, initialRequestedLanguage, isRequestedLanguage, prepareLanguage, t, type RequestedLanguage } from './i18n'
 
-type Page = 'dashboard' | 'network' | 'sources' | 'devices' | 'policies' | 'management' | 'connectivity' | 'diagnostics' | 'traffic'
+type Page = 'dashboard' | 'network' | 'cloudflare' | 'sources' | 'devices' | 'policies' | 'management' | 'connectivity' | 'diagnostics' | 'traffic'
 type Theme = 'dark' | 'light'
 type NetworkNavigationTarget = 'none' | 'control' | 'bottom'
 type NavGroup = 'control' | 'observe'
@@ -35,6 +36,7 @@ const releaseTag = import.meta.env.VITE_OPENSURGE_RELEASE_TAG
 const nav: readonly NavItem[] = [
   { id: 'dashboard', label: '总览', group: 'control' },
   { id: 'network', label: '网络设置', group: 'control' },
+  { id: 'cloudflare', label: 'Cloudflare 优选', group: 'control', qnapOnly: true },
   { id: 'sources', label: '代理与规则源', group: 'control' },
   { id: 'devices', label: '设备', group: 'control' },
   { id: 'policies', label: '策略', group: 'control' },
@@ -329,6 +331,7 @@ export function App() {
             {page === 'network' && (qnapBuild
               ? <QNAPNetworkPage overview={overview} onChanged={refresh} onNavigate={() => go('sources')} onNotify={notify} />
               : <NetworkPage overview={overview} onChanged={refresh} onNavigate={() => go('devices')} onNotify={notify} />)}
+            {page === 'cloudflare' && qnapBuild && <CloudflareOptimizerPage />}
             {page === 'sources' && (qnapBuild
               ? <QNAPSourcesPage overview={overview} onChanged={refresh} onNotify={notify} />
               : <SourcesPage overview={overview} onChanged={refresh} onNotify={notify} />)}
