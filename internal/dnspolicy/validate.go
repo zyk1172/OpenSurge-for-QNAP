@@ -60,14 +60,18 @@ func Validate(document Document) error {
 	if document.Mode == ModeManaged && len(managed.Nameservers) == 0 {
 		return fmt.Errorf("managed DNS mode requires at least one nameserver")
 	}
-	for name, values := range map[string][]string{
-		"default_nameservers":      managed.DefaultNameservers,
-		"nameservers":              managed.Nameservers,
-		"direct_nameservers":       managed.DirectNameservers,
-		"proxy_server_nameservers": managed.ProxyServerNameservers,
-		"fallback":                 managed.Fallback,
-	} {
-		if err := validateResolverList(name, values); err != nil {
+	resolverLists := []struct {
+		name   string
+		values []string
+	}{
+		{name: "default_nameservers", values: managed.DefaultNameservers},
+		{name: "nameservers", values: managed.Nameservers},
+		{name: "direct_nameservers", values: managed.DirectNameservers},
+		{name: "proxy_server_nameservers", values: managed.ProxyServerNameservers},
+		{name: "fallback", values: managed.Fallback},
+	}
+	for _, list := range resolverLists {
+		if err := validateResolverList(list.name, list.values); err != nil {
 			return err
 		}
 	}
@@ -155,9 +159,9 @@ func validateResolver(name, value string) error {
 		return fmt.Errorf("%s resolver URL requires a scheme", name)
 	}
 	// Some mihomo resolver forms such as rcode://success and dhcp://system use
-	// an opaque logical target rather than an IP/hostname. Requiring either a
-	// host or opaque target catches broken URLs without narrowing the future
-	// compiler to today's transport set.
+	// a logical target rather than a conventional IP/hostname. Requiring a
+	// non-empty target catches broken URLs without narrowing the future compiler
+	// to today's transport set.
 	if parsed.Host == "" && parsed.Opaque == "" {
 		target := strings.TrimPrefix(value, parsed.Scheme+"://")
 		if strings.TrimSpace(target) == "" {
