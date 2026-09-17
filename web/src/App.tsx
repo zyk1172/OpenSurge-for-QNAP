@@ -19,12 +19,13 @@ import { QNAPManagementPage } from './pages/QNAPManagementPage'
 import { PoliciesPage, type PoliciesViewState } from './pages/PoliciesPage'
 import { SourcesPage } from './pages/SourcesPage'
 import { QNAPSourcesPage } from './pages/QNAPSourcesPage'
+import { TutorialPage } from './pages/TutorialPage'
 import { needsNetworkRecoveryWarning, statusLabel } from './status'
 import { operationStatusUnknownMessage } from './operations'
 import type { Overview } from './types'
 import { activateLanguage, cacheRequestedLanguage, initialRequestedLanguage, isRequestedLanguage, prepareLanguage, t, type RequestedLanguage } from './i18n'
 
-type Page = 'dashboard' | 'network' | 'cloudflare' | 'sources' | 'devices' | 'policies' | 'management' | 'connectivity' | 'diagnostics' | 'traffic'
+type Page = 'dashboard' | 'network' | 'cloudflare' | 'sources' | 'devices' | 'policies' | 'management' | 'connectivity' | 'diagnostics' | 'traffic' | 'tutorial'
 type Theme = 'dark' | 'light'
 type NetworkNavigationTarget = 'none' | 'control' | 'bottom'
 type NavGroup = 'control' | 'observe'
@@ -40,10 +41,11 @@ const nav: readonly NavItem[] = [
   { id: 'sources', label: '代理与规则源', group: 'control' },
   { id: 'devices', label: '设备', group: 'control' },
   { id: 'policies', label: '策略', group: 'control' },
-  { id: 'management', label: '管理', group: 'control', qnapOnly: true },
   { id: 'connectivity', label: '连通性', group: 'observe' },
   { id: 'diagnostics', label: '诊断', group: 'observe' },
   { id: 'traffic', label: '流量分析', group: 'observe' },
+  { id: 'management', label: '管理', group: 'observe', qnapOnly: true },
+  { id: 'tutorial', label: '教程', group: 'observe', qnapOnly: true },
 ]
 
 const availableNav = nav.filter(item => !item.qnapOnly || qnapBuild)
@@ -278,6 +280,7 @@ export function App() {
   const gatewayStatus = statusLabel(overview?.status.gateway, overview?.status.runtime_state)
   const controlNav = availableNav.filter(item => item.group === 'control')
   const observeNav = availableNav.filter(item => item.group === 'observe')
+  const gatewayRunning = overview?.status.gateway === 'running' || overview?.status.gateway === 'degraded'
 
   return <div className={`app-shell ${sidebarCompact ? 'sidebar-compact' : ''} ${sidebarOpen ? 'mobile-nav-open' : ''}`}>
     <div className="app-wallpaper" aria-hidden="true"><span className="wallpaper-orb one" /><span className="wallpaper-orb two" /><span className="wallpaper-orb three" /></div>
@@ -297,15 +300,19 @@ export function App() {
           {observeNav.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} title={t(item.label)} onClick={() => go(item.id)}><span className="nav-icon"><ShellIcon name={item.id} /></span><span className="nav-label">{t(item.label)}</span></button>)}
         </nav>
       </div>
-      <div className="sidebar-controls">
+      {qnapBuild ? <div className="sidebar-bottom-controls" aria-label={t('快捷控制')}>
+        <span className="sidebar-round-control" role="status" aria-label={gatewayStatus} title={gatewayStatus}><span className={`mp-status-light ${gatewayRunning ? 'ok' : ''}`} /></span>
+        <button type="button" className="sidebar-round-control" aria-pressed={theme === 'light'} aria-label={t(theme === 'dark' ? '切换为浅色模式' : '切换为深色模式')} title={t(theme === 'dark' ? '切换为浅色模式' : '切换为深色模式')} onClick={() => setTheme(current => current === 'dark' ? 'light' : 'dark')}><ShellIcon name={theme === 'dark' ? 'sun' : 'moon'} /></button>
         <LanguageSelector language={language} changing={languageChanging} onChange={next => void changeLanguage(next)} />
-        <button type="button" className="theme-toggle sidebar-theme-toggle" aria-pressed={theme === 'light'} aria-label={t(theme === 'dark' ? '切换为浅色模式' : '切换为深色模式')} onClick={() => setTheme(current => current === 'dark' ? 'light' : 'dark')}><ShellIcon name={theme === 'dark' ? 'sun' : 'moon'} /><span>{t(theme === 'dark' ? '浅色模式' : '深色模式')}</span></button>
-        {!qnapBuild && <>
+      </div> : <>
+        <div className="sidebar-controls">
+          <LanguageSelector language={language} changing={languageChanging} onChange={next => void changeLanguage(next)} />
+          <button type="button" className="theme-toggle sidebar-theme-toggle" aria-pressed={theme === 'light'} aria-label={t(theme === 'dark' ? '切换为浅色模式' : '切换为深色模式')} onClick={() => setTheme(current => current === 'dark' ? 'light' : 'dark')}><ShellIcon name={theme === 'dark' ? 'sun' : 'moon'} /><span>{t(theme === 'dark' ? '浅色模式' : '深色模式')}</span></button>
           <label className={`sidebar-switch ${overview?.sleep_prevention?.active ? 'active' : ''}`} title={t('阻止空闲睡眠和合盖睡眠。合盖运行可能明显增加耗电与发热，请勿放入不通风的包内。')}><input type="checkbox" checked={overview?.sleep_prevention?.active ?? false} disabled={!overview || sleepPreventionChanging} onChange={event => void setSleepPrevention(event.target.checked)} /><span><strong>{t(sleepPreventionChanging ? '正在切换…' : '合盖保持运行')}</strong><small>{t(overview?.sleep_prevention?.active ? '系统睡眠已临时禁用' : '默认关闭 · 本次运行有效')}</small></span></label>
           {overview?.sleep_prevention?.error && <small className="sidebar-control-error" role="status">{overview.sleep_prevention.error}</small>}
-        </>}
-      </div>
-      <div className="sidebar-status"><StatusDot status={overview?.status.gateway ?? 'unreachable'} /><div><strong>{gatewayStatus}</strong><small>{qnapBuild ? releaseTag : `${releaseTag} Wind Rose`}</small></div></div>
+        </div>
+        <div className="sidebar-status"><StatusDot status={overview?.status.gateway ?? 'unreachable'} /><div><strong>{gatewayStatus}</strong><small>{`${releaseTag} Wind Rose`}</small></div></div>
+      </>}
     </aside>
     <main className="workspace">
       <header className="workspace-toolbar">
@@ -341,6 +348,7 @@ export function App() {
             {page === 'connectivity' && <ConnectivityPage overview={overview} onChanged={refresh} />}
             {page === 'diagnostics' && <DiagnosticsPage overview={overview} />}
             {page === 'traffic' && <TrafficAnalysisPage />}
+            {page === 'tutorial' && qnapBuild && <TutorialPage />}
           </PageErrorBoundary>
         </>}
       </div>
