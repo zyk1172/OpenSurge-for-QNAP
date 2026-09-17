@@ -23,7 +23,9 @@ export const uiRefreshEnglishMessages: Record<string, string> = {
   '切换为 English': 'Switch to English',
   '切换为简体中文': 'Switch to Simplified Chinese',
   '快捷控制': 'Quick controls',
+  '中': 'ZH',
 
+  '正在读取优选配置…': 'Loading optimization settings…',
   '查看容器网络，并管理 NAS 主机 IPv4 接管与网关运行参数。': 'Inspect container networking and manage NAS-host IPv4 takeover and gateway runtime settings.',
   'NAS 主机接管与 Tailscale 状态': 'NAS host takeover and Tailscale status',
   '已检测': 'Detected',
