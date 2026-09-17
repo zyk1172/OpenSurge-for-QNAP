@@ -108,6 +108,20 @@ dialog.reload-dialog{
   overscroll-behavior:contain!important;
 }
 
+/* Warning is a first-class notification tone rather than being mislabeled as
+ * success/error. It uses the same restrained surface language as the v5 cards. */
+.operation-notification.warning{
+  border-color:color-mix(in srgb,var(--mp-warning) 42%,var(--mp-border))!important;
+  background:color-mix(in srgb,var(--mp-surface-strong) 90%,var(--mp-warning) 10%)!important;
+}
+.operation-notification.warning .operation-notification-icon{
+  background:color-mix(in srgb,var(--mp-warning) 22%,transparent)!important;
+  color:var(--mp-warning)!important;
+}
+.operation-notification.warning p{
+  color:color-mix(in srgb,var(--mp-text) 70%,var(--mp-warning) 30%)!important;
+}
+
 /* Monitoring text is intentionally larger than ordinary metadata. */
 .traffic-v3-target-table,
 .traffic-v3-rule-list,
