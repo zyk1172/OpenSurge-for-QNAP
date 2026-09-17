@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"open-mihomo-gateway/internal/cloudflareopt"
 	"open-mihomo-gateway/internal/config"
 	"open-mihomo-gateway/internal/gateway"
 	"open-mihomo-gateway/internal/mihomo"
@@ -28,12 +29,10 @@ type containerProfileReconcileResult struct {
 }
 
 // prepareContainerProfileReconcile materializes the latest persisted global
-// profile overlay against the raw source that produced the currently desired
-// profile. Lifecycle operations must reconcile this desired input before they
-// start or restart Mihomo, rather than trusting profile metadata alone.
-//
-// Returning nil means both the composition metadata and the actual effective
-// profile content already match the latest persisted overlay.
+// profile overlay and Cloudflare optimizer results against the raw source that
+// produced the currently desired profile. Lifecycle operations reconcile these
+// desired inputs before they start or restart Mihomo, rather than trusting
+// materialized profile metadata alone.
 func prepareContainerProfileReconcile(configPath, storeDir string) (*containerProfileReconcileCandidate, error) {
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -51,10 +50,14 @@ func prepareContainerProfileReconcile(configPath, storeDir string) (*containerPr
 	if document.Enabled {
 		effectiveOverlayRevision = overlayRevision
 	}
+	optimizerResults, err := LoadCloudflareOptimizerResults(storeDir)
+	if err != nil {
+		return nil, fmt.Errorf("load Cloudflare optimizer results: %w", err)
+	}
 
-	// A managed profile with no enabled overlay is already authoritative and
-	// does not need to be converted into an imported effective profile.
-	if cfg.Mihomo.ProfileMode == config.MihomoProfileModeManaged && !document.Enabled {
+	// A managed profile with no enabled overlay or optimizer result is already
+	// authoritative and does not need conversion into an imported profile.
+	if cfg.Mihomo.ProfileMode == config.MihomoProfileModeManaged && !document.Enabled && len(optimizerResults) == 0 {
 		return nil, nil
 	}
 
@@ -67,9 +70,14 @@ func prepareContainerProfileReconcile(configPath, storeDir string) (*containerPr
 		return nil, fmt.Errorf("compose latest global profile overlay: %w", err)
 	}
 	payload := []byte(composition.ProfileYAML)
+	payload, err = cloudflareopt.ApplyResultsToProfile(payload, optimizerResults)
+	if err != nil {
+		return nil, fmt.Errorf("apply Cloudflare optimizer to effective profile: %w", err)
+	}
 	if len(payload) == 0 {
 		return nil, fmt.Errorf("composed profile is empty")
 	}
+	effectiveDigest := mihomo.ProfileOverlayDigest(payload)
 
 	currentDigest, digestErr := config.MihomoProfileDigest(cfg)
 	if digestErr != nil && !errors.Is(digestErr, os.ErrNotExist) {
@@ -78,7 +86,7 @@ func prepareContainerProfileReconcile(configPath, storeDir string) (*containerPr
 	if cfg.Mihomo.ProfileMode == config.MihomoProfileModeImported &&
 		cfg.Mihomo.ProfileSourceDigest == sourceDigest &&
 		cfg.Mihomo.ProfileOverlayDigest == effectiveOverlayRevision &&
-		currentDigest == composition.Digest {
+		currentDigest == effectiveDigest {
 		return nil, nil
 	}
 
@@ -204,10 +212,11 @@ func policyWorkspaceBaseSource(cfg config.Config, digest string) ([]byte, bool, 
 	return base.Source, true, nil
 }
 
-// reconcileLatestPersistedProfile promotes the latest persisted overlay into
-// the desired effective profile. start/recovery use materializeOnly because no
-// live data-plane transition should happen before the requested start/recovery;
-// reload-like actions reuse ApplyProfile's transactional running reload.
+// reconcileLatestPersistedProfile promotes the latest persisted overlay and
+// optimizer result into the desired effective profile. start/recovery use
+// materializeOnly because no live data-plane transition should happen before
+// the requested start/recovery; reload-like actions reuse ApplyProfile's
+// transactional running reload.
 func (r ContainerRunner) reconcileLatestPersistedProfile(ctx context.Context, configPath string, materializeOnly bool) (containerProfileReconcileResult, error) {
 	candidate, err := prepareContainerProfileReconcile(configPath, r.StoreDir)
 	if err != nil {
@@ -246,8 +255,8 @@ func materializeContainerProfileCandidate(ctx context.Context, configPath string
 
 // RecoverContainerConfigAfterRestart reconciles persistent desired profile
 // inputs before gateway recovery. This prevents a recreated container from
-// restarting the previously materialized Hosts/rules profile while a newer
-// persisted overlay is waiting in the control store.
+// restarting a previously materialized Hosts/rules profile while newer
+// persisted overlay or optimizer state is waiting in the control store.
 func RecoverContainerConfigAfterRestart(ctx context.Context, configPath, storeDir string) (bool, error) {
 	runner := ContainerRunner{StoreDir: storeDir}
 	if _, err := runner.reconcileLatestPersistedProfile(ctx, configPath, true); err != nil {
