@@ -32,15 +32,13 @@ func Normalize(document Document) (Document, error) {
 		managed.FakeIPFilterMode = FakeIPFilterBlacklist
 	}
 	if managed.CacheAlgorithm == "" {
-		managed.CacheAlgorithm = CacheAlgorithmARC
+		managed.CacheAlgorithm = CacheAlgorithmLRU
 	}
-	if managed.NameserverPolicy == nil {
-		managed.NameserverPolicy = []NameserverPolicyRule{}
+	if managed.FallbackFilter.GeoIP && managed.FallbackFilter.GeoIPCode == "" {
+		managed.FallbackFilter.GeoIPCode = "CN"
 	}
-	for index := range managed.NameserverPolicy {
-		managed.NameserverPolicy[index].Match = strings.TrimSpace(managed.NameserverPolicy[index].Match)
-		managed.NameserverPolicy[index].Nameservers = normalizeStrings(managed.NameserverPolicy[index].Nameservers)
-	}
+	managed.NameserverPolicy = normalizePolicyRules(managed.NameserverPolicy)
+	managed.ProxyServerNameserverPolicy = normalizePolicyRules(managed.ProxyServerNameserverPolicy)
 	if err := Validate(document); err != nil {
 		return Document{}, err
 	}
@@ -57,8 +55,22 @@ func Validate(document Document) error {
 		return fmt.Errorf("dns policy mode must be %q or %q", ModeInheritProfile, ModeManaged)
 	}
 	managed := document.Managed
-	if document.Mode == ModeManaged && len(managed.Nameservers) == 0 {
-		return fmt.Errorf("managed DNS mode requires at least one nameserver")
+	if document.Mode == ModeManaged {
+		if len(managed.Nameservers) == 0 {
+			return fmt.Errorf("managed DNS mode requires at least one nameserver")
+		}
+		if managed.DirectNameserverFollowPolicy && len(managed.DirectNameservers) == 0 {
+			return fmt.Errorf("direct_nameserver_follow_policy requires at least one direct_nameserver")
+		}
+		if len(managed.ProxyServerNameserverPolicy) > 0 && len(managed.ProxyServerNameservers) == 0 {
+			return fmt.Errorf("proxy_server_nameserver_policy requires at least one proxy_server_nameserver")
+		}
+		if managed.RespectRules && len(managed.ProxyServerNameservers) == 0 {
+			return fmt.Errorf("respect_rules requires at least one proxy_server_nameserver")
+		}
+		if managed.FallbackLazyQuery && len(managed.Fallback) == 0 {
+			return fmt.Errorf("fallback_lazy_query requires at least one fallback resolver")
+		}
 	}
 	resolverLists := []struct {
 		name   string
@@ -75,9 +87,6 @@ func Validate(document Document) error {
 			return err
 		}
 	}
-	if managed.DirectNameserverFollowPolicy && len(managed.DirectNameservers) == 0 {
-		return fmt.Errorf("direct_nameserver_follow_policy requires at least one direct_nameserver")
-	}
 	if err := validateUniqueStrings("fake_ip_filter", managed.FakeIPFilter); err != nil {
 		return err
 	}
@@ -87,16 +96,19 @@ func Validate(document Document) error {
 		}
 	}
 	switch managed.FakeIPFilterMode {
-	case FakeIPFilterBlacklist, FakeIPFilterWhitelist:
+	case FakeIPFilterBlacklist, FakeIPFilterWhitelist, FakeIPFilterRule:
 	default:
-		return fmt.Errorf("fake_ip_filter_mode must be %q or %q", FakeIPFilterBlacklist, FakeIPFilterWhitelist)
+		return fmt.Errorf("fake_ip_filter_mode must be %q, %q, or %q", FakeIPFilterBlacklist, FakeIPFilterWhitelist, FakeIPFilterRule)
 	}
 	switch managed.CacheAlgorithm {
 	case CacheAlgorithmLRU, CacheAlgorithmARC:
 	default:
 		return fmt.Errorf("cache_algorithm must be %q or %q", CacheAlgorithmLRU, CacheAlgorithmARC)
 	}
-	if err := validateNameserverPolicy(managed.NameserverPolicy); err != nil {
+	if err := validateNameserverPolicy("nameserver_policy", managed.NameserverPolicy); err != nil {
+		return err
+	}
+	if err := validateNameserverPolicy("proxy_server_nameserver_policy", managed.ProxyServerNameserverPolicy); err != nil {
 		return err
 	}
 	if err := validateFallbackFilter(managed.FallbackFilter); err != nil {
@@ -125,6 +137,20 @@ func normalizeStrings(values []string) []string {
 	normalized := make([]string, len(values))
 	for index, value := range values {
 		normalized[index] = strings.TrimSpace(value)
+	}
+	return normalized
+}
+
+func normalizePolicyRules(rules []NameserverPolicyRule) []NameserverPolicyRule {
+	if rules == nil {
+		return []NameserverPolicyRule{}
+	}
+	normalized := make([]NameserverPolicyRule, len(rules))
+	for index, rule := range rules {
+		normalized[index] = NameserverPolicyRule{
+			Match:       strings.TrimSpace(rule.Match),
+			Nameservers: normalizeStrings(rule.Nameservers),
+		}
 	}
 	return normalized
 }
@@ -171,15 +197,15 @@ func validateResolver(name, value string) error {
 	return nil
 }
 
-func validateNameserverPolicy(rules []NameserverPolicyRule) error {
+func validateNameserverPolicy(field string, rules []NameserverPolicyRule) error {
 	seen := map[string]bool{}
 	for index, rule := range rules {
-		name := fmt.Sprintf("nameserver_policy[%d]", index)
+		name := fmt.Sprintf("%s[%d]", field, index)
 		if err := validateSingleLineValue(name+".match", rule.Match); err != nil {
 			return err
 		}
 		if seen[rule.Match] {
-			return fmt.Errorf("nameserver_policy contains duplicate matcher %q", rule.Match)
+			return fmt.Errorf("%s contains duplicate matcher %q", field, rule.Match)
 		}
 		seen[rule.Match] = true
 		if len(rule.Nameservers) == 0 {
