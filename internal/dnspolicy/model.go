@@ -28,6 +28,7 @@ type FakeIPFilterMode string
 const (
 	FakeIPFilterBlacklist FakeIPFilterMode = "blacklist"
 	FakeIPFilterWhitelist FakeIPFilterMode = "whitelist"
+	FakeIPFilterRule      FakeIPFilterMode = "rule"
 )
 
 // Document is the persistent DNS policy owned by OpenSurge. It deliberately
@@ -46,19 +47,21 @@ type Document struct {
 }
 
 type ManagedPolicy struct {
-	DefaultNameservers           []string               `json:"default_nameservers"`
-	Nameservers                  []string               `json:"nameservers"`
-	DirectNameservers            []string               `json:"direct_nameservers"`
-	DirectNameserverFollowPolicy bool                   `json:"direct_nameserver_follow_policy"`
-	ProxyServerNameservers       []string               `json:"proxy_server_nameservers"`
-	Fallback                     []string               `json:"fallback"`
-	NameserverPolicy             []NameserverPolicyRule `json:"nameserver_policy"`
-	FallbackFilter               FallbackFilter         `json:"fallback_filter"`
-	FakeIPFilter                 []string               `json:"fake_ip_filter"`
-	FakeIPFilterMode             FakeIPFilterMode       `json:"fake_ip_filter_mode"`
-	RespectRules                 bool                   `json:"respect_rules"`
-	CacheAlgorithm               CacheAlgorithm         `json:"cache_algorithm"`
-	PreferH3                     bool                   `json:"prefer_h3"`
+	DefaultNameservers            []string               `json:"default_nameservers"`
+	Nameservers                   []string               `json:"nameservers"`
+	DirectNameservers             []string               `json:"direct_nameservers"`
+	DirectNameserverFollowPolicy  bool                   `json:"direct_nameserver_follow_policy"`
+	ProxyServerNameservers        []string               `json:"proxy_server_nameservers"`
+	ProxyServerNameserverPolicy   []NameserverPolicyRule `json:"proxy_server_nameserver_policy"`
+	Fallback                      []string               `json:"fallback"`
+	NameserverPolicy              []NameserverPolicyRule `json:"nameserver_policy"`
+	FallbackFilter                FallbackFilter         `json:"fallback_filter"`
+	FallbackLazyQuery             bool                   `json:"fallback_lazy_query"`
+	FakeIPFilter                  []string               `json:"fake_ip_filter"`
+	FakeIPFilterMode              FakeIPFilterMode       `json:"fake_ip_filter_mode"`
+	RespectRules                  bool                   `json:"respect_rules"`
+	CacheAlgorithm                CacheAlgorithm         `json:"cache_algorithm"`
+	PreferH3                      bool                   `json:"prefer_h3"`
 }
 
 type NameserverPolicyRule struct {
@@ -98,20 +101,23 @@ func DefaultDocument() Document {
 		SchemaVersion: SchemaVersion,
 		Mode:          ModeInheritProfile,
 		Managed: ManagedPolicy{
-			DefaultNameservers:     []string{},
-			Nameservers:            []string{},
-			DirectNameservers:      []string{},
-			ProxyServerNameservers: []string{},
-			Fallback:               []string{},
-			NameserverPolicy:       []NameserverPolicyRule{},
+			DefaultNameservers:          []string{},
+			Nameservers:                 []string{},
+			DirectNameservers:           []string{},
+			ProxyServerNameservers:      []string{},
+			ProxyServerNameserverPolicy: []NameserverPolicyRule{},
+			Fallback:                    []string{},
+			NameserverPolicy:            []NameserverPolicyRule{},
 			FallbackFilter: FallbackFilter{
-				GeoSite: []string{},
-				IPCIDR:  []string{},
-				Domain:  []string{},
+				GeoIP:     true,
+				GeoIPCode: "CN",
+				GeoSite:   []string{},
+				IPCIDR:    []string{},
+				Domain:    []string{},
 			},
 			FakeIPFilter:     []string{},
 			FakeIPFilterMode: FakeIPFilterBlacklist,
-			CacheAlgorithm:   CacheAlgorithmARC,
+			CacheAlgorithm:   CacheAlgorithmLRU,
 		},
 	}
 }
