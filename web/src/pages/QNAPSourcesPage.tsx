@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api } from '../api'
+import { api, request } from '../api'
 import { Empty, PageHeader, SectionTitle } from '../components/Common'
 import type { OperationNotification } from '../components/OperationNotifications'
 import { ProfileOverlayPanel } from '../components/ProfileOverlayPanel'
 import type { Overview, ProfileOverlay, Source } from '../types'
 import { t } from '../i18n'
 
-type Action = 'import-url' | 'import-file' | 'refresh' | 'apply' | 'copy-path' | null
+type Action = 'import-url' | 'import-file' | 'refresh' | 'apply' | 'copy-path' | 'delete' | null
+
+type DeleteSourceResponse = { deleted: boolean; id: string; cleanup_warning?: string }
 
 export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
   overview: Overview | null
@@ -121,6 +123,32 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
     }
   }
 
+  const deleteSource = async (source: Source) => {
+    if (source.applied || source.desired || busy) return
+    if (!window.confirm(t('确定删除 {{name}}？本地快照和保存的订阅凭据也会删除。', { name: source.name }))) return
+    setAction('delete')
+    setActiveSource(source.id)
+    setError('')
+    setMessage('')
+    try {
+      const result = await request<DeleteSourceResponse>(`/api/v1/qnap/sources/${encodeURIComponent(source.id)}`, { method: 'DELETE' })
+      await refresh()
+      setMessage(t('{{name}} 已删除。', { name: source.name }))
+      if (result.cleanup_warning) {
+        onNotify({ tone: 'warning', title: t('来源已删除'), message: t('来源记录已删除，但清理旧文件时出现提示：{{error}}', { error: result.cleanup_warning }) })
+      } else {
+        onNotify({ tone: 'success', title: t('来源已删除'), message: t('本地快照与保存的订阅凭据已一并清理。') })
+      }
+    } catch (cause) {
+      const failure = cause instanceof Error ? cause.message : String(cause)
+      setError(failure)
+      onNotify({ tone: 'error', title: t('删除来源失败'), message: failure })
+    } finally {
+      setAction(null)
+      setActiveSource('')
+    }
+  }
+
   return <>
     <PageHeader eyebrow="QNAP SOURCES" title="代理与规则源" description="导入、校验并应用 Mihomo 配置来源。" />
     {error && <div className="notice warn" role="alert"><strong>{t('操作未完成')}</strong><p>{error}</p></div>}
@@ -168,6 +196,8 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
         const applying = action === 'apply' && activeSource === source.id
         const refreshing = action === 'refresh' && activeSource === source.id
         const copying = action === 'copy-path' && activeSource === source.id
+        const deleting = action === 'delete' && activeSource === source.id
+        const inUse = source.applied || source.desired
         return <article className="source-card" key={source.id}>
           <div className="source-head"><div><small>{source.kind}</small><h3>{source.name}</h3></div><span className={source.applied || source.desired || valid ? 'pill ok' : 'pill bad'}>{state}</span></div>
           <p className="source-origin" title={source.origin}><span aria-hidden="true">⌁</span>{source.origin}</p>
@@ -185,6 +215,7 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
           <div className="source-actions">
             {source.origin.startsWith('https://') && <button type="button" disabled={busy} onClick={() => void run('refresh', source.id, () => api.refreshSource(source.id), t('{{name}} 已刷新为新草稿。', { name: source.name }))}>{refreshing ? t('正在刷新…') : t('刷新草稿')}</button>}
             <button className="primary" type="button" disabled={busy || !revision || !valid || (source.desired && !running) || source.applied} onClick={() => setPending(source)}>{applying ? t('正在应用…') : t(running ? '应用并重载' : '设为下次启动版本')}</button>
+            <button className="danger" type="button" disabled={busy || inUse} title={inUse ? t('当前运行或下次启动使用中的来源不能直接删除。') : t('删除配置来源')} onClick={() => void deleteSource(source)}>{deleting ? t('正在删除…') : t('删除配置')}</button>
           </div>
         </article>
       })}</div> : <Empty text={t('尚未导入任何来源')} />}
