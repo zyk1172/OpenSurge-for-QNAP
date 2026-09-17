@@ -136,18 +136,20 @@ func newControl(configPath, storeDir, controlAddr string) (*controlapi.Server, *
 		return nil, nil, fmt.Errorf("load internal control token: %w", err)
 	}
 	hostManager := qnaphost.New(configPath, storeDir)
+	runner := controlapi.ContainerRunner{StoreDir: storeDir}
+	static := controlapi.WrapCloudflareOptimizer(hostManager.Handler(controlToken, webui.Handler()), configPath, storeDir, runner)
 	control, err := controlapi.New(controlapi.Options{
 		ConfigPath:        configPath,
 		Addr:              controlAddr,
 		StoreDir:          storeDir,
-		Runner:            controlapi.ContainerRunner{StoreDir: storeDir},
+		Runner:            runner,
 		DiscoverNetwork:   linuxnetwork.Discover,
 		DiscoverDefault:   linuxnetwork.DiscoverDefault,
 		ListInterfaces:    linuxnetwork.ListInterfaces,
 		DiscoverNeighbors: linuxnetwork.DiscoverNeighbors,
 		LookupRoute:       linuxnetwork.LookupRoute,
 		PingRouter:        linuxnetwork.PingRouter,
-		Static:            hostManager.Handler(controlToken, webui.Handler()),
+		Static:            static,
 	})
 	if err != nil {
 		return nil, nil, err
