@@ -58,6 +58,10 @@ func (s *Store) Save(candidate Document, expectedRevision string) (Snapshot, err
 	if err != nil {
 		return Snapshot{}, err
 	}
+	revision, err := Revision(normalized)
+	if err != nil {
+		return Snapshot{}, err
+	}
 	data, err := json.MarshalIndent(normalized, "", "  ")
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("marshal DNS policy: %w", err)
@@ -67,10 +71,6 @@ func (s *Store) Save(candidate Document, expectedRevision string) (Snapshot, err
 		return Snapshot{}, fmt.Errorf("DNS policy exceeds %d bytes", MaxDocumentSize)
 	}
 	if err := writeAtomic(s.path, data, 0o600); err != nil {
-		return Snapshot{}, err
-	}
-	revision, err := Revision(normalized)
-	if err != nil {
 		return Snapshot{}, err
 	}
 	return Snapshot{Document: normalized, Revision: revision}, nil
