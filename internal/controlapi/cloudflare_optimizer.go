@@ -152,10 +152,17 @@ func (a *cloudflareOptimizerAPI) handleScan(w http.ResponseWriter, r *http.Reque
 }
 
 func (a *cloudflareOptimizerAPI) handleCheck(w http.ResponseWriter, r *http.Request) {
-	response, _, err := a.runHealthCheck(r.Context())
+	response, needsScan, err := a.runHealthCheck(r.Context())
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "cloudflare_optimizer_health_failed", err.Error())
 		return
+	}
+	if needsScan {
+		response, err = a.runScan(r.Context())
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "cloudflare_optimizer_scan_failed", err.Error())
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, response)
 }
