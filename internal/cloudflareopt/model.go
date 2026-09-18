@@ -17,11 +17,12 @@ const (
 )
 
 type Config struct {
-	SchemaVersion int          `json:"schema_version"`
-	Enabled       bool         `json:"enabled"`
-	Schedule      Schedule     `json:"schedule"`
-	Scan          ScanSettings `json:"scan"`
-	Targets       []Target     `json:"targets"`
+	SchemaVersion int            `json:"schema_version"`
+	Enabled       bool           `json:"enabled"`
+	Schedule      Schedule       `json:"schedule"`
+	Health        HealthSettings `json:"health"`
+	Scan          ScanSettings   `json:"scan"`
+	Targets       []Target       `json:"targets"`
 }
 
 type Schedule struct {
@@ -31,17 +32,26 @@ type Schedule struct {
 	Cron      string `json:"cron,omitempty"`
 }
 
+type HealthSettings struct {
+	Enabled              bool    `json:"enabled"`
+	CheckIntervalMinutes int     `json:"check_interval_minutes"`
+	LatencyThresholdMS   int     `json:"latency_threshold_ms"`
+	LossRateThreshold    float64 `json:"loss_rate_threshold"`
+}
+
 type ScanSettings struct {
-	BudgetSeconds          int   `json:"budget_seconds"`
-	CandidateLimit         int   `json:"candidate_limit"`
-	TCPConcurrency         int   `json:"tcp_concurrency"`
-	TCPAttempts            int   `json:"tcp_attempts"`
-	TCPTimeoutMS           int   `json:"tcp_timeout_ms"`
-	HTTPSCandidateCount    int   `json:"https_candidate_count"`
-	HTTPTimeoutMS          int   `json:"http_timeout_ms"`
-	DownloadCandidateCount int   `json:"download_candidate_count"`
-	DownloadSeconds        int   `json:"download_seconds"`
-	DownloadMaxBytes       int64 `json:"download_max_bytes"`
+	BudgetSeconds          int     `json:"budget_seconds"`
+	CandidateLimit         int     `json:"candidate_limit"`
+	TCPConcurrency         int     `json:"tcp_concurrency"`
+	TCPAttempts            int     `json:"tcp_attempts"`
+	TCPTimeoutMS           int     `json:"tcp_timeout_ms"`
+	MaxLatencyMS           int     `json:"max_latency_ms"`
+	MaxLossRate            float64 `json:"max_loss_rate"`
+	HTTPSCandidateCount    int     `json:"https_candidate_count"`
+	HTTPTimeoutMS          int     `json:"http_timeout_ms"`
+	DownloadCandidateCount int     `json:"download_candidate_count"`
+	DownloadSeconds        int     `json:"download_seconds"`
+	DownloadMaxBytes       int64   `json:"download_max_bytes"`
 }
 
 type Target struct {
@@ -66,15 +76,29 @@ type TargetResult struct {
 	UpdatedAt    time.Time         `json:"updated_at"`
 }
 
+type HealthResult struct {
+	Domain    string    `json:"domain"`
+	IP        string    `json:"ip"`
+	Healthy   bool      `json:"healthy"`
+	LatencyMS int64     `json:"latency_ms,omitempty"`
+	LossRate  float64   `json:"loss_rate,omitempty"`
+	TTFBMS    int64     `json:"ttfb_ms,omitempty"`
+	CheckedAt time.Time `json:"checked_at"`
+	Error     string    `json:"error,omitempty"`
+}
+
 type State struct {
-	SchemaVersion   int            `json:"schema_version"`
-	Running         bool           `json:"running"`
-	StartedAt       *time.Time     `json:"started_at,omitempty"`
-	LastRunAt       *time.Time     `json:"last_run_at,omitempty"`
-	NextRunAt       *time.Time     `json:"next_run_at,omitempty"`
-	LastError       string         `json:"last_error,omitempty"`
-	OverlayRevision string         `json:"overlay_revision,omitempty"`
-	Results         []TargetResult `json:"results"`
+	SchemaVersion      int            `json:"schema_version"`
+	Running            bool           `json:"running"`
+	StartedAt          *time.Time     `json:"started_at,omitempty"`
+	LastRunAt          *time.Time     `json:"last_run_at,omitempty"`
+	NextRunAt          *time.Time     `json:"next_run_at,omitempty"`
+	LastHealthCheckAt  *time.Time     `json:"last_health_check_at,omitempty"`
+	NextHealthCheckAt  *time.Time     `json:"next_health_check_at,omitempty"`
+	LastError          string         `json:"last_error,omitempty"`
+	OverlayRevision    string         `json:"overlay_revision,omitempty"`
+	Health             []HealthResult `json:"health"`
+	Results            []TargetResult `json:"results"`
 }
 
 type Response struct {
@@ -88,20 +112,28 @@ func DefaultConfig() Config {
 		Enabled:       false,
 		Schedule: Schedule{
 			Mode:      ScheduleInterval,
-			EveryDays: 7,
+			EveryDays: 1,
 			At:        "04:00",
 		},
+		Health: HealthSettings{
+			Enabled:              true,
+			CheckIntervalMinutes: 30,
+			LatencyThresholdMS:   100,
+			LossRateThreshold:    0,
+		},
 		Scan: ScanSettings{
-			BudgetSeconds:          60,
-			CandidateLimit:         256,
-			TCPConcurrency:         64,
-			TCPAttempts:            2,
+			BudgetSeconds:          75,
+			CandidateLimit:         1024,
+			TCPConcurrency:         128,
+			TCPAttempts:            3,
 			TCPTimeoutMS:           800,
-			HTTPSCandidateCount:    15,
-			HTTPTimeoutMS:          2000,
-			DownloadCandidateCount: 3,
-			DownloadSeconds:        2,
-			DownloadMaxBytes:       4 << 20,
+			MaxLatencyMS:           100,
+			MaxLossRate:            0,
+			HTTPSCandidateCount:    30,
+			HTTPTimeoutMS:          2500,
+			DownloadCandidateCount: 8,
+			DownloadSeconds:        4,
+			DownloadMaxBytes:       8 << 20,
 		},
 		Targets: []Target{},
 	}
@@ -114,6 +146,23 @@ func Normalize(cfg Config) Config {
 	cfg.Schedule.Mode = strings.ToLower(strings.TrimSpace(cfg.Schedule.Mode))
 	cfg.Schedule.At = strings.TrimSpace(cfg.Schedule.At)
 	cfg.Schedule.Cron = strings.TrimSpace(cfg.Schedule.Cron)
+
+	// Configs created before continuous monitoring had no health object. Enable
+	// the safe default only for that all-zero legacy representation; an explicit
+	// user-disabled health config keeps its non-zero thresholds and stays off.
+	if !cfg.Health.Enabled && cfg.Health.CheckIntervalMinutes == 0 && cfg.Health.LatencyThresholdMS == 0 && cfg.Health.LossRateThreshold == 0 {
+		cfg.Health.Enabled = true
+	}
+	if cfg.Health.CheckIntervalMinutes == 0 {
+		cfg.Health.CheckIntervalMinutes = 30
+	}
+	if cfg.Health.LatencyThresholdMS == 0 {
+		cfg.Health.LatencyThresholdMS = 100
+	}
+	if cfg.Scan.MaxLatencyMS == 0 {
+		cfg.Scan.MaxLatencyMS = 100
+	}
+
 	seen := map[string]bool{}
 	targets := make([]Target, 0, len(cfg.Targets))
 	for _, target := range cfg.Targets {
@@ -141,6 +190,9 @@ func Validate(cfg Config) error {
 	if err := ValidateSchedule(cfg.Schedule); err != nil {
 		return err
 	}
+	if err := validateHealth(cfg.Health); err != nil {
+		return err
+	}
 	if err := validateScan(cfg.Scan); err != nil {
 		return err
 	}
@@ -151,6 +203,19 @@ func Validate(cfg Config) error {
 		if err := validateTarget(target); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateHealth(health HealthSettings) error {
+	if health.CheckIntervalMinutes < 5 || health.CheckIntervalMinutes > 1440 {
+		return fmt.Errorf("health check_interval_minutes must be between 5 and 1440")
+	}
+	if health.LatencyThresholdMS < 20 || health.LatencyThresholdMS > 5000 {
+		return fmt.Errorf("health latency_threshold_ms must be between 20 and 5000")
+	}
+	if health.LossRateThreshold < 0 || health.LossRateThreshold > 1 {
+		return fmt.Errorf("health loss_rate_threshold must be between 0 and 1")
 	}
 	return nil
 }
@@ -171,14 +236,20 @@ func validateScan(scan ScanSettings) error {
 	if scan.TCPTimeoutMS < 200 || scan.TCPTimeoutMS > 5000 {
 		return fmt.Errorf("scan tcp_timeout_ms must be between 200 and 5000")
 	}
+	if scan.MaxLatencyMS < 20 || scan.MaxLatencyMS > 5000 {
+		return fmt.Errorf("scan max_latency_ms must be between 20 and 5000")
+	}
+	if scan.MaxLossRate < 0 || scan.MaxLossRate > 1 {
+		return fmt.Errorf("scan max_loss_rate must be between 0 and 1")
+	}
 	if scan.HTTPSCandidateCount < 1 || scan.HTTPSCandidateCount > 64 {
 		return fmt.Errorf("scan https_candidate_count must be between 1 and 64")
 	}
 	if scan.HTTPTimeoutMS < 500 || scan.HTTPTimeoutMS > 10000 {
 		return fmt.Errorf("scan http_timeout_ms must be between 500 and 10000")
 	}
-	if scan.DownloadCandidateCount < 0 || scan.DownloadCandidateCount > 10 {
-		return fmt.Errorf("scan download_candidate_count must be between 0 and 10")
+	if scan.DownloadCandidateCount < 0 || scan.DownloadCandidateCount > 20 {
+		return fmt.Errorf("scan download_candidate_count must be between 0 and 20")
 	}
 	if scan.DownloadSeconds < 1 || scan.DownloadSeconds > 10 {
 		return fmt.Errorf("scan download_seconds must be between 1 and 10")
