@@ -76,7 +76,7 @@ describe('CloudflareOptimizerPage', () => {
 
   it('uses the shared design primitives for continuous optimization', async () => {
     const { container } = render(<CloudflareOptimizerPage />)
-    expect(await screen.findByText('持续监控')).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '持续监控' })).toBeTruthy()
 
     expect(container.querySelector('.ui-summary-grid')).toBeTruthy()
     expect(container.querySelectorAll('.ui-panel').length).toBe(4)
@@ -147,7 +147,7 @@ describe('CloudflareOptimizerPage', () => {
 
   it('updates health settings and can run a current-IP check', async () => {
     render(<CloudflareOptimizerPage />)
-    await screen.findByText('持续监控')
+    await screen.findByRole('heading', { name: '持续监控' })
 
     await userEvent.selectOptions(screen.getByLabelText('检查间隔'), '60')
     await userEvent.selectOptions(screen.getByLabelText('延迟阈值'), '150')
@@ -171,7 +171,7 @@ describe('CloudflareOptimizerPage', () => {
 
     expect(await screen.findByRole('button', { name: 'Optimize now' })).toBeTruthy()
     expect(screen.getByText('Optimization targets')).toBeTruthy()
-    expect(screen.getByText('Continuous monitoring')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Continuous monitoring' })).toBeTruthy()
     expect(screen.getByText('Full optimization strategy')).toBeTruthy()
     expect(screen.getByText('Current IP')).toBeTruthy()
     expect(screen.getByText('Healthy')).toBeTruthy()
