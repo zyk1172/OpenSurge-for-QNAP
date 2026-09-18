@@ -165,15 +165,16 @@ func (s *Server) syncHostHosts(value hostHostsSyncSettings, force bool) (hostHos
 		return value, errors.New(value.LastError)
 	}
 
-	sum := sha256.Sum256(data)
-	digest := hex.EncodeToString(sum[:])
-	if !force && digest == value.LastDigest {
-		return value, nil
-	}
 	if _, err := mihomo.ParseTraditionalHostsFile(string(data)); err != nil {
 		value.LastError = err.Error()
 		_ = s.store.SaveHostHostsSyncSettings(value)
 		return value, err
+	}
+	normalizedHosts := normalizeManagedHostHosts(string(data))
+	sum := sha256.Sum256([]byte(normalizedHosts))
+	digest := hex.EncodeToString(sum[:])
+	if !force && digest == value.LastDigest {
+		return value, nil
 	}
 
 	_, document, _, err := s.loadProfileOverlay()
@@ -185,7 +186,6 @@ func (s *Server) syncHostHosts(value hostHostsSyncSettings, force bool) (hostHos
 	if err != nil {
 		return value, err
 	}
-	normalizedHosts := normalizeManagedHostHosts(string(data))
 	standard = replaceManagedHostHosts(standard, normalizedHosts)
 	combined := mihomo.JoinProfileHostsInputs(standard, native)
 	if strings.TrimSpace(combined) == "" {
@@ -205,7 +205,7 @@ func (s *Server) syncHostHosts(value hostHostsSyncSettings, force bool) (hostHos
 
 	value.LastDigest = digest
 	value.LastSyncAt = time.Now().UTC().Format(time.RFC3339)
-	value.LastEntries = countHostEntries(string(data))
+	value.LastEntries = countHostEntries(normalizedHosts)
 	value.LastError = ""
 	if err := s.store.SaveHostHostsSyncSettings(value); err != nil {
 		return value, err
