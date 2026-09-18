@@ -90,6 +90,7 @@ type Server struct {
 	lifecycleMu sync.Mutex
 	sessions    map[string]time.Time
 	bootstraps  map[string]bootstrapGrant
+	hostHostsSyncOnce sync.Once
 }
 
 type bootstrapGrant struct {
