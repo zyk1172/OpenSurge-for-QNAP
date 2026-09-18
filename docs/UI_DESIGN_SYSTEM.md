@@ -106,6 +106,8 @@ OpenSurge 使用 React 原生组件和 CSS token 实现同一架构原则。
 
 页面的主要结构分组。React primitive：`Panel`，CSS primitive：`.ui-panel`。
 
+Panel / Page Header 采用统一的液态玻璃材质：半透明 surface、轻微高光/色彩 tint、单层 backdrop blur 与统一边框。嵌套 Card 只继承半透明材质和高光，不重复执行 backdrop blur，避免层层模糊和 GPU 开销。
+
 ### Card
 
 Panel 内部的次级对象。使用 `.ui-card`。默认是静态表面：**不移动、不自动增加阴影**。
@@ -184,7 +186,7 @@ Cloudflare Optimizer 是新设计系统的第一张完整样板页面：
 - 保存区使用 `ActionBar`；
 - 所有用户可见文本走 `t()`；
 - 日期时间使用应用 locale，而不是浏览器默认 locale。
-- Cloudflare 的普通用户配置只暴露“域名、自动周期、测速模式”三个概念；内部候选数、并发、超时和下载参数由测速模式 preset 管理，不把实现参数泄漏成表单负担；
+- Cloudflare 的普通用户配置只暴露“域名、自动周期、测速模式”三个概念；域名使用一个多行编辑器，一行一个，可整批粘贴，空行忽略并自动去重；内部候选数、并发、超时和下载参数由测速模式 preset 管理，不把实现参数泄漏成表单负担；
 
 其他页面迁移时以这些组件契约为准，不复制 Cloudflare 的 feature layout class。
 
@@ -201,6 +203,7 @@ Cloudflare Optimizer 是新设计系统的第一张完整样板页面：
 7. computed style 中共享 surface/radius/type/control 必须来自统一 token；
 8. 确认型 Dialog 与工作型 Dialog 的文字对齐符合 Alignment 规则；
 9. 侧栏展开/收起前后折叠按钮保持同一垂直基线；
-10. 普通业务正文不得回退到 7–9px 微字号，Caption 下限按 11px 标准执行。
+10. 普通业务正文不得回退到 7–9px 微字号，Caption 下限按 11px 标准执行；
+11. 设备、规则库、规则集等历史页面的可见 surface / control 不得再出现旧绿色硬编码主题，状态色除外，统一从 `--ui-*` token 派生。
 
 在浏览器视觉回归基础设施加入前，CI 至少通过 React/Vitest、TypeScript 和 QNAP production build；视觉回归应作为后续门槛加入。
