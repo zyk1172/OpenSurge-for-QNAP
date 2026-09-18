@@ -201,7 +201,7 @@ export function CloudflareOptimizerPage() {
       />
       <div className="cloudflare-target-list">
         {draft.targets.length === 0 && <Empty text="尚未添加域名。" />}
-        {draft.targets.map((target, index) => <div className="ui-card cloudflare-target-card cloudflare-target-card--simple" key={`${index}-${target.domain}`}>
+        {draft.targets.map((target, index) => <div className="ui-card cloudflare-target-card cloudflare-target-card--simple" key={`target-${index}`}>
           <FormField label="域名"><input value={target.domain} placeholder="api.example.com" onChange={event => updateTargetDomain(index, event.target.value)} /></FormField>
           <button className="ui-button ui-button--danger" type="button" onClick={() => setDraft(current => current ? { ...current, targets: current.targets.filter((_, targetIndex) => targetIndex !== index) } : current)}>{t('删除')}</button>
         </div>)}
