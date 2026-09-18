@@ -108,6 +108,7 @@ func (a *cloudflareOptimizerAPI) handlePut(w http.ResponseWriter, r *http.Reques
 	}
 
 	filtered := retainEnabledOptimizerResults(state.Results, cfg.Targets)
+	previousHealth := append([]cloudflareopt.HealthResult(nil), state.Health...)
 	state.Health = retainEnabledOptimizerHealth(state.Health, cfg.Targets)
 	if !sameOptimizerResults(state.Results, filtered) {
 		previous := append([]cloudflareopt.TargetResult(nil), state.Results...)
@@ -119,12 +120,14 @@ func (a *cloudflareOptimizerAPI) handlePut(w http.ResponseWriter, r *http.Reques
 		gatewayCfg, err := config.Load(a.configPath)
 		if err != nil {
 			state.Results = previous
+			state.Health = previousHealth
 			_ = a.saveState(state)
 			writeError(w, http.StatusInternalServerError, "config_invalid", err.Error())
 			return
 		}
 		if err := a.applyResults(r.Context(), gatewayCfg); err != nil {
 			state.Results = previous
+			state.Health = previousHealth
 			_ = a.saveState(state)
 			writeError(w, http.StatusUnprocessableEntity, "cloudflare_optimizer_apply_failed", err.Error())
 			return
@@ -243,7 +246,7 @@ func (a *cloudflareOptimizerAPI) runScan(ctx context.Context) (cloudflareopt.Res
 		}
 	}
 	healthNow := time.Now().UTC()
-	state.Health = healthFromScanResults(state.Results, healthNow)
+	state.Health = healthFromScanResults(output.Results, healthNow)
 	state.LastHealthCheckAt = &healthNow
 	finish(nil)
 	return cloudflareopt.Response{Config: cfg, State: state}, nil
@@ -380,9 +383,15 @@ func (a *cloudflareOptimizerAPI) populateNextHealthCheck(state *cloudflareopt.St
 		state.NextHealthCheckAt = nil
 		return
 	}
-	anchor := time.Now()
+	var anchor time.Time
 	if state.LastHealthCheckAt != nil && !state.LastHealthCheckAt.IsZero() {
 		anchor = *state.LastHealthCheckAt
+	} else if state.LastRunAt != nil && !state.LastRunAt.IsZero() {
+		anchor = *state.LastRunAt
+	} else {
+		next := time.Now().UTC()
+		state.NextHealthCheckAt = &next
+		return
 	}
 	next := anchor.Add(time.Duration(cfg.Health.CheckIntervalMinutes) * time.Minute).UTC()
 	state.NextHealthCheckAt = &next
