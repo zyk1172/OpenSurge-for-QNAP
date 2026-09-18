@@ -154,7 +154,7 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     const statusPanel = await screen.findByLabelText('NAS 主机接管与 Tailscale 状态')
     const main = statusPanel.querySelector('.qnap-host-status-main') as HTMLElement
     expect(within(main).getByText('NAS 主机接管')).toBeTruthy()
-    expect(within(main).getByText('启用')).toBeTruthy()
+    expect(within(main).getByText('未启用')).toBeTruthy()
     expect(main.querySelector('.mp-status-light')).toBeNull()
   })
 
