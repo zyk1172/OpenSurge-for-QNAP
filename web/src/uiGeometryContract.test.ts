@@ -1,26 +1,29 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import designSystem from './design-system.css?inline'
-import trafficStyles from './pages/TrafficAnalysisPage.css?inline'
+import './design-system.css'
+import './pages/TrafficAnalysisPage.css'
 
-function cssRule(css: string, selector: string) {
-  const start = css.indexOf(selector)
-  if (start < 0) throw new Error('Missing CSS rule: ' + selector)
-  const open = css.indexOf('{', start)
-  const close = css.indexOf('}', open)
-  return css.slice(open + 1, close)
+function findStyleRule(match: (selector: string) => boolean) {
+  for (const sheet of Array.from(document.styleSheets)) {
+    for (const rule of Array.from(sheet.cssRules)) {
+      const selector = (rule as CSSStyleRule).selectorText
+      if (selector && match(selector)) return rule as CSSStyleRule
+    }
+  }
+  throw new Error('Expected CSS rule was not loaded')
 }
 
 describe('UI geometry CSS contracts', () => {
   it('lets QNAP runtime cards grow past the shared minimum height', () => {
-    const body = cssRule(designSystem, 'html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runtime-card')
-    expect(body).toContain('min-height:94px!important')
-    expect(body).toContain('height:auto!important')
-    expect(body).not.toContain('height:94px!important')
+    const rule = findStyleRule(selector => selector.includes('.qnap-runtime-grid') && selector.includes('.qnap-runtime-card'))
+    expect(rule.style.getPropertyValue('min-height')).toBe('94px')
+    expect(rule.style.getPropertyValue('height')).toBe('auto')
+    expect(rule.style.getPropertyPriority('height')).toBe('important')
   })
 
   it('keeps real-time connection search actions on the shared control geometry', () => {
-    const body = cssRule(trafficStyles, '.traffic-v3-search-actions button')
-    expect(body).toContain('min-height:var(--ui-control-height,40px)')
-    expect(body).toContain('font-size:var(--ui-font-control,13px)')
+    const rule = findStyleRule(selector => selector === '.traffic-v3-search-actions button')
+    expect(rule.style.getPropertyValue('min-height')).toBe('var(--ui-control-height,40px)')
+    expect(rule.style.getPropertyValue('font-size')).toBe('var(--ui-font-control,13px)')
   })
 })
