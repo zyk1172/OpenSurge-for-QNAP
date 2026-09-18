@@ -110,7 +110,7 @@ type Response struct {
 func DefaultConfig() Config {
 	return Config{
 		SchemaVersion: SchemaVersion,
-		Enabled:       false,
+		Enabled:       true,
 		Schedule: Schedule{
 			Mode:      ScheduleInterval,
 			EveryDays: 1,
@@ -159,6 +159,34 @@ func Normalize(cfg Config) Config {
 	}
 	if cfg.Health.LatencyThresholdMS == 0 {
 		cfg.Health.LatencyThresholdMS = 100
+	}
+	// Migrate the exact legacy standard preset to the stronger bounded preset.
+	// Custom scan settings are intentionally preserved.
+	if cfg.Scan.BudgetSeconds == 60 &&
+		cfg.Scan.CandidateLimit == 256 &&
+		cfg.Scan.TCPConcurrency == 64 &&
+		cfg.Scan.TCPAttempts == 2 &&
+		cfg.Scan.TCPTimeoutMS == 800 &&
+		cfg.Scan.HTTPSCandidateCount == 15 &&
+		cfg.Scan.HTTPTimeoutMS == 2000 &&
+		cfg.Scan.DownloadCandidateCount == 3 &&
+		cfg.Scan.DownloadSeconds == 2 &&
+		cfg.Scan.DownloadMaxBytes == 4<<20 &&
+		cfg.Scan.MaxLatencyMS == 0 {
+		cfg.Scan = ScanSettings{
+			BudgetSeconds:          75,
+			CandidateLimit:         1024,
+			TCPConcurrency:         128,
+			TCPAttempts:            3,
+			TCPTimeoutMS:           800,
+			MaxLatencyMS:           100,
+			MaxLossRate:            0,
+			HTTPSCandidateCount:    30,
+			HTTPTimeoutMS:          2500,
+			DownloadCandidateCount: 8,
+			DownloadSeconds:        4,
+			DownloadMaxBytes:       8 << 20,
+		}
 	}
 	if cfg.Scan.MaxLatencyMS == 0 {
 		cfg.Scan.MaxLatencyMS = 100
