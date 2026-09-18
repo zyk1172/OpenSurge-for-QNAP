@@ -317,9 +317,10 @@ export function CloudflareOptimizerPage() {
             {scheduleChoice === 'custom' && <option value="custom">{t('现有自定义周期（保留）')}</option>}
           </select>
         </FormField>
-        <FormField label="当前 IP 检查">
+        <div className="ui-field">
+          <span>{t('当前 IP 检查')}</span>
           <button className="ui-button" type="button" disabled={busy || data.state.results.length === 0} onClick={() => void checkHealth()}>{t(checking || data.state.checking ? '正在检查…' : '立即检查')}</button>
-        </FormField>
+        </div>
       </div>
     </Panel>
 
