@@ -165,15 +165,16 @@ func (s *Server) syncHostHosts(value hostHostsSyncSettings, force bool) (hostHos
 		return value, errors.New(value.LastError)
 	}
 
-	sum := sha256.Sum256(data)
-	digest := hex.EncodeToString(sum[:])
-	if !force && digest == value.LastDigest {
-		return value, nil
-	}
 	if _, err := mihomo.ParseTraditionalHostsFile(string(data)); err != nil {
 		value.LastError = err.Error()
 		_ = s.store.SaveHostHostsSyncSettings(value)
 		return value, err
+	}
+	normalizedHosts := normalizeManagedHostHosts(string(data))
+	sum := sha256.Sum256([]byte(normalizedHosts))
+	digest := hex.EncodeToString(sum[:])
+	if !force && digest == value.LastDigest {
+		return value, nil
 	}
 
 	_, document, _, err := s.loadProfileOverlay()
@@ -185,7 +186,7 @@ func (s *Server) syncHostHosts(value hostHostsSyncSettings, force bool) (hostHos
 	if err != nil {
 		return value, err
 	}
-	standard = replaceManagedHostHosts(standard, strings.TrimSpace(string(data)))
+	standard = replaceManagedHostHosts(standard, normalizedHosts)
 	combined := mihomo.JoinProfileHostsInputs(standard, native)
 	if strings.TrimSpace(combined) == "" {
 		delete(document.DNS.Merge, "hosts-file")
@@ -204,12 +205,45 @@ func (s *Server) syncHostHosts(value hostHostsSyncSettings, force bool) (hostHos
 
 	value.LastDigest = digest
 	value.LastSyncAt = time.Now().UTC().Format(time.RFC3339)
-	value.LastEntries = countHostEntries(string(data))
+	value.LastEntries = countHostEntries(normalizedHosts)
 	value.LastError = ""
 	if err := s.store.SaveHostHostsSyncSettings(value); err != nil {
 		return value, err
 	}
 	return value, nil
+}
+
+func normalizeManagedHostHosts(content string) string {
+	content = strings.TrimPrefix(content, "\ufeff")
+	lines := strings.Split(content, "\n")
+	normalized := make([]string, 0, len(lines))
+	for _, raw := range lines {
+		line := strings.TrimSpace(strings.TrimSuffix(raw, "\r"))
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			normalized = append(normalized, line)
+			continue
+		}
+
+		body := line
+		comment := ""
+		if index := strings.IndexByte(body, '#'); index >= 0 {
+			comment = strings.TrimSpace(body[index+1:])
+			body = strings.TrimSpace(body[:index])
+		}
+		fields := strings.Fields(body)
+		if len(fields) == 0 {
+			continue
+		}
+		line = strings.Join(fields, " ")
+		if comment != "" {
+			line += " # " + comment
+		}
+		normalized = append(normalized, line)
+	}
+	return strings.Join(normalized, "\n")
 }
 
 func replaceManagedHostHosts(standard, content string) string {
