@@ -20,7 +20,7 @@ const traffic = read('../src/pages/TrafficAnalysisPage.css')
 const runtime = ruleBody(design, 'html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runtime-card')
 if (!runtime.includes('min-height:94px!important')) throw new Error('QNAP runtime card minimum height contract changed')
 if (!runtime.includes('height:auto!important')) throw new Error('QNAP runtime card must be allowed to grow')
-if (runtime.includes('height:94px!important')) throw new Error('QNAP runtime card must not be fixed to 94px')
+if (/(?:^|[;\\s])height:94px!important/.test(runtime)) throw new Error('QNAP runtime card must not be fixed to 94px')
 
 const searchActions = ruleBody(traffic, '.traffic-v3-search-actions button')
 if (!searchActions.includes('min-height:var(--ui-control-height,40px)')) throw new Error('Traffic search buttons must use shared control height')
