@@ -184,6 +184,7 @@ Cloudflare Optimizer 是新设计系统的第一张完整样板页面：
 - 保存区使用 `ActionBar`；
 - 所有用户可见文本走 `t()`；
 - 日期时间使用应用 locale，而不是浏览器默认 locale。
+- Cloudflare 的普通用户配置只暴露“域名、自动周期、测速模式”三个概念；内部候选数、并发、超时和下载参数由测速模式 preset 管理，不把实现参数泄漏成表单负担；
 
 其他页面迁移时以这些组件契约为准，不复制 Cloudflare 的 feature layout class。
 
