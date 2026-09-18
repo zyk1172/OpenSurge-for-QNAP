@@ -14,6 +14,7 @@ const catalog = [
   readFileSync(new URL('../src/i18n.qnap-host.en.ts', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/i18n.layout-audit.en.ts', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/i18n.ui-refresh.en.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/i18n.cloudflare.en.ts', import.meta.url), 'utf8'),
 ].join('\n')
 const translated = new Set([...catalog.matchAll(/^\s*'([^']+)':/gm)].map(match => match[1]))
 const missing = new Map()
