@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProfileOverlay, ProfileOverlayDocument, ProfileOverlayPreview, Source } from '../types'
 import { activateLanguage, prepareLanguage } from '../i18n'
 import '../i18n.profile-overlay.en'
+import '../i18n.qnap-host.en'
 
 vi.mock('../api', () => ({
   api: {

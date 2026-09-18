@@ -1,4 +1,4 @@
-import type { APIError, ConfigFile, ConnectionRefreshResult, ConnectivityResponse, ControlConfig, DevicePolicyDocument, DevicesResponse, DeviceTraffic, Diagnostics, DoctorRunStatus, GatewayPlan, LocalRouting, LocalRoutingMode, NetworkDefaults, NetworkInterfacesResponse, Operation, Overview, PolicySet, PolicyWorkspaceRequest, PolicyWorkspaceSnapshot, ProfileOverlay, ProfileOverlayDocument, ProfileOverlayPreview, ProxyGroup, ProxyHealthSnapshot, ProxyHealthTestResponse, SleepPreventionStatus, Source, SourceSnapshotFile, TailscaleDiscoveryResponse, TailscaleResponse, TailscaleUpdate, UIPreferences } from './types'
+import type { APIError, ConfigFile, ConnectionRefreshResult, ConnectivityResponse, ControlConfig, DevicePolicyDocument, DevicesResponse, DeviceTraffic, Diagnostics, DoctorRunStatus, GatewayPlan, LocalRouting, LocalRoutingMode, NetworkDefaults, NetworkInterfacesResponse, Operation, Overview, PolicySet, PolicyWorkspaceRequest, PolicyWorkspaceSnapshot, ProfileOverlay, ProfileOverlayDocument, ProfileOverlayPreview, ProxyGroup, ProxyHealthSnapshot, ProxyHealthTestResponse, SleepPreventionStatus, Source, SourceSnapshotFile, TailscaleDiscoveryResponse, TailscaleResponse, TailscaleUpdate, UIPreferences, HostHostsSync } from './types'
 import { getOperation, markOperationConnection, operationStatusUnknownMessage, recordOperation } from './operations'
 
 export class RequestError extends Error {
@@ -97,6 +97,9 @@ export const api = {
 	saveTailscale: (revision: string, settings: TailscaleUpdate) => trackedRequest<TailscaleResponse>('apply-tailscale', '/api/v1/tailscale', { method: 'PUT', headers: { 'If-Match': `"${revision}"` }, body: JSON.stringify(settings) }),
 	forgetTailscaleIdentity: (revision: string) => request<TailscaleResponse>('/api/v1/tailscale/forget-identity', { method: 'POST', headers: { 'If-Match': `"${revision}"` } }),
 	profileOverlay: () => request<ProfileOverlay>('/api/v1/profile-overlay'),
+	hostHostsSync:()=>request<HostHostsSync>('/api/v1/host-hosts-sync'),
+	saveHostHostsSync:(settings:Pick<HostHostsSync,'enabled'|'auto_update'|'interval_minutes'>)=>request<HostHostsSync>('/api/v1/host-hosts-sync',{method:'PUT',body:JSON.stringify(settings)}),
+	syncHostHostsNow:()=>request<HostHostsSync>('/api/v1/host-hosts-sync',{method:'POST'}),
 	saveProfileOverlayDocument: (document: ProfileOverlayDocument, revision: string) => request<ProfileOverlay>('/api/v1/profile-overlay', { method: 'PUT', headers: { 'If-Match': `"${revision}"` }, body: JSON.stringify({ document }) }),
 	saveProfileOverlayYAML: (yaml: string, revision: string) => request<ProfileOverlay>('/api/v1/profile-overlay', { method: 'PUT', headers: { 'If-Match': `"${revision}"` }, body: JSON.stringify({ yaml }) }),
 	sourcePreview: (id: string) => request<ProfileOverlayPreview>(`/api/v1/sources/${encodeURIComponent(id)}/preview`),
