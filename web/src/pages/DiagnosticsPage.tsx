@@ -89,7 +89,7 @@ export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
   const providerPanel = <>
     <SectionTitle title={t('代理集合')} subtitle={t('Provider 运行状态')} />
     <div className="provider-status-list">
-      {providers.map(provider => <div className="row" key={provider.name}><StatusDot status={provider.proxies.some(proxy => proxy.alive) ? 'running' : 'degraded'} /><div className="grow"><strong>{provider.name}</strong><small>{t('{{count}} 个节点 · {{type}}', { count: String(provider.proxy_count), type: provider.vehicle_type })}</small></div><button onClick={() => void api.refreshProvider(provider.name)}>{t('刷新')}</button></div>)}
+      {providers.map(provider => <div className="row" key={provider.name}><StatusDot status={provider.proxies.some(proxy => proxy.alive) ? 'running' : 'degraded'} /><div className="grow"><strong>{provider.name}</strong><small>{t('{{count}} 个节点 · {{type}}', { count: String(provider.proxy_count), type: provider.vehicle_type })}</small></div><button className="provider-refresh-button" onClick={() => void api.refreshProvider(provider.name)}>{t('刷新')}</button></div>)}
       {!providers.length && <div className="empty">{t('暂无代理集合')}</div>}
     </div>
   </>

@@ -85,6 +85,8 @@ describe('CloudflareOptimizerPage', () => {
     expect(container.querySelectorAll('.ui-table-wrap .ui-table').length).toBe(2)
     expect(container.querySelector('.ui-action-bar')).toBeTruthy()
 
+    expect(container.querySelector('.cloudflare-monitor-grid')?.children).toHaveLength(5)
+    expect(container.querySelector('.cloudflare-monitor-actions .cloudflare-check-button')).toBeTruthy()
     expect(screen.getByLabelText('检查间隔')).toBeTruthy()
     expect(screen.getByLabelText('延迟阈值')).toBeTruthy()
     expect(screen.getByLabelText('最大丢包')).toBeTruthy()

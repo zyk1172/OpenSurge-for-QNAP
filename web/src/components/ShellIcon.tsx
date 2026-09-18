@@ -1,4 +1,4 @@
-export type ShellIconName = 'dashboard' | 'network' | 'cloudflare' | 'sources' | 'devices' | 'policies' | 'management' | 'connectivity' | 'diagnostics' | 'traffic' | 'tutorial' | 'menu' | 'collapse' | 'sun' | 'moon' | 'search'
+export type ShellIconName = 'dashboard' | 'network' | 'cloudflare' | 'sources' | 'devices' | 'policies' | 'management' | 'connectivity' | 'diagnostics' | 'traffic' | 'tutorial' | 'menu' | 'collapse' | 'sun' | 'moon' | 'search' | 'github'
 
 export function ShellIcon({ name }: { name: ShellIconName }) {
   const common = { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
@@ -16,6 +16,7 @@ export function ShellIcon({ name }: { name: ShellIconName }) {
   if (name === 'menu') return <svg {...common}><path d="M4 7h16M4 12h16M4 17h16"/></svg>
   if (name === 'collapse') return <svg {...common}><path d="M15 5 8 12l7 7"/></svg>
   if (name === 'search') return <svg {...common}><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+  if (name === 'github') return <svg {...common} viewBox="0 0 24 24"><path d="M12 2.8a9.2 9.2 0 0 0-2.9 17.9c.46.08.63-.2.63-.45v-1.78c-2.57.56-3.11-1.09-3.11-1.09-.42-1.07-1.03-1.36-1.03-1.36-.84-.58.06-.57.06-.57.93.07 1.42.96 1.42.96.83 1.42 2.17 1.01 2.7.77.08-.6.32-1.01.59-1.24-2.05-.23-4.21-1.03-4.21-4.57 0-1.01.36-1.84.95-2.49-.1-.23-.41-1.18.09-2.45 0 0 .78-.25 2.53.95A8.8 8.8 0 0 1 12 7.08a8.8 8.8 0 0 1 2.31.31c1.76-1.2 2.53-.95 2.53-.95.5 1.27.19 2.22.09 2.45.59.65.95 1.48.95 2.49 0 3.55-2.16 4.33-4.22 4.56.33.29.63.85.63 1.72v2.59c0 .25.17.54.64.45A9.2 9.2 0 0 0 12 2.8Z"/></svg>
   if (name === 'sun') return <svg {...common}><circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4"/></svg>
   return <svg {...common}><path d="M20 15.2A8 8 0 0 1 8.8 4 8.1 8.1 0 1 0 20 15.2Z"/></svg>
 }

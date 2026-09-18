@@ -149,6 +149,15 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     expect(screen.queryByText('局域网 API 令牌')).toBeNull()
   })
 
+  it('renders the NAS takeover status with the same compact card structure', async () => {
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={() => {}} />)
+    const statusPanel = await screen.findByLabelText('NAS 主机接管与 Tailscale 状态')
+    const main = statusPanel.querySelector('.qnap-host-status-main') as HTMLElement
+    expect(within(main).getByText('NAS 主机接管')).toBeTruthy()
+    expect(within(main).getByText('未启用')).toBeTruthy()
+    expect(main.querySelector('.mp-status-light')).toBeNull()
+  })
+
   it('persists DNS mode and Tailscale protection through the host-routing endpoint', async () => {
     const onNotify = vi.fn()
     render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={onNotify} />)
@@ -175,6 +184,9 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     expect(screen.queryByText('高级代理配置')).toBeNull()
     expect(screen.queryByText('部署网络修改')).toBeNull()
     expect(screen.queryByText('IPv6 未接管')).toBeNull()
+    expect(screen.queryByText('DNS 上游')).toBeNull()
+    expect(screen.getByRole('switch', { name: 'Store fake-ip' })).toBeTruthy()
+    expect(screen.getByRole('switch', { name: 'TUN strict-route' })).toBeTruthy()
     expect(onNavigate).not.toHaveBeenCalled()
   })
 })

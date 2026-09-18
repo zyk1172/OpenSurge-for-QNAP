@@ -62,6 +62,7 @@ describe('ConnectivityPage', () => {
     expect(screen.getAllByText('路径不符').length).toBe(2)
 
     const github = screen.getByText('GitHub').closest('article')!
+    expect(github.querySelector('.route-arrow')?.textContent).toBe('⟶')
     expect(within(github).getAllByText('DIRECT').length).toBeGreaterThan(0)
     await userEvent.click(within(github).getByText('查看检测证据'))
     expect(within(github).getByText('MATCH · DIRECT')).toBeTruthy()

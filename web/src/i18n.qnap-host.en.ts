@@ -1,6 +1,12 @@
 import { registerEnglishMessages } from './i18n'
 
 export const qnapHostEnglishMessages: Record<string, string> = {
+  '严格接管 TUN 路由': 'Enforce strict TUN routing',
+  'QTS 路由保持不变': 'QTS routing unchanged',
+  '等待网关就绪': 'Waiting for gateway readiness',
+  '公网 IPv4 经 OpenSurge': 'Public IPv4 via OpenSurge',
+  '未启用': 'Disabled',
+  '启用': 'Enabled',
   '挂载要求与重建容器步骤请查看教程中的“NAS Hosts 只读挂载”。': 'See “NAS Hosts read-only mount” in the Guide for mount requirements and container recreation steps.',
   '已检测到映射': 'Mapping detected',
   '宿主映射状态': 'Host mapping status',

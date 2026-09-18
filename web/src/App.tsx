@@ -26,7 +26,6 @@ import type { Overview } from './types'
 import { activateLanguage, cacheRequestedLanguage, initialRequestedLanguage, isRequestedLanguage, prepareLanguage, t, type RequestedLanguage } from './i18n'
 
 type Page = 'dashboard' | 'network' | 'cloudflare' | 'sources' | 'devices' | 'policies' | 'management' | 'connectivity' | 'diagnostics' | 'traffic' | 'tutorial'
-type Theme = 'dark' | 'light'
 type NetworkNavigationTarget = 'none' | 'control' | 'bottom'
 type NavGroup = 'control' | 'observe'
 type NavItem = { id: Page; label: string; group: NavGroup; qnapOnly?: boolean }
@@ -56,12 +55,6 @@ function currentPage(): Page {
   return availableNav.some(item => item.id === candidate) ? candidate! : 'dashboard'
 }
 
-function initialTheme(): Theme {
-  const stored = window.localStorage.getItem('opensurge-theme')
-  if (stored === 'dark' || stored === 'light') return stored
-  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
-}
-
 function initialSidebarCompact() {
   return window.localStorage.getItem('opensurge-sidebar') === 'compact'
 }
@@ -89,7 +82,6 @@ export function App() {
   const [overview, setOverview] = useState<Overview | null>(null)
   const [error, setError] = useState('')
   const [authenticationRequired, setAuthenticationRequired] = useState(false)
-  const [theme, setTheme] = useState<Theme>(initialTheme)
   const [language, setLanguage] = useState<RequestedLanguage>(initialRequestedLanguage)
   const [languageChanging, setLanguageChanging] = useState(false)
   const [devicesDirty, setDevicesDirty] = useState(false)
@@ -109,9 +101,9 @@ export function App() {
   devicesDirtyRef.current = devicesDirty
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme
-    window.localStorage.setItem('opensurge-theme', theme)
-  }, [theme])
+    document.documentElement.dataset.theme = 'dark'
+    window.localStorage.removeItem('opensurge-theme')
+  }, [])
 
   useEffect(() => {
     window.localStorage.setItem('opensurge-sidebar', sidebarCompact ? 'compact' : 'expanded')
@@ -302,12 +294,12 @@ export function App() {
       </div>
       {qnapBuild ? <div className="sidebar-bottom-controls" aria-label={t('快捷控制')}>
         <span className="sidebar-round-control" role="status" aria-label={gatewayStatus} title={gatewayStatus}><span className={`mp-status-light ${gatewayRunning ? 'ok' : ''}`} /></span>
-        <button type="button" className="sidebar-round-control" aria-pressed={theme === 'light'} aria-label={t(theme === 'dark' ? '切换为浅色模式' : '切换为深色模式')} title={t(theme === 'dark' ? '切换为浅色模式' : '切换为深色模式')} onClick={() => setTheme(current => current === 'dark' ? 'light' : 'dark')}><ShellIcon name={theme === 'dark' ? 'sun' : 'moon'} /></button>
         <LanguageSelector language={language} changing={languageChanging} onChange={next => void changeLanguage(next)} />
+        <a className="sidebar-round-control sidebar-github-button" href="https://github.com/zyk1172/OpenSurge-for-QNAP" target="_blank" rel="noreferrer" aria-label="GitHub" title="GitHub"><ShellIcon name="github" /></a>
       </div> : <>
         <div className="sidebar-controls">
           <LanguageSelector language={language} changing={languageChanging} onChange={next => void changeLanguage(next)} />
-          <button type="button" className="theme-toggle sidebar-theme-toggle" aria-pressed={theme === 'light'} aria-label={t(theme === 'dark' ? '切换为浅色模式' : '切换为深色模式')} onClick={() => setTheme(current => current === 'dark' ? 'light' : 'dark')}><ShellIcon name={theme === 'dark' ? 'sun' : 'moon'} /><span>{t(theme === 'dark' ? '浅色模式' : '深色模式')}</span></button>
+          <a className="theme-toggle sidebar-theme-toggle sidebar-github-link" href="https://github.com/zyk1172/OpenSurge-for-QNAP" target="_blank" rel="noreferrer" aria-label="GitHub"><ShellIcon name="github" /><span>GitHub</span></a>
           <label className={`sidebar-switch ${overview?.sleep_prevention?.active ? 'active' : ''}`} title={t('阻止空闲睡眠和合盖睡眠。合盖运行可能明显增加耗电与发热，请勿放入不通风的包内。')}><input type="checkbox" checked={overview?.sleep_prevention?.active ?? false} disabled={!overview || sleepPreventionChanging} onChange={event => void setSleepPrevention(event.target.checked)} /><span><strong>{t(sleepPreventionChanging ? '正在切换…' : '合盖保持运行')}</strong><small>{t(overview?.sleep_prevention?.active ? '系统睡眠已临时禁用' : '默认关闭 · 本次运行有效')}</small></span></label>
           {overview?.sleep_prevention?.error && <small className="sidebar-control-error" role="status">{overview.sleep_prevention.error}</small>}
         </div>

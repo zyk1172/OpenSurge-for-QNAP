@@ -276,7 +276,7 @@ export function CloudflareOptimizerPage() {
 
     <Panel>
       <SectionHeader eyebrow="CONTINUOUS MONITORING" title="持续监控" subtitle="轻量检查当前 IP；超过延迟或丢包阈值才执行完整优选，同时保留周期性强制刷新。" />
-      <div className="ui-form-grid">
+      <div className="ui-form-grid cloudflare-monitor-grid">
         <FormField label="持续监控">
           <select value={draft.health.enabled ? 'on' : 'off'} onChange={event => updateHealth({ enabled: event.target.value === 'on' })}>
             <option value="on">{t('开启')}</option>
@@ -317,10 +317,9 @@ export function CloudflareOptimizerPage() {
             {scheduleChoice === 'custom' && <option value="custom">{t('现有自定义周期（保留）')}</option>}
           </select>
         </FormField>
-        <div className="ui-field">
-          <span>{t('当前 IP 检查')}</span>
-          <button className="ui-button" type="button" disabled={busy || data.state.results.length === 0} onClick={() => void checkHealth()}>{t(checking || data.state.checking ? '正在检查…' : '立即检查')}</button>
-        </div>
+      </div>
+      <div className="cloudflare-monitor-actions">
+        <button className="primary cloudflare-check-button" type="button" disabled={busy || data.state.results.length === 0} onClick={() => void checkHealth()}>{t(checking || data.state.checking ? '正在检查…' : '立即检查')}</button>
       </div>
     </Panel>
 

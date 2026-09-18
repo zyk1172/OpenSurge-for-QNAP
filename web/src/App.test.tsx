@@ -888,13 +888,14 @@ describe('OpenSurge app shell', () => {
     expect(screen.queryByText(/does not expose a complete IPv4 configuration/)).toBeNull()
   })
 
-  it('switches between dark and light backgrounds and remembers the choice', async () => {
+  it('keeps the shell dark-only and exposes the GitHub project link', async () => {
+    window.localStorage.setItem('opensurge-theme', 'light')
     render(<App />)
-    const toggle = await screen.findByRole('button', { name: '切换为浅色模式' })
-    await userEvent.click(toggle)
-    expect(document.documentElement.dataset.theme).toBe('light')
-    expect(window.localStorage.getItem('opensurge-theme')).toBe('light')
-    expect(screen.getByRole('button', { name: '切换为深色模式' })).toBeTruthy()
+    const github = await screen.findByRole('link', { name: 'GitHub' })
+    expect(github.getAttribute('href')).toBe('https://github.com/zyk1172/OpenSurge-for-QNAP')
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(window.localStorage.getItem('opensurge-theme')).toBeNull()
+    expect(screen.queryByRole('button', { name: /切换为浅色模式|切换为深色模式/ })).toBeNull()
   })
 
   it('requires saving corrected configuration before the prepared recovery can advance', async () => {

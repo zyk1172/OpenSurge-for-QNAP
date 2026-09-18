@@ -25,6 +25,15 @@ describe('DiagnosticsPage environment check', () => {
 
   afterEach(() => { cleanup(); vi.clearAllMocks() })
 
+  it('keeps provider status cards compact with status, copy, and refresh in one row', async () => {
+    render(<DiagnosticsPage overview={{ ...overview, providers: { proxy_providers: [{ name: 'AI', proxy_count: 3, vehicle_type: 'Compatible', proxies: [{ alive: true }] }], rule_providers: [] } } as unknown as Overview} />)
+    const refresh = await screen.findByRole('button', { name: '刷新' })
+    expect(refresh.classList.contains('provider-refresh-button')).toBe(true)
+    const row = refresh.closest('.row') as HTMLElement
+    expect(row.querySelector('.status-dot')).toBeTruthy()
+    expect(row.querySelector('.grow')?.textContent).toContain('AI')
+  })
+
   it('loads cached state without running the check and starts it only after an explicit click', async () => {
     render(<DiagnosticsPage overview={overview} />)
 
