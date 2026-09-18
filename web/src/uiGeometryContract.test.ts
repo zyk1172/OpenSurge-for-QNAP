@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import designSystem from './design-system.css?raw'
-import trafficStyles from './pages/TrafficAnalysisPage.css?raw'
+import designSystem from './design-system.css?inline'
+import trafficStyles from './pages/TrafficAnalysisPage.css?inline'
 
 function cssRule(css: string, selector: string) {
   const start = css.indexOf(selector)
