@@ -90,6 +90,7 @@ type HealthResult struct {
 type State struct {
 	SchemaVersion      int            `json:"schema_version"`
 	Running            bool           `json:"running"`
+	Checking           bool           `json:"checking"`
 	StartedAt          *time.Time     `json:"started_at,omitempty"`
 	LastRunAt          *time.Time     `json:"last_run_at,omitempty"`
 	NextRunAt          *time.Time     `json:"next_run_at,omitempty"`
