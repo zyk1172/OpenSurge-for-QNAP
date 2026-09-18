@@ -96,7 +96,7 @@ describe('CloudflareOptimizerPage', () => {
 
   it('maps one scan-mode choice to the full internal preset', async () => {
     render(<CloudflareOptimizerPage />)
-    await screen.findByText('测速模式')
+    await screen.findAllByText('测速模式')
 
     await userEvent.selectOptions(screen.getByLabelText('测速模式'), 'full')
     await userEvent.click(screen.getByRole('button', { name: '保存设置' }))
