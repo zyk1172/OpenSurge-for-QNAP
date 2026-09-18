@@ -183,7 +183,6 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
                 {hostSync.last_error && <div className="notice warn"><strong>{t('宿主 Hosts 读取失败')}</strong><p>{hostSync.last_error}</p><p>{t('挂载要求与重建容器步骤请查看教程中的“NAS Hosts 只读挂载”。')}</p></div>}
               </> : <div className="empty">{t('正在读取宿主 Hosts 同步状态…')}</div>}
             </div>
-            </div>
           </section>
         </div> : null}
 
