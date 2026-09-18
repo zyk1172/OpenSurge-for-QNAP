@@ -47,6 +47,7 @@ services:
 
     volumes:
       - ${OPENSURGE_DATA_PATH:?set absolute QNAP /share/... persistence path}:/data
+      - /etc/hosts:/run/opensurge/host-hosts:ro
 
     networks:
       opensurge_lan:
