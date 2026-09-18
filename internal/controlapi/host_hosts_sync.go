@@ -185,7 +185,8 @@ func (s *Server) syncHostHosts(value hostHostsSyncSettings, force bool) (hostHos
 	if err != nil {
 		return value, err
 	}
-	standard = replaceManagedHostHosts(standard, strings.TrimSpace(string(data)))
+	normalizedHosts := normalizeManagedHostHosts(string(data))
+	standard = replaceManagedHostHosts(standard, normalizedHosts)
 	combined := mihomo.JoinProfileHostsInputs(standard, native)
 	if strings.TrimSpace(combined) == "" {
 		delete(document.DNS.Merge, "hosts-file")
@@ -210,6 +211,39 @@ func (s *Server) syncHostHosts(value hostHostsSyncSettings, force bool) (hostHos
 		return value, err
 	}
 	return value, nil
+}
+
+func normalizeManagedHostHosts(content string) string {
+	content = strings.TrimPrefix(content, "\ufeff")
+	lines := strings.Split(content, "\n")
+	normalized := make([]string, 0, len(lines))
+	for _, raw := range lines {
+		line := strings.TrimSpace(strings.TrimSuffix(raw, "\r"))
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			normalized = append(normalized, line)
+			continue
+		}
+
+		body := line
+		comment := ""
+		if index := strings.IndexByte(body, '#'); index >= 0 {
+			comment = strings.TrimSpace(body[index+1:])
+			body = strings.TrimSpace(body[:index])
+		}
+		fields := strings.Fields(body)
+		if len(fields) == 0 {
+			continue
+		}
+		line = strings.Join(fields, " ")
+		if comment != "" {
+			line += " # " + comment
+		}
+		normalized = append(normalized, line)
+	}
+	return strings.Join(normalized, "\n")
 }
 
 func replaceManagedHostHosts(standard, content string) string {

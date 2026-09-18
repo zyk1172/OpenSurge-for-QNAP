@@ -138,3 +138,13 @@ func TestHostHostsSyncAPIUpdatesPartialSettings(t *testing.T) {
 		t.Fatalf("settings=%+v", settings)
 	}
 }
+
+
+func TestNormalizeManagedHostHosts(t *testing.T) {
+	input := "162.159.4.181\t\twiki.m-team.cc\n172.64.155.48        tracker.m-team.cc\n172.64.155.48\ttracker.m-team.io   # tracker\n\n# kept comment\n"
+	got := normalizeManagedHostHosts(input)
+	want := "162.159.4.181 wiki.m-team.cc\n172.64.155.48 tracker.m-team.cc\n172.64.155.48 tracker.m-team.io # tracker\n# kept comment"
+	if got != want {
+		t.Fatalf("normalized hosts mismatch\nwant:\n%s\n\ngot:\n%s", want, got)
+	}
+}
