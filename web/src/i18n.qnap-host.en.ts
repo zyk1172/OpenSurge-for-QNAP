@@ -1,6 +1,11 @@
 import { registerEnglishMessages } from './i18n'
 
 export const qnapHostEnglishMessages: Record<string, string> = {
+  '挂载要求与重建容器步骤请查看教程中的“NAS Hosts 只读挂载”。': 'See “NAS Hosts read-only mount” in the Guide for mount requirements and container recreation steps.',
+  '已检测到映射': 'Mapping detected',
+  '宿主映射状态': 'Host mapping status',
+  '定时更新启用后按此间隔检查': 'Check at this interval when scheduled refresh is enabled',
+  '控制宿主 Hosts 是否参与附加配置': 'Control whether host Hosts participate in the global overlay',
   'NAS 宿主机 Hosts 同步': 'NAS host Hosts synchronization',
   '从只读映射的 QNAP /etc/hosts 导入；自动区与手工 Hosts 相互隔离。': 'Import from the read-only mapped QNAP /etc/hosts; managed entries remain isolated from manual Hosts.',
   '宿主 Hosts 挂载要求': 'Host Hosts mount requirement',
