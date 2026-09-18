@@ -89,7 +89,7 @@ type Server struct {
 	mu          sync.Mutex
 	lifecycleMu sync.Mutex
 	sessions    map[string]time.Time
-	bootstraps  map[string]bootstrapGrant
+	bootstraps        map[string]bootstrapGrant
 	hostHostsSyncOnce sync.Once
 }
 

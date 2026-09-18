@@ -1254,3 +1254,20 @@ html[data-product-target="qnap"] .workspace-canvas .diagnostic-log-panel>pre{
   }
   html[data-product-target="qnap"] .workspace-canvas .device-metadata{grid-template-rows:none!important}
 }
+
+html[data-product-target="qnap"] .workspace-canvas .host-sync-mount-state{
+  flex:0 0 auto!important;
+  padding:4px 8px!important;
+  border:1px solid var(--ui-border)!important;
+  border-radius:var(--ui-radius-pill)!important;
+  background:var(--ui-neutral-control)!important;
+  color:var(--ui-text-secondary)!important;
+  font-size:var(--ui-font-caption)!important;
+  font-weight:650!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .host-sync-mount-state.ok{
+  border-color:color-mix(in srgb,var(--ui-success) 42%,var(--ui-border))!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .host-sync-mount-state.warn{
+  border-color:color-mix(in srgb,var(--ui-warning) 42%,var(--ui-border))!important;
+}

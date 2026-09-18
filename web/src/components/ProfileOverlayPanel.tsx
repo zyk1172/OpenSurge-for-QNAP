@@ -145,9 +145,9 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
             </header>
             <div className="overlay-section-body">
               <div className="host-sync-mount-note" role="note">
-                <div><strong>{t('宿主 Hosts 挂载要求')}</strong><small>{t('这是容器创建参数；旧容器升级不会自动增加。')}</small></div>
+                <div><strong>{t('宿主 Hosts 挂载要求')}</strong><span className={`host-sync-mount-state ${hostSync?.mapped ? 'ok' : 'warn'}`}>{t(hostSync?.mapped ? '已检测到只读映射' : '未检测到映射')}</span></div>
                 <code>/etc/hosts → /run/opensurge/host-hosts · read-only</code>
-                <p>{t('如果当前容器没有这条映射，请在 Container Station / Compose 添加')} <code>/etc/hosts:/run/opensurge/host-hosts:ro</code> {t('后重建容器；继续挂载原 /data，现有配置不会丢失。')}</p>
+                <p>{t('这是容器创建参数；旧容器升级不会自动增加。如果当前容器没有这条映射，请在 Container Station / Compose 添加')} <code>/etc/hosts:/run/opensurge/host-hosts:ro</code> {t('后重建容器；继续挂载原 /data，现有配置不会丢失。')}</p>{hostSync?.mount_error && <small>{t('当前检测结果：')} {hostSync.mount_error}</small>}
               </div>
               {hostSync ? <>
                 <div className="host-sync-settings">

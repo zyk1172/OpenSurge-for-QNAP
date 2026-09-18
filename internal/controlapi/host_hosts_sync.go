@@ -1,12 +1,257 @@
 package controlapi
-import("crypto/sha256";"encoding/hex";"encoding/json";"errors";"fmt";"net/http";"os";"path/filepath";"strings";"time";"open-mihomo-gateway/internal/mihomo")
-const(defaultHostHostsPath="/run/opensurge/host-hosts";hostHostsBegin="# >>> OPENSURGE QNAP HOST HOSTS >>>";hostHostsEnd="# <<< OPENSURGE QNAP HOST HOSTS <<<")
-type hostHostsSyncSettings struct{SchemaVersion int `json:"schema_version"`;Enabled bool `json:"enabled"`;AutoUpdate bool `json:"auto_update"`;IntervalMinutes int `json:"interval_minutes"`;Path string `json:"path"`;LastSyncAt string `json:"last_sync_at,omitempty"`;LastDigest string `json:"last_digest,omitempty"`;LastEntries int `json:"last_entries"`;LastError string `json:"last_error,omitempty"`}
-func defaultHostHostsSyncSettings()hostHostsSyncSettings{return hostHostsSyncSettings{SchemaVersion:SchemaVersion,IntervalMinutes:30,Path:defaultHostHostsPath}}
-func(s *Store)HostHostsSyncSettings()(hostHostsSyncSettings,error){s.mu.Lock();defer s.mu.Unlock();v:=defaultHostHostsSyncSettings();err:=readJSON(filepath.Join(s.dir,"host-hosts-sync.json"),&v);if errors.Is(err,os.ErrNotExist){return v,nil};if err!=nil{return v,err};v.SchemaVersion=SchemaVersion;if v.Path==""{v.Path=defaultHostHostsPath};return v,nil}
-func(s *Store)SaveHostHostsSyncSettings(v hostHostsSyncSettings)error{s.mu.Lock();defer s.mu.Unlock();v.SchemaVersion=SchemaVersion;if v.Path==""{v.Path=defaultHostHostsPath};data,err:=json.MarshalIndent(v,"","  ");if err!=nil{return err};return writeAtomic(filepath.Join(s.dir,"host-hosts-sync.json"),append(data,'\n'),0600)}
-func(s *Server)handleHostHostsSync(w http.ResponseWriter,r *http.Request){v,err:=s.store.HostHostsSyncSettings();if err!=nil{writeError(w,500,"host_hosts_sync_failed",err.Error());return};switch r.Method{case http.MethodGet:writeJSON(w,200,v);case http.MethodPut:var q struct{Enabled *bool `json:"enabled"`;AutoUpdate *bool `json:"auto_update"`;IntervalMinutes *int `json:"interval_minutes"`};if err:=decodeJSON(r,&q,32<<10);err!=nil{writeError(w,400,"host_hosts_sync_invalid",err.Error());return};if q.Enabled!=nil{v.Enabled=*q.Enabled};if q.AutoUpdate!=nil{v.AutoUpdate=*q.AutoUpdate};if q.IntervalMinutes!=nil{v.IntervalMinutes=*q.IntervalMinutes};if v.IntervalMinutes<5||v.IntervalMinutes>10080{writeError(w,422,"host_hosts_sync_invalid","interval_minutes must be between 5 and 10080");return};if err:=s.store.SaveHostHostsSyncSettings(v);err!=nil{writeError(w,500,"host_hosts_sync_failed",err.Error());return};if v.Enabled{v,_=s.syncHostHosts(v,false)};writeJSON(w,200,v);case http.MethodPost:v,err=s.syncHostHosts(v,true);if err!=nil{writeError(w,422,"host_hosts_sync_failed",err.Error());return};writeJSON(w,200,v)}}
-func(s *Server)syncHostHosts(v hostHostsSyncSettings,force bool)(hostHostsSyncSettings,error){if !v.Enabled&&!force{return v,nil};data,err:=os.ReadFile(v.Path);if err!=nil{v.LastError=fmt.Sprintf("read mapped QNAP hosts: %v",err);_=s.store.SaveHostHostsSyncSettings(v);return v,errors.New(v.LastError)};sum:=sha256.Sum256(data);digest:=hex.EncodeToString(sum[:]);if !force&&digest==v.LastDigest{return v,nil};if _,err:=mihomo.ParseTraditionalHostsFile(string(data));err!=nil{v.LastError=err.Error();_=s.store.SaveHostHostsSyncSettings(v);return v,err};_,doc,_,err:=s.loadProfileOverlay();if err!=nil{return v,err};raw,_:=doc.DNS.Merge["hosts-file"].(string);standard,native,err:=mihomo.SplitProfileHostsInputs(raw);if err!=nil{return v,err};standard=replaceManagedHostHosts(standard,strings.TrimSpace(string(data)));combined:=mihomo.JoinProfileHostsInputs(standard,native);if strings.TrimSpace(combined)==""{delete(doc.DNS.Merge,"hosts-file")}else{doc.DNS.Merge["hosts-file"]=combined};doc.DNS.Merge["use-hosts"]=true;rendered,err:=mihomo.RenderProfileOverlay(doc);if err!=nil{return v,err};if err:=s.store.SaveProfileOverlay(rendered);err!=nil{return v,err};v.LastDigest=digest;v.LastSyncAt=time.Now().UTC().Format(time.RFC3339);v.LastEntries=countHostEntries(string(data));v.LastError="";if err:=s.store.SaveHostHostsSyncSettings(v);err!=nil{return v,err};return v,nil}
-func replaceManagedHostHosts(standard,content string)string{start,end:=strings.Index(standard,hostHostsBegin),strings.Index(standard,hostHostsEnd);if start>=0&&end>=start{standard=strings.TrimSpace(standard[:start]+standard[end+len(hostHostsEnd):])};if content==""{return standard};block:=hostHostsBegin+"\n"+content+"\n"+hostHostsEnd;if standard==""{return block};return strings.TrimSpace(standard)+"\n\n"+block}
-func countHostEntries(content string)int{n:=0;for _,raw:=range strings.Split(content,"\n"){line:=strings.TrimSpace(strings.SplitN(raw,"#",2)[0]);if f:=strings.Fields(line);len(f)>1{n+=len(f)-1}};return n}
-func(s *Server)runHostHostsSyncLoop(){ticker:=time.NewTicker(time.Minute);defer ticker.Stop();for range ticker.C{v,err:=s.store.HostHostsSyncSettings();if err!=nil||!v.Enabled||!v.AutoUpdate{continue};last,_:=time.Parse(time.RFC3339,v.LastSyncAt);if !last.IsZero()&&time.Since(last)<time.Duration(v.IntervalMinutes)*time.Minute{continue};_,_=s.syncHostHosts(v,false)}}
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"open-mihomo-gateway/internal/mihomo"
+)
+
+const (
+	defaultHostHostsPath = "/run/opensurge/host-hosts"
+	hostHostsBegin        = "# >>> OPENSURGE QNAP HOST HOSTS >>>"
+	hostHostsEnd          = "# <<< OPENSURGE QNAP HOST HOSTS <<<"
+)
+
+type hostHostsSyncSettings struct {
+	SchemaVersion    int    `json:"schema_version"`
+	Enabled          bool   `json:"enabled"`
+	AutoUpdate       bool   `json:"auto_update"`
+	IntervalMinutes  int    `json:"interval_minutes"`
+	Path             string `json:"path"`
+	LastSyncAt       string `json:"last_sync_at,omitempty"`
+	LastDigest       string `json:"last_digest,omitempty"`
+	LastEntries      int    `json:"last_entries"`
+	LastError        string `json:"last_error,omitempty"`
+}
+
+type hostHostsSyncView struct {
+	hostHostsSyncSettings
+	Mapped     bool   `json:"mapped"`
+	MountError string `json:"mount_error,omitempty"`
+}
+
+func defaultHostHostsSyncSettings() hostHostsSyncSettings {
+	return hostHostsSyncSettings{
+		SchemaVersion:   SchemaVersion,
+		IntervalMinutes: 30,
+		Path:            defaultHostHostsPath,
+	}
+}
+
+func (s *Store) HostHostsSyncSettings() (hostHostsSyncSettings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	value := defaultHostHostsSyncSettings()
+	err := readJSON(filepath.Join(s.dir, "host-hosts-sync.json"), &value)
+	if errors.Is(err, os.ErrNotExist) {
+		return value, nil
+	}
+	if err != nil {
+		return value, err
+	}
+	value.SchemaVersion = SchemaVersion
+	if value.Path == "" {
+		value.Path = defaultHostHostsPath
+	}
+	return value, nil
+}
+
+func (s *Store) SaveHostHostsSyncSettings(value hostHostsSyncSettings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	value.SchemaVersion = SchemaVersion
+	if value.Path == "" {
+		value.Path = defaultHostHostsPath
+	}
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeAtomic(filepath.Join(s.dir, "host-hosts-sync.json"), append(data, '\n'), 0600)
+}
+
+func hostHostsSyncStatus(value hostHostsSyncSettings) hostHostsSyncView {
+	view := hostHostsSyncView{hostHostsSyncSettings: value}
+	info, err := os.Stat(value.Path)
+	if err != nil {
+		view.MountError = err.Error()
+		return view
+	}
+	if !info.Mode().IsRegular() {
+		view.MountError = "mapped path is not a regular file"
+		return view
+	}
+	view.Mapped = true
+	return view
+}
+
+func (s *Server) handleHostHostsSync(w http.ResponseWriter, r *http.Request) {
+	value, err := s.store.HostHostsSyncSettings()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "host_hosts_sync_failed", err.Error())
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, hostHostsSyncStatus(value))
+
+	case http.MethodPut:
+		var request struct {
+			Enabled         *bool `json:"enabled"`
+			AutoUpdate      *bool `json:"auto_update"`
+			IntervalMinutes *int  `json:"interval_minutes"`
+		}
+		if err := decodeJSON(r, &request, 32<<10); err != nil {
+			writeError(w, http.StatusBadRequest, "host_hosts_sync_invalid", err.Error())
+			return
+		}
+		if request.Enabled != nil {
+			value.Enabled = *request.Enabled
+		}
+		if request.AutoUpdate != nil {
+			value.AutoUpdate = *request.AutoUpdate
+		}
+		if request.IntervalMinutes != nil {
+			value.IntervalMinutes = *request.IntervalMinutes
+		}
+		if value.IntervalMinutes < 5 || value.IntervalMinutes > 10080 {
+			writeError(w, http.StatusUnprocessableEntity, "host_hosts_sync_invalid", "interval_minutes must be between 5 and 10080")
+			return
+		}
+		if err := s.store.SaveHostHostsSyncSettings(value); err != nil {
+			writeError(w, http.StatusInternalServerError, "host_hosts_sync_failed", err.Error())
+			return
+		}
+		if value.Enabled {
+			value, _ = s.syncHostHosts(value, false)
+		}
+		writeJSON(w, http.StatusOK, hostHostsSyncStatus(value))
+
+	case http.MethodPost:
+		value, err = s.syncHostHosts(value, true)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "host_hosts_sync_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, hostHostsSyncStatus(value))
+
+	default:
+		w.Header().Set("Allow", "GET, PUT, POST")
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+	}
+}
+
+func (s *Server) syncHostHosts(value hostHostsSyncSettings, force bool) (hostHostsSyncSettings, error) {
+	if !value.Enabled && !force {
+		return value, nil
+	}
+
+	data, err := os.ReadFile(value.Path)
+	if err != nil {
+		value.LastError = fmt.Sprintf("read mapped QNAP hosts: %v", err)
+		_ = s.store.SaveHostHostsSyncSettings(value)
+		return value, errors.New(value.LastError)
+	}
+
+	sum := sha256.Sum256(data)
+	digest := hex.EncodeToString(sum[:])
+	if !force && digest == value.LastDigest {
+		return value, nil
+	}
+	if _, err := mihomo.ParseTraditionalHostsFile(string(data)); err != nil {
+		value.LastError = err.Error()
+		_ = s.store.SaveHostHostsSyncSettings(value)
+		return value, err
+	}
+
+	_, document, _, err := s.loadProfileOverlay()
+	if err != nil {
+		return value, err
+	}
+	raw, _ := document.DNS.Merge["hosts-file"].(string)
+	standard, native, err := mihomo.SplitProfileHostsInputs(raw)
+	if err != nil {
+		return value, err
+	}
+	standard = replaceManagedHostHosts(standard, strings.TrimSpace(string(data)))
+	combined := mihomo.JoinProfileHostsInputs(standard, native)
+	if strings.TrimSpace(combined) == "" {
+		delete(document.DNS.Merge, "hosts-file")
+	} else {
+		document.DNS.Merge["hosts-file"] = combined
+	}
+	document.DNS.Merge["use-hosts"] = true
+
+	rendered, err := mihomo.RenderProfileOverlay(document)
+	if err != nil {
+		return value, err
+	}
+	if err := s.store.SaveProfileOverlay(rendered); err != nil {
+		return value, err
+	}
+
+	value.LastDigest = digest
+	value.LastSyncAt = time.Now().UTC().Format(time.RFC3339)
+	value.LastEntries = countHostEntries(string(data))
+	value.LastError = ""
+	if err := s.store.SaveHostHostsSyncSettings(value); err != nil {
+		return value, err
+	}
+	return value, nil
+}
+
+func replaceManagedHostHosts(standard, content string) string {
+	start := strings.Index(standard, hostHostsBegin)
+	end := strings.Index(standard, hostHostsEnd)
+	if start >= 0 && end >= start {
+		standard = strings.TrimSpace(standard[:start] + standard[end+len(hostHostsEnd):])
+	}
+	if content == "" {
+		return standard
+	}
+	block := hostHostsBegin + "\n" + content + "\n" + hostHostsEnd
+	if standard == "" {
+		return block
+	}
+	return strings.TrimSpace(standard) + "\n\n" + block
+}
+
+func countHostEntries(content string) int {
+	count := 0
+	for _, raw := range strings.Split(content, "\n") {
+		line := strings.TrimSpace(strings.SplitN(raw, "#", 2)[0])
+		if fields := strings.Fields(line); len(fields) > 1 {
+			count += len(fields) - 1
+		}
+	}
+	return count
+}
+
+func (s *Server) runHostHostsSyncLoop() {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		value, err := s.store.HostHostsSyncSettings()
+		if err != nil || !value.Enabled || !value.AutoUpdate {
+			continue
+		}
+		last, _ := time.Parse(time.RFC3339, value.LastSyncAt)
+		if !last.IsZero() && time.Since(last) < time.Duration(value.IntervalMinutes)*time.Minute {
+			continue
+		}
+		_, _ = s.syncHostHosts(value, false)
+	}
+}
