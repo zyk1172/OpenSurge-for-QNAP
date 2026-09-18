@@ -22,9 +22,63 @@ type Result = { domain: string; selected: Candidate; alternatives: Candidate[]; 
 type OptimizerConfig = { schema_version: number; enabled: boolean; schedule: Schedule; scan: ScanSettings; targets: Target[] }
 type OptimizerState = { running: boolean; started_at?: string; last_run_at?: string; next_run_at?: string; last_error?: string; results: Result[] }
 type OptimizerResponse = { config: OptimizerConfig; state: OptimizerState }
+type ScanMode = 'fast' | 'standard' | 'full' | 'deep'
+type ScheduleChoice = 'off' | '1' | '3' | '7' | '14' | '30' | 'custom'
 
 const optimizerRequest = (path: string, init?: RequestInit) => request<OptimizerResponse>(path, init)
 const defaultTarget = (): Target => ({ domain: '', enabled: true, test_path: '/' })
+const intervalChoices = new Set([1, 3, 7, 14, 30])
+
+const scanPresets: Record<ScanMode, ScanSettings> = {
+  fast: {
+    budget_seconds: 30,
+    candidate_limit: 128,
+    tcp_concurrency: 48,
+    tcp_attempts: 2,
+    tcp_timeout_ms: 700,
+    https_candidate_count: 10,
+    http_timeout_ms: 1600,
+    download_candidate_count: 2,
+    download_seconds: 1,
+    download_max_bytes: 2 << 20,
+  },
+  standard: {
+    budget_seconds: 60,
+    candidate_limit: 256,
+    tcp_concurrency: 64,
+    tcp_attempts: 2,
+    tcp_timeout_ms: 800,
+    https_candidate_count: 15,
+    http_timeout_ms: 2000,
+    download_candidate_count: 3,
+    download_seconds: 2,
+    download_max_bytes: 4 << 20,
+  },
+  full: {
+    budget_seconds: 90,
+    candidate_limit: 512,
+    tcp_concurrency: 96,
+    tcp_attempts: 3,
+    tcp_timeout_ms: 900,
+    https_candidate_count: 24,
+    http_timeout_ms: 3000,
+    download_candidate_count: 4,
+    download_seconds: 3,
+    download_max_bytes: 8 << 20,
+  },
+  deep: {
+    budget_seconds: 120,
+    candidate_limit: 768,
+    tcp_concurrency: 128,
+    tcp_attempts: 3,
+    tcp_timeout_ms: 1000,
+    https_candidate_count: 32,
+    http_timeout_ms: 4000,
+    download_candidate_count: 5,
+    download_seconds: 4,
+    download_max_bytes: 16 << 20,
+  },
+}
 
 export function CloudflareOptimizerPage() {
   const [data, setData] = useState<OptimizerResponse | null>(null)
@@ -46,21 +100,38 @@ export function CloudflareOptimizerPage() {
 
   useEffect(() => { void load() }, [load])
 
-  const dirty = useMemo(() => data && draft ? JSON.stringify(data.config) !== JSON.stringify(draft) : false, [data, draft])
+  const simpleDraft = useMemo(() => draft ? simplifyTargets(draft) : null, [draft])
+  const dirty = useMemo(() => data && simpleDraft ? JSON.stringify(data.config) !== JSON.stringify(simpleDraft) : false, [data, simpleDraft])
+  const scanMode = useMemo(() => draft ? detectScanMode(draft.scan) : 'standard', [draft])
+  const scheduleChoice = useMemo<ScheduleChoice>(() => {
+    if (!draft?.enabled) return 'off'
+    if (draft.schedule.mode === 'interval' && intervalChoices.has(draft.schedule.every_days ?? 0)) return String(draft.schedule.every_days) as ScheduleChoice
+    return 'custom'
+  }, [draft])
 
-  const updateSchedule = (patch: Partial<Schedule>) => setDraft(current => current ? { ...current, schedule: { ...current.schedule, ...patch } } : current)
-  const updateScan = (patch: Partial<ScanSettings>) => setDraft(current => current ? { ...current, scan: { ...current.scan, ...patch } } : current)
-  const updateTarget = (index: number, patch: Partial<Target>) => setDraft(current => current ? {
+  const updateTargetDomain = (index: number, domain: string) => setDraft(current => current ? {
     ...current,
-    targets: current.targets.map((target, targetIndex) => targetIndex === index ? { ...target, ...patch } : target),
+    targets: current.targets.map((target, targetIndex) => targetIndex === index ? { ...target, domain, enabled: true, test_path: '/' } : target),
   } : current)
 
+  const updateScheduleChoice = (choice: ScheduleChoice) => setDraft(current => {
+    if (!current || choice === 'custom') return current
+    if (choice === 'off') return { ...current, enabled: false }
+    return {
+      ...current,
+      enabled: true,
+      schedule: { mode: 'interval', every_days: Number(choice), at: current.schedule.at || '04:00' },
+    }
+  })
+
+  const updateScanMode = (mode: ScanMode) => setDraft(current => current ? { ...current, scan: { ...scanPresets[mode] } } : current)
+
   const save = async (): Promise<boolean> => {
-    if (!draft || saving) return false
+    if (!simpleDraft || saving) return false
     setSaving(true)
     setError('')
     try {
-      const next = await optimizerRequest('/api/v1/cloudflare-opt', { method: 'PUT', body: JSON.stringify(draft) })
+      const next = await optimizerRequest('/api/v1/cloudflare-opt', { method: 'PUT', body: JSON.stringify(simpleDraft) })
       setData(next)
       setDraft(next.config)
       return true
@@ -91,20 +162,20 @@ export function CloudflareOptimizerPage() {
   if (!draft || !data) return <div className="cloudflare-page">
     <PageHeader eyebrow="CLOUDFLARE" title="Cloudflare 优选" description="正在读取优选配置…" />
     <Panel busy>
-      <SectionHeader eyebrow="INITIALIZING" title="正在连接 Cloudflare 优选服务" subtitle="读取目标域名、测速预算和最近一次优选结果。" />
+      <SectionHeader eyebrow="INITIALIZING" title="正在连接 Cloudflare 优选服务" subtitle="读取目标域名、优选周期和最近一次结果。" />
       {error
         ? <div className="error-banner" role="alert"><span>!</span><p>{error}</p><button className="ui-button" type="button" onClick={() => void load()}>{t('重试')}</button></div>
         : <Empty text="正在加载…" />}
     </Panel>
   </div>
 
-  const canScan = draft.targets.some(target => target.enabled && target.domain.trim())
+  const canScan = draft.targets.some(target => target.domain.trim())
 
   return <div className="cloudflare-page">
     <PageHeader
       eyebrow="CLOUDFLARE HOSTS OPTIMIZER"
       title="Cloudflare 优选"
-      description="为指定域名筛选更合适的 Cloudflare IPv4，并写入最终 Mihomo Hosts 与真实 IP 规则。测速强制绑定 QNAP 容器物理接口，整轮受时间预算限制。"
+      description="填写需要优选的域名，选择自动执行周期和测速模式即可。优选结果会写入 Mihomo Hosts；只有最佳 IP 变化时才重载运行配置。"
       action={<button className="ui-button ui-button--primary" type="button" disabled={scanning || !canScan} onClick={() => void scan()}>{t(scanning ? '正在优选…' : '立即优选')}</button>}
     />
 
@@ -118,52 +189,53 @@ export function CloudflareOptimizerPage() {
       </article>
       <article className="ui-stat"><small>{t('上次执行')}</small><strong>{formatTime(data.state.last_run_at)}</strong></article>
       <article className="ui-stat"><small>{t('下次执行')}</small><strong>{formatTime(data.state.next_run_at)}</strong></article>
-      <article className="ui-stat"><small>{t('时间预算')}</small><strong className="cloudflare-number">{draft.scan.budget_seconds}s</strong></article>
+      <article className="ui-stat"><small>{t('测速模式')}</small><strong>{t(scanModeLabel(scanMode))}</strong></article>
     </section>
-
-    <Panel>
-      <SectionHeader eyebrow="AUTOMATION" title="自动优选" subtitle="默认每 7 天执行一次；也可以切换到标准 5 段 Cron 表达式。" />
-      <div className="ui-form-grid">
-        <div className="ui-field"><span>{t('启用自动优选')}</span><label className="ui-switch"><input type="checkbox" checked={draft.enabled} onChange={event => setDraft(current => current ? { ...current, enabled: event.target.checked } : current)} /><span>{t('启用')}</span></label></div>
-        <FormField label="周期模式"><select value={draft.schedule.mode} onChange={event => updateSchedule({ mode: event.target.value as Schedule['mode'] })}><option value="interval">{t('每 N 天')}</option><option value="cron">Cron</option></select></FormField>
-        {draft.schedule.mode === 'interval' ? <>
-          <FormField label="每隔"><select value={draft.schedule.every_days ?? 7} onChange={event => updateSchedule({ every_days: Number(event.target.value) })}><option value={1}>{t('1 天')}</option><option value={3}>{t('3 天')}</option><option value={7}>{t('7 天')}</option><option value={14}>{t('14 天')}</option><option value={30}>{t('30 天')}</option></select></FormField>
-          <FormField label="执行时间"><input type="time" value={draft.schedule.at ?? '04:00'} onChange={event => updateSchedule({ at: event.target.value })} /></FormField>
-        </> : <FormField className="span-2" label="Cron 表达式" hint="标准 5 段：分钟 小时 日 月 星期，例如每周日 04:00 为 0 4 * * 0。"><input value={draft.schedule.cron ?? '0 4 * * 0'} placeholder="0 4 * * 0" onChange={event => updateSchedule({ cron: event.target.value })} /></FormField>}
-      </div>
-    </Panel>
 
     <Panel>
       <SectionHeader
         eyebrow="TARGETS"
         title="优选域名"
-        subtitle="域名会自动规范化并去重。测试使用目标域名的 TLS SNI / HTTP Host，最终地址写入运行态 Hosts，并加入真实 IP 处理。"
+        subtitle="每行只需要填写一个域名；列表中的域名都会参与优选，不再要求单独设置测试路径或启用开关。"
         action={<button className="ui-button" type="button" onClick={() => setDraft(current => current ? { ...current, targets: [...current.targets, defaultTarget()] } : current)}>+ {t('添加域名')}</button>}
       />
       <div className="cloudflare-target-list">
         {draft.targets.length === 0 && <Empty text="尚未添加域名。" />}
-        {draft.targets.map((target, index) => <div className="ui-card cloudflare-target-card" key={`${index}-${target.domain}`}>
-          <div className="cloudflare-target-fields">
-            <FormField label="域名"><input value={target.domain} placeholder="api.example.com" onChange={event => updateTarget(index, { domain: event.target.value })} /></FormField>
-            <FormField label="测试路径"><input value={target.test_path ?? '/'} placeholder="/" onChange={event => updateTarget(index, { test_path: event.target.value })} /></FormField>
-          </div>
-          <div className="cloudflare-target-actions">
-            <label className="ui-switch"><input type="checkbox" checked={target.enabled} onChange={event => updateTarget(index, { enabled: event.target.checked })} /><span>{t('启用')}</span></label>
-            <button className="ui-button ui-button--danger" type="button" onClick={() => setDraft(current => current ? { ...current, targets: current.targets.filter((_, targetIndex) => targetIndex !== index) } : current)}>{t('删除')}</button>
-          </div>
+        {draft.targets.map((target, index) => <div className="ui-card cloudflare-target-card cloudflare-target-card--simple" key={`${index}-${target.domain}`}>
+          <FormField label="域名"><input value={target.domain} placeholder="api.example.com" onChange={event => updateTargetDomain(index, event.target.value)} /></FormField>
+          <button className="ui-button ui-button--danger" type="button" onClick={() => setDraft(current => current ? { ...current, targets: current.targets.filter((_, targetIndex) => targetIndex !== index) } : current)}>{t('删除')}</button>
         </div>)}
       </div>
     </Panel>
 
     <Panel>
-      <SectionHeader eyebrow="SCAN BUDGET" title="测速限制" subtitle="共享 TCP 粗筛只执行一次，各域名复用候选池。达到总时间预算后停止扩展测试，避免长时间占用网络。" />
-      <div className="ui-form-grid">
-        <FormField label="总时间预算"><select value={draft.scan.budget_seconds} onChange={event => updateScan({ budget_seconds: Number(event.target.value) })}><option value={30}>{t('快速 · 30 秒')}</option><option value={60}>{t('标准 · 60 秒')}</option><option value={90}>{t('完整 · 90 秒')}</option><option value={120}>{t('深入 · 120 秒')}</option></select></FormField>
-        <FormField label="候选 IP"><input className="cloudflare-number" type="number" min={32} max={2048} value={draft.scan.candidate_limit} onChange={event => updateScan({ candidate_limit: Number(event.target.value) })} /></FormField>
-        <FormField label="TCP 并发"><input className="cloudflare-number" type="number" min={1} max={256} value={draft.scan.tcp_concurrency} onChange={event => updateScan({ tcp_concurrency: Number(event.target.value) })} /></FormField>
-        <FormField label="HTTPS 候选"><input className="cloudflare-number" type="number" min={1} max={64} value={draft.scan.https_candidate_count} onChange={event => updateScan({ https_candidate_count: Number(event.target.value) })} /></FormField>
-        <FormField label="下载候选"><input className="cloudflare-number" type="number" min={0} max={10} value={draft.scan.download_candidate_count} onChange={event => updateScan({ download_candidate_count: Number(event.target.value) })} /></FormField>
-        <FormField label="单 IP 下载秒数"><input className="cloudflare-number" type="number" min={1} max={10} value={draft.scan.download_seconds} onChange={event => updateScan({ download_seconds: Number(event.target.value) })} /></FormField>
+      <SectionHeader eyebrow="SCHEDULE" title="自动优选周期" subtitle="选择多久重新优选一次；固定使用现有执行时间。关闭自动优选后仍可随时点击“立即优选”。" />
+      <div className="cloudflare-simple-settings">
+        <FormField label="周期">
+          <select value={scheduleChoice} onChange={event => updateScheduleChoice(event.target.value as ScheduleChoice)}>
+            <option value="off">{t('关闭自动优选')}</option>
+            <option value="1">{t('1 天')}</option>
+            <option value="3">{t('3 天')}</option>
+            <option value="7">{t('7 天')}</option>
+            <option value="14">{t('14 天')}</option>
+            <option value="30">{t('30 天')}</option>
+            {scheduleChoice === 'custom' && <option value="custom">{t('现有自定义周期（保留）')}</option>}
+          </select>
+        </FormField>
+      </div>
+    </Panel>
+
+    <Panel>
+      <SectionHeader eyebrow="SCAN MODE" title="测速模式" subtitle="只选择测试强度即可；候选数量、并发、超时和下载测试参数由 OpenSurge 统一管理。" />
+      <div className="cloudflare-simple-settings">
+        <FormField label="测速模式">
+          <select value={scanMode} onChange={event => updateScanMode(event.target.value as ScanMode)}>
+            <option value="fast">{t('快速 · 约 30 秒')}</option>
+            <option value="standard">{t('标准 · 约 60 秒（推荐）')}</option>
+            <option value="full">{t('完整 · 约 90 秒')}</option>
+            <option value="deep">{t('深入 · 约 120 秒')}</option>
+          </select>
+        </FormField>
       </div>
     </Panel>
 
@@ -179,6 +251,29 @@ export function CloudflareOptimizerPage() {
       <button className="ui-button ui-button--primary" type="button" disabled={!dirty || saving || scanning} onClick={() => void save()}>{t(saving ? '正在保存…' : '保存设置')}</button>
     </ActionBar>
   </div>
+}
+
+function simplifyTargets(config: OptimizerConfig): OptimizerConfig {
+  return {
+    ...config,
+    targets: config.targets.map(target => ({ ...target, enabled: true, test_path: '/' })),
+  }
+}
+
+function detectScanMode(scan: ScanSettings): ScanMode {
+  const exact = (Object.entries(scanPresets) as [ScanMode, ScanSettings][]).find(([, preset]) => JSON.stringify(scan) === JSON.stringify(preset))
+  if (exact) return exact[0]
+  if (scan.budget_seconds <= 30) return 'fast'
+  if (scan.budget_seconds <= 60) return 'standard'
+  if (scan.budget_seconds <= 90) return 'full'
+  return 'deep'
+}
+
+function scanModeLabel(mode: ScanMode) {
+  if (mode === 'fast') return '快速'
+  if (mode === 'full') return '完整'
+  if (mode === 'deep') return '深入'
+  return '标准'
 }
 
 function formatTime(value?: string) {
