@@ -62,7 +62,7 @@
   align-items:center;
   gap:7px;
   flex:0 0 auto;
-  min-height:34px;
+  min-height:var(--ui-control-height,40px);
   padding:7px 10px;
   border:0;
   border-radius:9px;
@@ -79,13 +79,13 @@
 .traffic-v3-search-actions{display:grid;grid-template-columns:minmax(180px,1fr) auto auto;gap:7px;min-width:0}
 .traffic-v3-search-actions input{
   min-width:0;
-  height:34px;
+  height:var(--ui-control-height,40px);
   padding:0 11px;
   border:1px solid var(--os-border);
   border-radius:9px;
   background:var(--os-bg-elevated);
   color:var(--os-text);
-  font-size:11px;
+  font-size:var(--ui-font-control,13px);
 }
 .traffic-v3-search-actions button{
   min-height:34px;

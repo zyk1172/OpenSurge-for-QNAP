@@ -187,17 +187,6 @@ export function QNAPNetworkPage({
     : draft ? `${draft.gateway.lan_ip}/${draft.gateway.lan_prefix_len}` : '—'
   const router = actual?.snapshot.router || t('Docker/QNET 配置')
 
-  const takeoverLabel = hostRouting?.enabled
-    ? t('NAS 主机接管已启用')
-    : hostRouting?.desired
-      ? t('NAS 主机接管等待网关就绪')
-      : t('NAS 主机接管未启用')
-  const takeoverDetail = hostRouting?.enabled
-    ? t('NAS 公网 IPv4 经 OpenSurge；局域网、Docker 与 QTS 主路由保持不变。')
-    : hostRouting?.desired
-      ? t('网关就绪后自动恢复接管。')
-      : t('QTS 原有路由保持不变。')
-
   return <>
     <PageHeader eyebrow="QNAP NETWORK" title={t('网络设置')} description={t('查看容器网络，并管理 NAS 主机 IPv4 接管与网关运行参数。')} />
 
@@ -253,8 +242,10 @@ export function QNAPNetworkPage({
 
         <div className="qnap-host-status-panel" aria-label={t('NAS 主机接管与 Tailscale 状态')}>
           <div className="qnap-host-status-main">
-            <span className={`mp-status-light ${hostRouting.enabled ? 'ok' : hostRouting.desired ? 'warn' : ''}`} aria-hidden="true" />
-            <span><strong>{takeoverLabel}</strong><small>{takeoverDetail}</small>{hostRouting.error && <small>{hostRouting.error}</small>}</span>
+            <small>{t('NAS 主机接管')}</small>
+            <strong>{t(hostRouting.enabled ? '启用' : '未启用')}</strong>
+            <small>{t(hostRouting.enabled ? '公网 IPv4 经 OpenSurge' : hostRouting.desired ? '等待网关就绪' : 'QTS 路由保持不变')}</small>
+            {hostRouting.error && <small>{hostRouting.error}</small>}
           </div>
           <div><small>{t('Tailscale')}</small><strong>{t(hostRouting.tailscale_detected ? '已检测' : '未检测')}</strong><small>{hostRouting.tailscale_interface || t('共存保护待命')}</small></div>
           <div><small>MagicDNS</small><strong>{t(hostRouting.tailscale_detected ? hostRouting.tailscale_dns_protected ? '已保护' : '需要检查' : '等待 Tailscale')}</strong><small>{t('保持宿主 VPN 优先级')}</small></div>
@@ -272,15 +263,13 @@ export function QNAPNetworkPage({
     {draft && <section className="section qnap-runtime-section">
       <SectionTitle title="运行参数" subtitle="保存到 /data；运行中保存会重启网关" />
       <div className="source-import-grid qnap-runtime-grid">
-        <article className="source-import-card">
-          <label><span>{t('DNS 上游')}</span><input value={draft.dns.upstream} onChange={event => patch({ dns: { ...draft.dns, upstream: event.target.value } })} placeholder="127.0.0.1#1053" /></label>
-          <p className="muted">{t('OpenSurge 内部 DNS 上游。')}</p>
+        <article className="source-import-card qnap-runtime-card">
+          <span><strong>Store fake-ip</strong><small>{t('持久化 fake-ip 映射')}</small></span>
+          <button className={`overlay-switch ${draft.mihomo.store_fake_ip ? 'on' : ''}`} type="button" role="switch" aria-label="Store fake-ip" aria-checked={draft.mihomo.store_fake_ip} onClick={() => patch({ mihomo: { ...draft.mihomo, store_fake_ip: !draft.mihomo.store_fake_ip } })}><i aria-hidden="true" /><span>{t(draft.mihomo.store_fake_ip ? '已启用' : '已停用')}</span></button>
         </article>
-        <article className="source-import-card">
-          <label className="sidebar-switch"><input type="checkbox" checked={draft.mihomo.store_fake_ip} onChange={event => patch({ mihomo: { ...draft.mihomo, store_fake_ip: event.target.checked } })} /><span><strong>Store fake-ip</strong><small>{t('持久化 fake-ip 映射')}</small></span></label>
-        </article>
-        <article className="source-import-card">
-          <label className="sidebar-switch"><input type="checkbox" checked={draft.transparent.strict_route} onChange={event => patch({ transparent: { ...draft.transparent, strict_route: event.target.checked } })} /><span><strong>TUN strict-route</strong><small>{t('启用 Mihomo TUN strict-route')}</small></span></label>
+        <article className="source-import-card qnap-runtime-card">
+          <span><strong>TUN strict-route</strong><small>{t('严格接管 TUN 路由')}</small></span>
+          <button className={`overlay-switch ${draft.transparent.strict_route ? 'on' : ''}`} type="button" role="switch" aria-label="TUN strict-route" aria-checked={draft.transparent.strict_route} onClick={() => patch({ transparent: { ...draft.transparent, strict_route: !draft.transparent.strict_route } })}><i aria-hidden="true" /><span>{t(draft.transparent.strict_route ? '已启用' : '已停用')}</span></button>
         </article>
       </div>
       <div className="source-actions"><button type="button" onClick={() => void load()} disabled={saving}>{t('重新读取')}</button><button className="primary" type="button" onClick={() => void saveRuntime()} disabled={saving}>{saving ? t('正在保存…') : t(running ? '保存并重启网关' : '保存运行参数')}</button></div>
