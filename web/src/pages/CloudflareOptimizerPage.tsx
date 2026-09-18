@@ -208,7 +208,7 @@ export function CloudflareOptimizerPage() {
         <FormField label="域名列表" hint="支持直接粘贴多行内容；保存时会忽略空行并自动去重。">
           <textarea
             className="cloudflare-target-textarea"
-            aria-label={t('优选域名列表')}
+            aria-label={t('域名列表')}
             rows={8}
             spellCheck={false}
             placeholder={`api.example.com
