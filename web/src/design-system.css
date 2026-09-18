@@ -1271,3 +1271,61 @@ html[data-product-target="qnap"] .workspace-canvas .host-sync-mount-state.ok{
 html[data-product-target="qnap"] .workspace-canvas .host-sync-mount-state.warn{
   border-color:color-mix(in srgb,var(--ui-warning) 42%,var(--ui-border))!important;
 }
+
+
+/* QNAP nested-surface audit 2026-09: remove the last legacy green fills. */
+html[data-product-target="qnap"] .workspace-canvas :is(.gateway-meta,.gateway-meta.ok,.gateway-meta.warn,.gateway-service-state){
+  background:var(--ui-neutral-card-soft)!important;
+  color:var(--ui-text-secondary)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .gateway-meta.ok{
+  border-color:color-mix(in srgb,var(--ui-success) 38%,var(--ui-border))!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .gateway-meta.warn{
+  border-color:color-mix(in srgb,var(--ui-warning) 42%,var(--ui-border))!important;
+}
+html[data-product-target="qnap"] .workspace-canvas :is(.source-diff,.source-validation){
+  border-color:var(--ui-border)!important;
+  background:var(--ui-neutral-card-soft)!important;
+  color:var(--ui-text-secondary)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-validation.invalid{
+  border-color:color-mix(in srgb,var(--ui-danger) 40%,var(--ui-border))!important;
+  background:var(--ui-neutral-card-soft)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas :is(.overlay-resource-list li,.overlay-patch-list li,.overlay-empty){
+  border-color:var(--ui-border)!important;
+  background:var(--ui-neutral-card-soft)!important;
+  color:var(--ui-text-secondary)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .policy-health-overview>div{
+  min-height:92px!important;
+  border:1px solid var(--ui-border)!important;
+  border-radius:var(--ui-radius-card)!important;
+  background:var(--ui-neutral-card-soft)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .policy-health-overview{
+  gap:var(--ui-space-3)!important;
+  overflow:visible!important;
+  border:0!important;
+  background:transparent!important;
+}
+html[data-product-target="qnap"] .workspace-canvas :is(.baseline-control,.probe-scope button,.doctor-check-list .check,.diagnostic-connection-row,.diagnostic-summary-card){
+  border-color:var(--ui-border)!important;
+  background:var(--ui-neutral-card-soft)!important;
+  color:var(--ui-text-secondary)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .probe-scope button.active{
+  border-color:color-mix(in srgb,var(--ui-accent) 46%,var(--ui-border))!important;
+  background:color-mix(in srgb,var(--ui-accent-soft) 46%,var(--ui-neutral-card-soft))!important;
+  color:var(--ui-text)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas :is(.diagnostic-summary-card.ok,.diagnostic-summary-card.warn){
+  background:var(--ui-neutral-card-soft)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .diagnostic-summary-card.ok{
+  border-color:color-mix(in srgb,var(--ui-success) 38%,var(--ui-border))!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .diagnostic-summary-card.warn{
+  border-color:color-mix(in srgb,var(--ui-warning) 42%,var(--ui-border))!important;
+}
