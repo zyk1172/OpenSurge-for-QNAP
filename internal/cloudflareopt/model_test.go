@@ -10,8 +10,14 @@ func TestDefaultConfigValid(t *testing.T) {
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("default config invalid: %v", err)
 	}
-	if cfg.Schedule.EveryDays != 7 || cfg.Scan.BudgetSeconds != 60 {
+	if !cfg.Enabled || cfg.Schedule.EveryDays != 1 || cfg.Scan.BudgetSeconds != 75 {
 		t.Fatalf("unexpected defaults: %#v", cfg)
+	}
+	if !cfg.Health.Enabled || cfg.Health.CheckIntervalMinutes != 30 || cfg.Health.LatencyThresholdMS != 100 {
+		t.Fatalf("unexpected health defaults: %#v", cfg.Health)
+	}
+	if cfg.Scan.CandidateLimit != 1024 || cfg.Scan.TCPConcurrency != 128 || cfg.Scan.MaxLatencyMS != 100 || cfg.Scan.MaxLossRate != 0 {
+		t.Fatalf("unexpected scan defaults: %#v", cfg.Scan)
 	}
 }
 
@@ -92,5 +98,49 @@ func TestWhitelistUnmatchedAlreadyUsesRealIP(t *testing.T) {
 	plan := PlanRealIP("whitelist", []string{"+.fake.example.com"}, []string{"api.example.com"})
 	if plan.CoveredBy["api.example.com"] != "whitelist-unmatched" || len(plan.Append) != 0 {
 		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+
+func TestNormalizeMigratesLegacyContinuousHealthAndStandardScan(t *testing.T) {
+	cfg := Config{
+		SchemaVersion: SchemaVersion,
+		Enabled:       true,
+		Schedule:      Schedule{Mode: ScheduleInterval, EveryDays: 7, At: "04:00"},
+		Scan: ScanSettings{
+			BudgetSeconds:          60,
+			CandidateLimit:         256,
+			TCPConcurrency:         64,
+			TCPAttempts:            2,
+			TCPTimeoutMS:           800,
+			HTTPSCandidateCount:    15,
+			HTTPTimeoutMS:          2000,
+			DownloadCandidateCount: 3,
+			DownloadSeconds:        2,
+			DownloadMaxBytes:       4 << 20,
+		},
+	}
+	got := Normalize(cfg)
+	if !got.Health.Enabled || got.Health.CheckIntervalMinutes != 30 || got.Health.LatencyThresholdMS != 100 {
+		t.Fatalf("legacy health migration = %#v", got.Health)
+	}
+	if got.Scan.CandidateLimit != 1024 || got.Scan.TCPConcurrency != 128 || got.Scan.DownloadCandidateCount != 8 {
+		t.Fatalf("legacy scan migration = %#v", got.Scan)
+	}
+	if got.Schedule.EveryDays != 7 {
+		t.Fatalf("explicit legacy schedule should be preserved: %#v", got.Schedule)
+	}
+}
+
+func TestValidateRejectsUnsafeHealthAndScanThresholds(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Health.CheckIntervalMinutes = 1
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected too-frequent health checks to be rejected")
+	}
+	cfg = DefaultConfig()
+	cfg.Scan.MaxLossRate = 1.1
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected invalid scan loss threshold to be rejected")
 	}
 }

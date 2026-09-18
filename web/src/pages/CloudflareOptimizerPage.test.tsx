@@ -14,25 +14,45 @@ const response = {
   config: {
     schema_version: 1,
     enabled: true,
-    schedule: { mode: 'interval' as const, every_days: 7, at: '04:00' },
+    schedule: { mode: 'interval' as const, every_days: 1, at: '04:00' },
+    health: {
+      enabled: true,
+      check_interval_minutes: 30,
+      latency_threshold_ms: 100,
+      loss_rate_threshold: 0,
+    },
     scan: {
-      budget_seconds: 60,
-      candidate_limit: 256,
-      tcp_concurrency: 64,
-      tcp_attempts: 2,
+      budget_seconds: 75,
+      candidate_limit: 1024,
+      tcp_concurrency: 128,
+      tcp_attempts: 3,
       tcp_timeout_ms: 800,
-      https_candidate_count: 15,
-      http_timeout_ms: 2000,
-      download_candidate_count: 3,
-      download_seconds: 2,
-      download_max_bytes: 4194304,
+      max_latency_ms: 100,
+      max_loss_rate: 0,
+      https_candidate_count: 30,
+      http_timeout_ms: 2500,
+      download_candidate_count: 8,
+      download_seconds: 4,
+      download_max_bytes: 8388608,
     },
     targets: [{ domain: 'api.example.com', enabled: true, test_path: '/' }],
   },
   state: {
     running: false,
+    checking: false,
     last_run_at: '2026-09-18T01:20:00Z',
-    next_run_at: '2026-09-25T04:00:00Z',
+    next_run_at: '2026-09-19T04:00:00Z',
+    last_health_check_at: '2026-09-18T02:00:00Z',
+    next_health_check_at: '2026-09-18T02:30:00Z',
+    health: [{
+      domain: 'api.example.com',
+      ip: '104.18.12.10',
+      healthy: true,
+      latency_ms: 31,
+      loss_rate: 0,
+      ttfb_ms: 82,
+      checked_at: '2026-09-18T02:00:00Z',
+    }],
     results: [{
       domain: 'api.example.com',
       selected: { ip: '104.18.12.10', latency_ms: 32, loss_rate: 0, ttfb_ms: 85, download_mbps: 42.4, colo: 'SIN' },
@@ -54,35 +74,33 @@ describe('CloudflareOptimizerPage', () => {
     vi.clearAllMocks()
   })
 
-  it('keeps the optimizer surface simple and on shared design primitives', async () => {
+  it('uses the shared design primitives for continuous optimization', async () => {
     const { container } = render(<CloudflareOptimizerPage />)
-    expect(await screen.findByText('自动优选周期')).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '持续监控' })).toBeTruthy()
 
     expect(container.querySelector('.ui-summary-grid')).toBeTruthy()
     expect(container.querySelectorAll('.ui-panel').length).toBe(4)
     expect(container.querySelector('.ui-card.cloudflare-target-editor')).toBeTruthy()
     expect(screen.getByLabelText('域名列表')).toBeTruthy()
-    expect(container.querySelector('.ui-table-wrap .ui-table')).toBeTruthy()
+    expect(container.querySelectorAll('.ui-table-wrap .ui-table').length).toBe(2)
     expect(container.querySelector('.ui-action-bar')).toBeTruthy()
 
-    expect(screen.queryByText('测试路径')).toBeNull()
-    expect(screen.queryByText('候选 IP')).toBeNull()
-    expect(screen.queryByText('TCP 并发')).toBeNull()
-    expect(screen.queryByText('HTTPS 候选')).toBeNull()
-    expect(screen.queryByText('Cron 表达式')).toBeNull()
-    expect(screen.getByLabelText('周期')).toBeTruthy()
+    expect(screen.getByLabelText('检查间隔')).toBeTruthy()
+    expect(screen.getByLabelText('延迟阈值')).toBeTruthy()
+    expect(screen.getByLabelText('最大丢包')).toBeTruthy()
+    expect(screen.getByLabelText('强制重新优选')).toBeTruthy()
     expect(screen.getByLabelText('测速模式')).toBeTruthy()
 
+    expect(screen.queryByText('测试路径')).toBeNull()
+    expect(screen.queryByText('Cron 表达式')).toBeNull()
     expect(container.querySelector('.connectivity-overview')).toBeNull()
     expect(container.querySelector('.source-card')).toBeNull()
-    expect(container.querySelector('.source-actions')).toBeNull()
   })
 
-  it('accepts multiline domain input, removes blank lines and deduplicates on save', async () => {
+  it('accepts multiline domains and deduplicates them on save', async () => {
     render(<CloudflareOptimizerPage />)
     const domains = await screen.findByLabelText('域名列表')
     expect((domains as HTMLTextAreaElement).value).toBe('api.example.com')
-    expect((screen.getByRole('button', { name: '保存设置' }) as HTMLButtonElement).disabled).toBe(true)
 
     await userEvent.clear(domains)
     await userEvent.type(domains, 'cdn.example.com\nassets.example.com\n\ncdn.example.com')
@@ -99,9 +117,9 @@ describe('CloudflareOptimizerPage', () => {
     })
   })
 
-  it('maps one scan-mode choice to the full internal preset', async () => {
+  it('maps scan-mode choices to bounded stronger presets', async () => {
     render(<CloudflareOptimizerPage />)
-    await screen.findAllByText('测速模式')
+    await screen.findByText('完整优选策略')
 
     await userEvent.selectOptions(screen.getByLabelText('测速模式'), 'full')
     await userEvent.click(screen.getByRole('button', { name: '保存设置' }))
@@ -111,30 +129,52 @@ describe('CloudflareOptimizerPage', () => {
       expect(put).toBeTruthy()
       const payload = JSON.parse(String(put?.[1]?.body))
       expect(payload.scan).toEqual({
-        budget_seconds: 90,
-        candidate_limit: 512,
-        tcp_concurrency: 96,
-        tcp_attempts: 3,
+        budget_seconds: 120,
+        candidate_limit: 1536,
+        tcp_concurrency: 200,
+        tcp_attempts: 4,
         tcp_timeout_ms: 900,
-        https_candidate_count: 24,
+        max_latency_ms: 100,
+        max_loss_rate: 0,
+        https_candidate_count: 40,
         http_timeout_ms: 3000,
-        download_candidate_count: 4,
-        download_seconds: 3,
-        download_max_bytes: 8388608,
+        download_candidate_count: 12,
+        download_seconds: 5,
+        download_max_bytes: 12582912,
       })
     })
   })
 
-  it('renders the simplified page in the selected English locale', async () => {
+  it('updates health settings and can run a current-IP check', async () => {
+    render(<CloudflareOptimizerPage />)
+    await screen.findByRole('heading', { name: '持续监控' })
+
+    await userEvent.selectOptions(screen.getByLabelText('检查间隔'), '60')
+    await userEvent.selectOptions(screen.getByLabelText('延迟阈值'), '150')
+    await userEvent.click(screen.getByRole('button', { name: '保存设置' }))
+
+    await waitFor(() => {
+      const put = vi.mocked(request).mock.calls.find(([, init]) => init?.method === 'PUT')
+      const payload = JSON.parse(String(put?.[1]?.body))
+      expect(payload.health.check_interval_minutes).toBe(60)
+      expect(payload.health.latency_threshold_ms).toBe(150)
+    })
+
+    vi.mocked(request).mockClear()
+    await userEvent.click(screen.getByRole('button', { name: '立即检查' }))
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/api/v1/cloudflare-opt/check', { method: 'POST', body: '{}' }))
+  })
+
+  it('renders the continuous optimizer in English', async () => {
     activateLanguage('en')
     render(<CloudflareOptimizerPage />)
 
     expect(await screen.findByRole('button', { name: 'Optimize now' })).toBeTruthy()
     expect(screen.getByText('Optimization targets')).toBeTruthy()
-    expect(screen.getByText('Automatic optimization cycle')).toBeTruthy()
-    expect(screen.getAllByText('Scan mode').length).toBeGreaterThan(0)
+    expect(screen.getByRole('heading', { name: 'Continuous monitoring' })).toBeTruthy()
+    expect(screen.getByText('Full optimization strategy')).toBeTruthy()
     expect(screen.getByText('Current IP')).toBeTruthy()
-    expect(screen.queryByText('自动优选周期')).toBeNull()
+    expect(screen.getByText('Healthy')).toBeTruthy()
     await waitFor(() => expect(request).toHaveBeenCalledWith('/api/v1/cloudflare-opt', undefined))
   })
 })

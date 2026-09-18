@@ -19,18 +19,35 @@ QNAP-only control-plane feature for a small user-managed set of hostnames that s
 
 The imported profile and global Profile Overlay remain user-owned. Optimizer entries are injected only into the materialized effective profile, so deleting a target restores the underlying user configuration on the next reconciliation.
 
-## Scheduling
+## Continuous monitoring and scheduling
 
-Two schedule forms are supported:
+The optimizer now separates cheap current-IP monitoring from expensive full optimization:
 
-- `interval`: every N days at a local HH:MM time. This is the default and avoids the calendar-reset semantics of `*/7` cron day-of-month expressions.
+- current selected addresses are checked through the same physical-interface-bound direct path;
+- the default health interval is 30 minutes;
+- the default health thresholds are 100 ms latency and 0% TCP loss;
+- an unhealthy current IP triggers a bounded full optimization;
+- a periodic full optimization remains available even while current IPs stay healthy.
+
+Full optimization still supports two schedule forms:
+
+- `interval`: every N days at a local HH:MM time. New configurations default to every 1 day at 04:00;
 - `cron`: standard five-field minute/hour/day/month/weekday syntax.
 
-Default schedule: every 7 days at 04:00.
+Existing user-selected schedules are preserved during migration.
 
 ## Scan budget
 
-Default full-run budget is 60 seconds. The UI exposes 30/60/90/120 second presets. The probe engine shares its TCP coarse scan across all target domains and stops extending work when the global deadline expires.
+Full optimization uses bounded presets instead of an unbounded attempt-to-fill loop:
+
+- fast: 30 seconds / 256 candidates;
+- standard: 75 seconds / 1024 candidates;
+- full: 120 seconds / 1536 candidates;
+- deep: 180 seconds / 2048 candidates.
+
+Candidates first pass TCP/443 sampling, then hard latency/loss filters, target-domain TLS SNI / HTTP Host validation, and finally bounded download testing. The standard preset uses 128 TCP workers, a 100 ms latency ceiling, zero-loss filtering, 30 HTTPS candidates and at most 8 download candidates.
+
+This flow adopts the useful operational ideas from Lyxot/CloudflareSpeedTestDNS and XIU2/CloudflareSpeedTest while keeping the OpenSurge-native engine, physical-egress enforcement, persistence, scheduler and Mihomo reconciliation. No second optimizer container, DDNS subsystem, TOML/CLI configuration layer or separate long-running process is embedded.
 
 ## DNS / Fake-IP ownership
 

@@ -109,6 +109,20 @@ func RunScan(ctx context.Context, targets []Target, options ScanOptions, progres
 	if len(coarse) == 0 {
 		return ScanOutput{}, fmt.Errorf("no reachable Cloudflare IPv4 candidates on TCP/443")
 	}
+	filtered := coarse[:0]
+	for _, candidate := range coarse {
+		if candidate.Latency.Milliseconds() > int64(settings.MaxLatencyMS) {
+			continue
+		}
+		if candidate.LossRate > settings.MaxLossRate {
+			continue
+		}
+		filtered = append(filtered, candidate)
+	}
+	coarse = filtered
+	if len(coarse) == 0 {
+		return ScanOutput{}, fmt.Errorf("no Cloudflare IPv4 candidates met latency <= %d ms and loss <= %.0f%%", settings.MaxLatencyMS, settings.MaxLossRate*100)
+	}
 	sort.Slice(coarse, func(i, j int) bool {
 		if coarse[i].LossRate != coarse[j].LossRate {
 			return coarse[i].LossRate < coarse[j].LossRate
