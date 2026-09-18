@@ -71,6 +71,21 @@ OpenSurge 使用 React 原生组件和 CSS token 实现同一架构原则。
 
 桌面默认高度为 `38px`；窄屏/触控布局为 `44px`。按钮和输入共享控制圆角与 focus ring。
 
+### Alignment
+
+对齐由交互语义决定，不允许每个页面凭视觉感觉自行选择：
+
+- 确认、警告、操作结果等短内容 Dialog：标题、摘要和操作按钮居中；
+- Dialog 中的风险清单、技术细节、代码、地址和规则仍左对齐；
+- 编辑器、配置预览、命令面板、连接证据检查器等工作型窗口整体左对齐；
+- 空状态、单值状态和短提示可以居中；表格、表单标签和可扫描的长文本默认左对齐。
+
+禁止用全局 `dialog { text-align:center }` 之类规则覆盖工作型窗口。
+
+### Application chrome stability
+
+侧边栏展开/收起属于同一个控件状态转换。折叠按钮在两种状态下必须保持相同的垂直基线，只允许图标方向和侧栏宽度变化，不允许通过 `position:absolute`、`top` 或额外上边距把按钮移动到另一行。折叠按钮是次要控制，尺寸应小于普通 38px 操作按钮，但仍保留清晰的 focus ring 和点击反馈。
+
 ### Motion
 
 - Page enter：180ms；
@@ -169,6 +184,7 @@ Cloudflare Optimizer 是新设计系统的第一张完整样板页面：
 - 保存区使用 `ActionBar`；
 - 所有用户可见文本走 `t()`；
 - 日期时间使用应用 locale，而不是浏览器默认 locale。
+- Cloudflare 的普通用户配置只暴露“域名、自动周期、测速模式”三个概念；内部候选数、并发、超时和下载参数由测速模式 preset 管理，不把实现参数泄漏成表单负担；
 
 其他页面迁移时以这些组件契约为准，不复制 Cloudflare 的 feature layout class。
 
@@ -182,6 +198,9 @@ Cloudflare Optimizer 是新设计系统的第一张完整样板页面：
 4. hover / focus / disabled / reduced-motion；
 5. 中英文；
 6. 页面不得重新出现跨业务视觉 class 依赖；
-7. computed style 中共享 surface/radius/type/control 必须来自统一 token。
+7. computed style 中共享 surface/radius/type/control 必须来自统一 token；
+8. 确认型 Dialog 与工作型 Dialog 的文字对齐符合 Alignment 规则；
+9. 侧栏展开/收起前后折叠按钮保持同一垂直基线；
+10. 普通业务正文不得回退到 7–9px 微字号，Caption 下限按 11px 标准执行。
 
 在浏览器视觉回归基础设施加入前，CI 至少通过 React/Vitest、TypeScript 和 QNAP production build；视觉回归应作为后续门槛加入。

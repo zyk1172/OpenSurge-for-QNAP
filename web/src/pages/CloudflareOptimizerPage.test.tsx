@@ -17,15 +17,15 @@ const response = {
     schedule: { mode: 'interval' as const, every_days: 7, at: '04:00' },
     scan: {
       budget_seconds: 60,
-      candidate_limit: 384,
+      candidate_limit: 256,
       tcp_concurrency: 64,
-      tcp_attempts: 3,
-      tcp_timeout_ms: 1000,
-      https_candidate_count: 24,
-      http_timeout_ms: 3000,
+      tcp_attempts: 2,
+      tcp_timeout_ms: 800,
+      https_candidate_count: 15,
+      http_timeout_ms: 2000,
       download_candidate_count: 3,
-      download_seconds: 3,
-      download_max_bytes: 8388608,
+      download_seconds: 2,
+      download_max_bytes: 4194304,
     },
     targets: [{ domain: 'api.example.com', enabled: true, test_path: '/' }],
   },
@@ -54,46 +54,82 @@ describe('CloudflareOptimizerPage', () => {
     vi.clearAllMocks()
   })
 
-  it('uses shared design-system primitives instead of cross-feature visual classes', async () => {
+  it('keeps the optimizer surface simple and on shared design primitives', async () => {
     const { container } = render(<CloudflareOptimizerPage />)
-    expect(await screen.findByText('自动优选')).toBeTruthy()
+    expect(await screen.findByText('自动优选周期')).toBeTruthy()
 
     expect(container.querySelector('.ui-summary-grid')).toBeTruthy()
     expect(container.querySelectorAll('.ui-panel').length).toBe(4)
-    expect(container.querySelector('.ui-card.cloudflare-target-card')).toBeTruthy()
+    expect(container.querySelector('.ui-card.cloudflare-target-card--simple')).toBeTruthy()
     expect(container.querySelector('.ui-table-wrap .ui-table')).toBeTruthy()
     expect(container.querySelector('.ui-action-bar')).toBeTruthy()
+
+    expect(screen.queryByText('测试路径')).toBeNull()
+    expect(screen.queryByText('候选 IP')).toBeNull()
+    expect(screen.queryByText('TCP 并发')).toBeNull()
+    expect(screen.queryByText('HTTPS 候选')).toBeNull()
+    expect(screen.queryByText('Cron 表达式')).toBeNull()
+    expect(screen.getByLabelText('周期')).toBeTruthy()
+    expect(screen.getByLabelText('测速模式')).toBeTruthy()
 
     expect(container.querySelector('.connectivity-overview')).toBeNull()
     expect(container.querySelector('.source-card')).toBeNull()
     expect(container.querySelector('.source-actions')).toBeNull()
-    expect(container.querySelector('.section-heading')).toBeNull()
-    expect(container.querySelector('.table-wrap')).toBeNull()
-    expect(container.querySelector('.sticky-actions')).toBeNull()
   })
 
-  it('marks the settings dirty through the shared form controls', async () => {
+  it('marks domain edits dirty and normalizes hidden target details on save', async () => {
     render(<CloudflareOptimizerPage />)
     const domain = await screen.findByDisplayValue('api.example.com')
     expect((screen.getByRole('button', { name: '保存设置' }) as HTMLButtonElement).disabled).toBe(true)
 
     await userEvent.clear(domain)
     await userEvent.type(domain, 'cdn.example.com')
+    await userEvent.click(screen.getByRole('button', { name: '保存设置' }))
 
-    expect(screen.getByText('有未保存修改')).toBeTruthy()
-    expect((screen.getByRole('button', { name: '保存设置' }) as HTMLButtonElement).disabled).toBe(false)
+    await waitFor(() => {
+      const put = vi.mocked(request).mock.calls.find(([, init]) => init?.method === 'PUT')
+      expect(put).toBeTruthy()
+      const payload = JSON.parse(String(put?.[1]?.body))
+      expect(payload.targets).toEqual([{ domain: 'cdn.example.com', enabled: true, test_path: '/' }])
+    })
   })
 
-  it('renders the whole page in the selected English locale', async () => {
+  it('maps one scan-mode choice to the full internal preset', async () => {
+    render(<CloudflareOptimizerPage />)
+    await screen.findAllByText('测速模式')
+
+    await userEvent.selectOptions(screen.getByLabelText('测速模式'), 'full')
+    await userEvent.click(screen.getByRole('button', { name: '保存设置' }))
+
+    await waitFor(() => {
+      const put = vi.mocked(request).mock.calls.find(([, init]) => init?.method === 'PUT')
+      expect(put).toBeTruthy()
+      const payload = JSON.parse(String(put?.[1]?.body))
+      expect(payload.scan).toEqual({
+        budget_seconds: 90,
+        candidate_limit: 512,
+        tcp_concurrency: 96,
+        tcp_attempts: 3,
+        tcp_timeout_ms: 900,
+        https_candidate_count: 24,
+        http_timeout_ms: 3000,
+        download_candidate_count: 4,
+        download_seconds: 3,
+        download_max_bytes: 8388608,
+      })
+    })
+  })
+
+  it('renders the simplified page in the selected English locale', async () => {
     activateLanguage('en')
     render(<CloudflareOptimizerPage />)
 
     expect(await screen.findByRole('button', { name: 'Optimize now' })).toBeTruthy()
-    expect(screen.getByText('Automatic optimization')).toBeTruthy()
     expect(screen.getByText('Optimization targets')).toBeTruthy()
-    expect(screen.getByText('Scan limits')).toBeTruthy()
+    expect(screen.getByText('Automatic optimization cycle')).toBeTruthy()
+    expect(screen.getAllByText('Scan mode').length).toBeGreaterThan(0)
     expect(screen.getByText('Current IP')).toBeTruthy()
-    expect(screen.queryByText('自动优选')).toBeNull()
+    expect(screen.queryByText('自动优选周期')).toBeNull()
     await waitFor(() => expect(request).toHaveBeenCalledWith('/api/v1/cloudflare-opt', undefined))
   })
 })

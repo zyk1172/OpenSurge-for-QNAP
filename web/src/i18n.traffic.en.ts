@@ -63,6 +63,7 @@ export const trafficEnglishMessages: Record<string, string> = {
   '规则确认后再写入覆盖层，并重新应用当前来源。': 'Write to the override layer only after the rule is confirmed, then reapply the current source.',
   '复制 AI 分流分析说明': 'Copy AI routing-analysis instructions',
   'AI 分流分析说明已复制。': 'AI routing-analysis instructions copied.',
+  '复制失败，请检查浏览器剪贴板权限。': 'Copy failed. Check the browser clipboard permission.',
   '连接详情': 'Connection details',
   '这条连接关联到需要处理的问题': 'This connection is linked to an issue that needs attention',
   '当前证据没有显示这条连接存在分流异常': 'Current evidence does not show a routing problem for this connection',

@@ -127,3 +127,74 @@
     min-height:var(--ui-control-height)!important;
   }
 }
+
+/* QNAP readability audit ------------------------------------------------ */
+/* Redirect high-specificity legacy micro-type to the unified readable
+ * hierarchy. Chart axes remain exempt; these selectors are application UI. */
+.sidebar .nav-section-label{font-size:var(--ui-font-overline)!important}
+.sidebar-switch span small,
+.workspace-toolbar .language-selector-copy small,
+.command-palette-heading small,
+.command-result-copy small,
+.command-current-badge{
+  font-size:var(--ui-font-caption)!important;
+  line-height:1.4!important;
+}
+.workspace-toolbar .language-selector-copy strong{
+  font-size:var(--ui-font-control)!important;
+  line-height:1.3!important;
+}
+.workspace-canvas :is(
+  .source-import-head small,
+  .source-import-card>label>span,
+  .source-dropzone small,
+  .source-guard-note,
+  .source-head small,
+  .source-origin,
+  .source-location-copy small,
+  .source-location-copy code,
+  .source-location-copy>span,
+  .source-inventory small,
+  .source-diff,
+  .source-validation>span,
+  .source-validation strong,
+  .source-validation small,
+  .source-history,
+  .local-routing-state small,
+  .local-routing-note,
+  .connection-refresh-copy small,
+  .connection-refresh-feedback,
+  .device-meta-item,
+  .device-meta-item small,
+  .device-meta-value,
+  .mihomo-dns-advanced>summary small,
+  .mihomo-dns-advanced-status,
+  .profile-overlay-hero small,
+  .profile-overlay-hero p,
+  .baseline-control small,
+  .qnap-remote-management .eyebrow
+){
+  font-size:var(--ui-font-caption)!important;
+  line-height:1.45!important;
+}
+.workspace-canvas :is(
+  .connection-refresh-button,
+  .source-location-actions button,
+  .source-actions button,
+  .baseline-control strong
+){
+  font-size:var(--ui-font-control)!important;
+  line-height:1.3!important;
+}
+html[data-product-target="qnap"] .diagnostic-summary-card small,
+html[data-product-target="qnap"] .diagnostic-summary-card span,
+html[data-product-target="qnap"] .diagnostic-log-panel summary span,
+html[data-product-target="qnap"] .qnap-config-file-meta,
+html[data-product-target="qnap"] .qnap-config-file-editor>span{
+  font-size:var(--ui-font-caption)!important;
+  line-height:1.45!important;
+}
+html[data-product-target="qnap"] .qnap-config-file-editor textarea{
+  font-size:var(--ui-font-control)!important;
+  line-height:1.5!important;
+}

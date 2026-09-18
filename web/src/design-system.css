@@ -89,6 +89,54 @@ html,body,button,input,select,textarea{
 }
 .workspace-canvas small{font-size:var(--ui-font-caption);line-height:1.4}
 
+/* Stable application chrome -------------------------------------------- */
+.sidebar-brand-row{
+  height:54px!important;
+  min-height:54px!important;
+  display:flex!important;
+  align-items:center!important;
+  gap:4px!important;
+}
+.sidebar-collapse{
+  position:static!important;
+  inset:auto!important;
+  width:22px!important;
+  height:22px!important;
+  min-width:22px!important;
+  min-height:22px!important;
+  flex:0 0 22px!important;
+  align-self:center!important;
+  padding:0!important;
+  border-radius:var(--ui-radius-compact)!important;
+  transform:none!important;
+}
+.sidebar-collapse svg{width:14px!important;height:14px!important}
+.sidebar-compact .sidebar-brand-row{
+  display:flex!important;
+  grid-template-columns:none!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:2px!important;
+}
+.sidebar-compact .brand{
+  flex:0 0 32px!important;
+  width:32px!important;
+  padding:0!important;
+  justify-content:center!important;
+}
+.sidebar-compact .brand-mark{
+  width:32px!important;
+  height:32px!important;
+  flex:0 0 32px!important;
+}
+.sidebar-compact .sidebar-collapse{
+  position:static!important;
+  inset:auto!important;
+  background:transparent!important;
+  transform:rotate(180deg)!important;
+}
+.sidebar-compact .sidebar-nav-scroll{padding-top:6px!important}
+
 /* Shared surfaces ------------------------------------------------------- */
 .page-header,
 .section,
@@ -487,6 +535,61 @@ html,body,button,input,select,textarea{
   font-variant-numeric:tabular-nums;
 }
 
+/* Dialog alignment ------------------------------------------------------ */
+/* Confirmation/status dialogs are centered. Work surfaces (profile preview,
+ * command palette, traffic inspector) remain left-aligned by design. */
+dialog.reload-dialog{
+  width:min(560px,calc(100vw - 32px))!important;
+  max-width:560px!important;
+  height:auto!important;
+  max-height:calc(100dvh - 32px)!important;
+  padding:24px!important;
+  overflow:auto!important;
+  border:1px solid var(--ui-border)!important;
+  border-radius:var(--ui-radius-surface)!important;
+  background:var(--ui-surface-raised)!important;
+  color:var(--ui-text)!important;
+  text-align:center!important;
+  box-shadow:var(--ui-shadow-raised)!important;
+}
+dialog.reload-dialog>h2{
+  margin:0 0 var(--ui-space-3)!important;
+  color:var(--ui-text)!important;
+  font-size:var(--ui-font-section)!important;
+  font-weight:650!important;
+  line-height:1.35!important;
+  text-align:center!important;
+}
+dialog.reload-dialog>p{
+  max-width:480px;
+  margin:0 auto var(--ui-space-3)!important;
+  color:var(--ui-text-secondary)!important;
+  font-size:var(--ui-font-body)!important;
+  line-height:var(--ui-line-body)!important;
+  text-align:center!important;
+}
+dialog.reload-dialog>ul{
+  width:min(100%,480px);
+  margin:var(--ui-space-4) auto!important;
+  padding-left:22px!important;
+  color:var(--ui-text-secondary)!important;
+  font-size:var(--ui-font-body)!important;
+  line-height:1.6!important;
+  text-align:left!important;
+}
+dialog.reload-dialog>.notice,
+dialog.reload-dialog>.ok-notice{text-align:left!important}
+dialog.reload-dialog>.dialog-actions{
+  display:flex!important;
+  justify-content:center!important;
+  align-items:center!important;
+  gap:var(--ui-space-2)!important;
+  margin-top:var(--ui-space-4)!important;
+}
+.profile-overlay-preview-dialog,
+.command-palette,
+.traffic-v3-inspector{text-align:left!important}
+
 /* Notices and action bars ---------------------------------------------- */
 .notice,.ok-notice,.error-banner{
   border-radius:var(--ui-radius-surface)!important;
@@ -571,6 +674,11 @@ html,body,button,input,select,textarea{
   justify-content:flex-end;
   gap:var(--ui-space-2);
 }
+.cloudflare-target-card--simple{
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:end;
+}
+.cloudflare-simple-settings{max-width:520px}
 .cloudflare-page .ui-table{min-width:760px}
 .cloudflare-number{font-variant-numeric:tabular-nums}
 
@@ -588,7 +696,9 @@ html,body,button,input,select,textarea{
   .ui-summary-grid{grid-template-columns:1fr 1fr}
   .ui-summary-main{grid-column:1/-1}
   .cloudflare-target-card{grid-template-columns:1fr;align-items:stretch}
+  .cloudflare-target-card--simple>.ui-button{width:100%}
   .cloudflare-target-actions{justify-content:space-between}
+  .cloudflare-simple-settings{max-width:none}
 }
 
 @media(max-width:600px){
