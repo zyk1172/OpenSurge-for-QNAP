@@ -218,3 +218,62 @@ html[data-theme="light"] .traffic-v3-inspector-backdrop{background:rgba(34,38,50
 }
 
 @media (prefers-reduced-motion:reduce){.traffic-v3-live-state i{animation:none}.traffic-v3-connection-row,.traffic-v3-tabs button{transition:none}}
+
+/* Unified readable type correction -------------------------------------- */
+/* Traffic analysis used a legacy 7–10px micro-scale. Ordinary application
+ * text now follows the shared 14/13/11px hierarchy. */
+.traffic-v3-summary-card small,
+.traffic-v3-live-state,
+.traffic-v3-connection-head,
+.traffic-v3-target>small,
+.traffic-v3-route-badge,
+.traffic-v3-source small,
+.traffic-v3-path small,
+.traffic-v3-path em,
+.traffic-v3-bytes small,
+.traffic-v3-issue-copy>small,
+.traffic-v3-evidence span,
+.traffic-v3-insight-panel>header small,
+.traffic-v3-insight-panel>header>span,
+.traffic-v3-route-stat small,
+.traffic-v3-rule-row small,
+.traffic-v3-inspector-head p,
+.traffic-v3-inspector-issues span,
+.traffic-v3-explain-step>span,
+.traffic-v3-explain-step small,
+.traffic-v3-rule-editor-head p,
+.traffic-v3-rule-form label{
+  font-size:var(--ui-font-caption)!important;
+  line-height:1.45!important;
+}
+.traffic-v3-summary-card span,
+.traffic-v3-tabs button,
+.traffic-v3-search-actions button,
+.traffic-v3-target>strong,
+.traffic-v3-source strong,
+.traffic-v3-path strong,
+.traffic-v3-bytes,
+.traffic-v3-issue-copy p,
+.traffic-v3-issue>button,
+.traffic-v3-clean-state p,
+.traffic-v3-route-stat strong,
+.traffic-v3-route-stat b,
+.traffic-v3-rule-row b,
+.traffic-v3-mini-empty,
+.traffic-v3-verdict p,
+.traffic-v3-inspector-issues strong,
+.traffic-v3-explain-step p,
+.traffic-v3-inspector-actions button,
+.traffic-v3-rule-save button,
+.traffic-v3-rule-form input,
+.traffic-v3-rule-form select{
+  font-size:var(--ui-font-control)!important;
+  line-height:1.45!important;
+}
+.traffic-v3-issue-copy h3,
+.traffic-v3-insight-panel>header h3,
+.traffic-v3-clean-state strong{
+  font-size:var(--ui-font-card)!important;
+  line-height:1.35!important;
+}
+.traffic-v3-tabs button span{font-size:var(--ui-font-caption)!important}
