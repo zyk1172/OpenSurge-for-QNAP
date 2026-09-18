@@ -394,12 +394,6 @@ function detectScanMode(scan: ScanSettings): ScanMode {
   return 'deep'
 }
 
-function scanModeLabel(mode: ScanMode) {
-  if (mode === 'fast') return '快速'
-  if (mode === 'full') return '完整'
-  if (mode === 'deep') return '深入'
-  return '标准'
-}
 
 function statusLabel(state: OptimizerState, localScanning: boolean, localChecking: boolean) {
   if (state.running || localScanning) return '正在执行完整优选'
