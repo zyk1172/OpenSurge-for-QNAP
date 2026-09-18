@@ -1556,7 +1556,7 @@ html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid{
 html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runtime-card{
   display:flex!important;
   min-height:94px!important;
-  height:94px!important;
+  height:auto!important;
   box-sizing:border-box!important;
   flex-direction:column!important;
   justify-content:space-between!important;
