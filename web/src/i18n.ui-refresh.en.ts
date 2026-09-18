@@ -1,6 +1,13 @@
 import { registerEnglishMessages } from './i18n'
 
 export const uiRefreshEnglishMessages: Record<string, string> = {
+  '等待移除': 'Waiting for removal',
+  '配置待更新': 'Configuration update pending',
+  '等待首次应用': 'Waiting for first apply',
+  '身份冲突': 'Identity conflict',
+  'IP 已变化': 'IP changed',
+  '已观察到设备': 'Device observed',
+  '身份已确认': 'Identity confirmed',
   '等待设备接入': 'Waiting for device',
   '身份待确认': 'Identity pending',
   '策略已暂停': 'Policy paused',
