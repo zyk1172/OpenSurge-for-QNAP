@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { PageHeader, SectionTitle } from '../components/Common'
-import type { Diagnostics, ProfileOverlay, ProxyGroup, ProxyHealthEntry, Source } from '../types'
+import type { Diagnostics, ProfileOverlay, ProxyGroup, ProxyHealthEntry } from '../types'
 import { t } from '../i18n'
 import {
   aggregateRuleHits,
@@ -27,7 +27,6 @@ import './TrafficAnalysisPage.css'
 
 const trafficHistoryStorageKey = 'opensurge-traffic-analysis-history-v1'
 const trafficPollIntervalMs = 1200
-const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
 
 export function TrafficAnalysisPage() {
   const [details, setDetails] = useState<Diagnostics | null>(null)
@@ -35,8 +34,6 @@ export function TrafficAnalysisPage() {
   const [overlay, setOverlay] = useState<ProfileOverlay | null>(null)
   const [groups, setGroups] = useState<ProxyGroup[]>([])
   const [health, setHealth] = useState<ProxyHealthEntry[]>([])
-  const [sources, setSources] = useState<Source[]>([])
-  const [sourceRevision, setSourceRevision] = useState('')
   const [selected, setSelected] = useState<TrafficRecord | null>(null)
   const [filter, setFilter] = useState<TrafficViewFilter>('focus')
   const [search, setSearch] = useState('')
@@ -49,16 +46,13 @@ export function TrafficAnalysisPage() {
   const requestRunning = useRef(false)
 
   const loadManagementState = async () => {
-    const [nextOverlay, policyResponse, sourceResponse, healthResponse] = await Promise.all([
+    const [nextOverlay, policyResponse, healthResponse] = await Promise.all([
       api.profileOverlay(),
       api.policies().catch(() => ({ groups: [] as ProxyGroup[] })),
-      api.sources().catch(() => ({ revision: '', sources: [] as Source[] })),
       api.proxyHealth().catch(() => ({ schema_version: 1, test_url: '', proxies: [] as ProxyHealthEntry[] })),
     ])
     setOverlay(nextOverlay)
     setGroups(policyResponse.groups ?? [])
-    setSources(sourceResponse.sources ?? [])
-    setSourceRevision(sourceResponse.revision ?? '')
     setHealth(healthResponse.proxies ?? [])
   }
 
@@ -214,29 +208,10 @@ export function TrafficAnalysisPage() {
 
   const applyOverlayToActiveSource = async () => {
     const response = await api.sources()
-    setSources(response.sources ?? [])
-    setSourceRevision(response.revision ?? '')
     const active = response.sources?.find(source => source.applied) ?? response.sources?.find(source => source.desired)
     if (!active || !response.revision) return false
     await api.applySource(active.id, response.revision)
     return true
-  }
-
-  const copyAIInstructions = async () => {
-    const text = [
-      `OpenSurge · ${t('AI 分流分析')}`,
-      `1. GET /api/remote/v1/diagnostics — ${t('读取当前连接、命中规则、实际出口链和脱敏日志')}`,
-      `2. GET /api/remote/v1/policies — ${t('解释策略组当前选择')}`,
-      `3. GET /api/remote/v1/profile-overlay — ${t('读取或写入 rules.prepend 高优先级规则')}`,
-      `4. ${t('正常 DIRECT、DNS、LAN 和策略组换节点不是异常；只基于可验证证据提出修正。')}`,
-      `5. ${t('规则确认后再写入覆盖层，并重新应用当前来源。')}`,
-    ].join('\n')
-    try {
-      await copyText(text)
-      setMessage(t('AI 分流分析说明已复制。'))
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-    }
   }
 
   return <>
@@ -351,15 +326,7 @@ export function TrafficAnalysisPage() {
       </div>
     </section>
 
-    {qnapBuild && <section className="section">
-      <SectionTitle title={t('AI 分流分析')} subtitle={t('AI 读取相同的连接证据、策略组和覆盖层；正常路径不应被当成异常。')} />
-      <div className="traffic-v3-ai-flow">
-        <span><strong>GET</strong> <code>/api/remote/v1/diagnostics</code> — {t('当前连接、规则命中、实际出口链和脱敏日志')}</span>
-        <span><strong>GET</strong> <code>/api/remote/v1/policies</code> — {t('解释策略组当前选择')}</span>
-        <span><strong>GET / PUT</strong> <code>/api/remote/v1/profile-overlay</code> — {t('读取或写入 rules.prepend 高优先级规则')}</span>
-        <div className="source-actions"><button type="button" onClick={() => void copyAIInstructions()}>{t('复制 AI 分流分析说明')}</button></div>
-      </div>
-    </section>}
+
 
     {selected && <ConnectionInspector
       connection={selected}
@@ -527,19 +494,4 @@ function persistTrafficHistory(history: TrafficRecord[]) {
   try {
     window.localStorage.setItem(trafficHistoryStorageKey, JSON.stringify(history))
   } catch { /* browser storage can be unavailable or full */ }
-}
-
-async function copyText(value: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value)
-    return
-  }
-  const textarea = document.createElement('textarea')
-  textarea.value = value
-  textarea.style.position = 'fixed'
-  textarea.style.opacity = '0'
-  document.body.appendChild(textarea)
-  textarea.select()
-  document.execCommand('copy')
-  textarea.remove()
 }
