@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "pnpm check:i18n && tsc -b && vite build",
     "check:i18n": "node scripts/check-i18n.mjs",
-    "test": "vitest run"
+    "test": "node scripts/check-ui-css.mjs && vitest run"
   },
   "dependencies": {
     "react": "19.2.7",
