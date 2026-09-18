@@ -161,11 +161,11 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
                 <div className="host-sync-settings">
                   <article className="host-sync-setting-card">
                     <span><strong>{t('启用宿主 Hosts')}</strong><small>{t('控制宿主 Hosts 是否参与附加配置')}</small></span>
-                    <button className={`overlay-switch ${hostSync.enabled ? 'on' : ''}`} type="button" role="switch" aria-checked={hostSync.enabled} disabled={hostSyncBusy} onClick={() => void saveHostSyncPatch({ enabled: !hostSync.enabled })}><i aria-hidden="true" /><span>{t(hostSync.enabled ? '已启用' : '已停用')}</span></button>
+                    <button className={`overlay-switch ${hostSync.enabled ? 'on' : ''}`} type="button" role="switch" aria-label={t('启用宿主 Hosts')} aria-checked={hostSync.enabled} disabled={hostSyncBusy} onClick={() => void saveHostSyncPatch({ enabled: !hostSync.enabled })}><i aria-hidden="true" /><span>{t(hostSync.enabled ? '已启用' : '已停用')}</span></button>
                   </article>
                   <article className="host-sync-setting-card">
                     <span><strong>{t('定时更新')}</strong><small>{t('内容变化时才写入配置')}</small></span>
-                    <button className={`overlay-switch ${hostSync.auto_update ? 'on' : ''}`} type="button" role="switch" aria-checked={hostSync.auto_update} disabled={hostSyncBusy} onClick={() => void saveHostSyncPatch({ auto_update: !hostSync.auto_update })}><i aria-hidden="true" /><span>{t(hostSync.auto_update ? '已启用' : '已停用')}</span></button>
+                    <button className={`overlay-switch ${hostSync.auto_update ? 'on' : ''}`} type="button" role="switch" aria-label={t('定时更新')} aria-checked={hostSync.auto_update} disabled={hostSyncBusy} onClick={() => void saveHostSyncPatch({ auto_update: !hostSync.auto_update })}><i aria-hidden="true" /><span>{t(hostSync.auto_update ? '已启用' : '已停用')}</span></button>
                   </article>
                   <article className="host-sync-setting-card host-sync-interval">
                     <span><strong>{t('更新间隔')}</strong><small>{t('定时更新启用后按此间隔检查')}</small></span>
@@ -173,7 +173,7 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
                   </article>
                   <article className="host-sync-setting-card host-sync-mount-card">
                     <span><strong>{t('宿主映射状态')}</strong><small>{hostSync.path}</small></span>
-                    <span className={`host-sync-mount-state ${hostSync.mapped ? 'ok' : 'warn'}`}>{t(hostSync.mapped ? '已检测到映射' : '未检测到映射')}</span>
+                    <span className={`host-sync-mount-state ${hostSync.mapped ? 'ok' : 'warn'}`} title={hostSync.mount_error || undefined}>{t(hostSync.mapped ? '已检测到映射' : '未检测到映射')}</span>
                   </article>
                 </div>
                 <div className="host-sync-status">
