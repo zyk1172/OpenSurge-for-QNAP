@@ -8,7 +8,7 @@ import '../i18n.traffic.en'
 import { TutorialPage } from './TutorialPage'
 
 describe('TutorialPage', () => {
-  const writeText = vi.fn(async () => {})
+  const writeText = vi.fn(async (_value: string) => {})
 
   beforeEach(() => {
     activateLanguage('zh-Hans')
