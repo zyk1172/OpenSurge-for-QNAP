@@ -45,6 +45,19 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
     return <section className="section profile-overlay-panel"><div className="profile-overlay-loading"><span className="button-spinner" aria-hidden="true" />{t('正在读取全局附加配置…')}</div></section>
   }
 
+  const saveHostSyncPatch = async (patch: Partial<Pick<HostHostsSync, 'enabled' | 'auto_update' | 'interval_minutes'>>) => {
+    setHostSyncBusy(true)
+    setError('')
+    try {
+      const next = await api.saveHostHostsSync(patch)
+      setHostSync(next)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setHostSyncBusy(false)
+    }
+  }
+
   const update = (change: (current: ProfileOverlayDocument) => void) => {
     setDocument(current => {
       if (!current) return current
@@ -144,23 +157,31 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
               <div><strong>{t('NAS 宿主机 Hosts 同步')}</strong><small>{t('从只读映射的 QNAP /etc/hosts 导入；自动区与手工 Hosts 相互隔离。')}</small></div>
             </header>
             <div className="overlay-section-body">
-              <div className="host-sync-mount-note" role="note">
-                <div><strong>{t('宿主 Hosts 挂载要求')}</strong><span className={`host-sync-mount-state ${hostSync?.mapped ? 'ok' : 'warn'}`}>{t(hostSync?.mapped ? '已检测到只读映射' : '未检测到映射')}</span></div>
-                <code>/etc/hosts → /run/opensurge/host-hosts · read-only</code>
-                <p>{t('这是容器创建参数；旧容器升级不会自动增加。如果当前容器没有这条映射，请在 Container Station / Compose 添加')} <code>/etc/hosts:/run/opensurge/host-hosts:ro</code> {t('后重建容器；继续挂载原 /data，现有配置不会丢失。')}</p>{hostSync?.mount_error && <small>{t('当前检测结果：')} {hostSync.mount_error}</small>}
-              </div>
               {hostSync ? <>
                 <div className="host-sync-settings">
-                  <label className="overlay-enable-row"><span><strong>{t('启用宿主 Hosts')}</strong><small>{hostSync.path}</small></span><input type="checkbox" checked={hostSync.enabled} onChange={async e => { setHostSyncBusy(true); try { setHostSync(await api.saveHostHostsSync({ ...hostSync, enabled: e.target.checked })) } finally { setHostSyncBusy(false) } }} /></label>
-                  <label className="overlay-enable-row"><span><strong>{t('定时更新')}</strong><small>{t('内容变化时才写入配置')}</small></span><input type="checkbox" checked={hostSync.auto_update} disabled={!hostSync.enabled} onChange={async e => { setHostSyncBusy(true); try { setHostSync(await api.saveHostHostsSync({ ...hostSync, auto_update: e.target.checked })) } finally { setHostSyncBusy(false) } }} /></label>
-                  <label className="host-sync-interval"><span>{t('更新间隔')}</span><select value={hostSync.interval_minutes} disabled={!hostSync.enabled || !hostSync.auto_update} onChange={async e => { setHostSyncBusy(true); try { setHostSync(await api.saveHostHostsSync({ ...hostSync, interval_minutes: Number(e.target.value) })) } finally { setHostSyncBusy(false) } }}><option value={5}>5 min</option><option value={15}>15 min</option><option value={30}>30 min</option><option value={60}>1 h</option><option value={360}>6 h</option><option value={1440}>24 h</option></select></label>
+                  <article className="host-sync-setting-card">
+                    <span><strong>{t('启用宿主 Hosts')}</strong><small>{t('控制宿主 Hosts 是否参与附加配置')}</small></span>
+                    <button className={`overlay-switch ${hostSync.enabled ? 'on' : ''}`} type="button" role="switch" aria-checked={hostSync.enabled} disabled={hostSyncBusy} onClick={() => void saveHostSyncPatch({ enabled: !hostSync.enabled })}><i aria-hidden="true" /><span>{t(hostSync.enabled ? '已启用' : '已停用')}</span></button>
+                  </article>
+                  <article className="host-sync-setting-card">
+                    <span><strong>{t('定时更新')}</strong><small>{t('内容变化时才写入配置')}</small></span>
+                    <button className={`overlay-switch ${hostSync.auto_update ? 'on' : ''}`} type="button" role="switch" aria-checked={hostSync.auto_update} disabled={hostSyncBusy} onClick={() => void saveHostSyncPatch({ auto_update: !hostSync.auto_update })}><i aria-hidden="true" /><span>{t(hostSync.auto_update ? '已启用' : '已停用')}</span></button>
+                  </article>
+                  <article className="host-sync-setting-card host-sync-interval">
+                    <span><strong>{t('更新间隔')}</strong><small>{t('定时更新启用后按此间隔检查')}</small></span>
+                    <select aria-label={t('更新间隔')} value={hostSync.interval_minutes} disabled={hostSyncBusy} onChange={event => void saveHostSyncPatch({ interval_minutes: Number(event.target.value) })}><option value={5}>5 min</option><option value={15}>15 min</option><option value={30}>30 min</option><option value={60}>1 h</option><option value={360}>6 h</option><option value={1440}>24 h</option></select>
+                  </article>
+                  <article className="host-sync-setting-card host-sync-mount-card">
+                    <span><strong>{t('宿主映射状态')}</strong><small>{hostSync.path}</small></span>
+                    <span className={`host-sync-mount-state ${hostSync.mapped ? 'ok' : 'warn'}`}>{t(hostSync.mapped ? '已检测到映射' : '未检测到映射')}</span>
+                  </article>
                 </div>
                 <div className="host-sync-status">
                   <span><small>{t('已同步条目')}</small><strong>{hostSync.last_entries}</strong></span>
                   <span><small>{t('上次同步')}</small><strong>{hostSync.last_sync_at ? new Date(hostSync.last_sync_at).toLocaleString() : t('尚未同步')}</strong></span>
-                  <button type="button" className="primary" disabled={hostSyncBusy} onClick={async () => { setHostSyncBusy(true); try { const next = await api.syncHostHostsNow(); setHostSync(next); setMessage(t('NAS 宿主机 Hosts 已同步到附加配置。')) } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setHostSyncBusy(false) } }}>{t(hostSyncBusy ? '正在同步…' : '立即同步')}</button>
+                  <button type="button" className="primary" disabled={hostSyncBusy || !hostSync.mapped} onClick={async () => { setHostSyncBusy(true); setError(''); try { const next = await api.syncHostHostsNow(); setHostSync(next); setMessage(t('NAS 宿主机 Hosts 已同步到附加配置。')) } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setHostSyncBusy(false) } }}>{t(hostSyncBusy ? '正在同步…' : '立即同步')}</button>
                 </div>
-                {hostSync.last_error && <div className="notice warn"><strong>{t('宿主 Hosts 读取失败')}</strong><p>{hostSync.last_error}</p><p>{t('请确认容器存在只读映射 /etc/hosts:/run/opensurge/host-hosts:ro，并在修改挂载后重建容器。')}</p></div>}
+                {hostSync.last_error && <div className="notice warn"><strong>{t('宿主 Hosts 读取失败')}</strong><p>{hostSync.last_error}</p><p>{t('挂载要求与重建容器步骤请查看教程中的“NAS Hosts 只读挂载”。')}</p></div>}
               </> : <div className="empty">{t('正在读取宿主 Hosts 同步状态…')}</div>}
             </div>
           </section>

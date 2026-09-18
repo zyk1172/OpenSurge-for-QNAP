@@ -114,3 +114,27 @@ func TestHostHostsSyncStatusReportsMappedFile(t *testing.T) {
 		t.Fatalf("expected missing mount status, got mapped=%v error=%q", view.Mapped, view.MountError)
 	}
 }
+
+
+func TestHostHostsSyncAPIUpdatesPartialSettings(t *testing.T) {
+	store := NewStore(t.TempDir())
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store}
+
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/host-hosts-sync", strings.NewReader(`{"auto_update":true,"interval_minutes":60}`))
+	response := httptest.NewRecorder()
+	server.handleHostHostsSync(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	settings, err := store.HostHostsSyncSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !settings.AutoUpdate || settings.IntervalMinutes != 60 {
+		t.Fatalf("settings=%+v", settings)
+	}
+}

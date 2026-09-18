@@ -12,6 +12,9 @@ vi.mock('../api', () => ({
     saveProfileOverlayDocument: vi.fn(),
     saveProfileOverlayYAML: vi.fn(),
     sourcePreview: vi.fn(),
+    hostHostsSync: vi.fn(),
+    saveHostHostsSync: vi.fn(),
+    syncHostHostsNow: vi.fn(),
   },
 }))
 
@@ -59,6 +62,17 @@ const source: Source = {
   overlay_validation: 'compatible',
 }
 
+const hostSync = {
+  schema_version: 1,
+  enabled: false,
+  auto_update: false,
+  interval_minutes: 30,
+  path: '/run/opensurge/host-hosts',
+  mapped: true,
+  last_entries: 45,
+  last_sync_at: '2026-09-19T03:27:14Z',
+}
+
 const preview: ProfileOverlayPreview = {
   schema_version: 1,
   source_id: 'home',
@@ -73,7 +87,12 @@ const preview: ProfileOverlayPreview = {
 }
 
 describe('ProfileOverlayPanel', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(api.hostHostsSync).mockResolvedValue(hostSync)
+    vi.mocked(api.saveHostHostsSync).mockImplementation(async patch => ({ ...hostSync, ...patch }))
+    vi.mocked(api.syncHostHostsNow).mockResolvedValue({ ...hostSync, enabled: true, last_entries: 45 })
+  })
   afterEach(() => { cleanup(); activateLanguage('zh-Hans') })
 
   it('renders the guided editor and preview in English', async () => {
@@ -94,6 +113,23 @@ describe('ProfileOverlayPanel', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Final configuration preview' })
     expect(within(dialog).getByText('Composition order')).toBeTruthy()
     expect(globalThis.document.body.textContent).not.toMatch(/[\u3400-\u9fff]/)
+  })
+
+  it('updates host sync controls with patch-only payloads', async () => {
+    render(<ProfileOverlayPanel overlay={overlay} sources={[source]} onSaved={vi.fn()} />)
+    const panel = documentQuery('details.profile-overlay-panel')
+    panel.open = true
+
+    const enableSwitch = await screen.findByRole('switch', { name: /启用宿主 Hosts/ })
+    await userEvent.click(enableSwitch)
+    await waitFor(() => expect(api.saveHostHostsSync).toHaveBeenCalledWith({ enabled: true }))
+
+    const scheduleSwitch = screen.getByRole('switch', { name: /定时更新/ })
+    await userEvent.click(scheduleSwitch)
+    await waitFor(() => expect(api.saveHostHostsSync).toHaveBeenCalledWith({ auto_update: true }))
+
+    await userEvent.selectOptions(screen.getByLabelText('更新间隔'), '60')
+    await waitFor(() => expect(api.saveHostHostsSync).toHaveBeenCalledWith({ interval_minutes: 60 }))
   })
 
   it('guides a user from enabling and adding a rule to a saved draft', async () => {
