@@ -49,6 +49,11 @@
   --ui-shadow:0 10px 28px rgba(0,0,0,.18),inset 0 1px rgba(255,255,255,.045);
   --ui-shadow-raised:0 18px 44px rgba(0,0,0,.26),inset 0 1px rgba(255,255,255,.07);
   --ui-focus:0 0 0 3px color-mix(in srgb,var(--ui-accent) 20%,transparent);
+  --ui-glass-blur:22px;
+  --ui-glass-saturate:140%;
+  --ui-glass-highlight:rgba(255,255,255,.075);
+  --ui-glass-highlight-soft:rgba(255,255,255,.038);
+  --ui-glass-tint:rgba(155,131,245,.055);
   --ui-motion-page:180ms;
   --ui-motion-overlay:160ms;
   --ui-motion-control:160ms;
@@ -76,6 +81,9 @@ html[data-theme="light"]{
   --ui-info:#267fa4;
   --ui-shadow:0 10px 26px rgba(34,38,46,.08),inset 0 1px rgba(255,255,255,.72);
   --ui-shadow-raised:0 18px 40px rgba(34,38,46,.13),inset 0 1px rgba(255,255,255,.82);
+  --ui-glass-highlight:rgba(255,255,255,.82);
+  --ui-glass-highlight-soft:rgba(255,255,255,.52);
+  --ui-glass-tint:rgba(114,87,216,.035);
 }
 
 html,body,button,input,select,textarea{
@@ -143,10 +151,13 @@ html,body,button,input,select,textarea{
 .ui-panel{
   border:1px solid var(--ui-border)!important;
   border-radius:var(--ui-radius-surface)!important;
-  background:var(--ui-surface)!important;
+  background-color:var(--ui-surface)!important;
+  background-image:
+    linear-gradient(145deg,var(--ui-glass-highlight),transparent 38%),
+    linear-gradient(155deg,var(--ui-glass-tint),transparent 72%)!important;
   box-shadow:var(--ui-shadow)!important;
-  -webkit-backdrop-filter:blur(16px) saturate(125%);
-  backdrop-filter:blur(16px) saturate(125%);
+  -webkit-backdrop-filter:blur(var(--ui-glass-blur)) saturate(var(--ui-glass-saturate));
+  backdrop-filter:blur(var(--ui-glass-blur)) saturate(var(--ui-glass-saturate));
 }
 
 .page-header{
@@ -217,8 +228,8 @@ html,body,button,input,select,textarea{
 .mp-card{
   border:1px solid var(--ui-border)!important;
   border-radius:var(--ui-radius-surface)!important;
-  background:var(--ui-surface-soft)!important;
-  background-image:none!important;
+  background-color:var(--ui-surface-soft)!important;
+  background-image:linear-gradient(145deg,var(--ui-glass-highlight-soft),transparent 46%)!important;
   box-shadow:none!important;
 }
 
@@ -641,6 +652,168 @@ dialog.reload-dialog>.dialog-actions{
 .qnap-host-policy-grid .source-import-card,
 .qnap-runtime-grid .source-import-card{border-radius:var(--ui-radius-surface)!important}
 
+/* Device and rule workspace: retire the legacy green palette and keep every
+ * nested control on the same liquid-glass material contract. */
+.rule-library:focus{
+  outline-color:color-mix(in srgb,var(--ui-accent) 42%,transparent)!important;
+}
+.device-card small,
+.rule-library :where(small,p),
+.library-pane :where(small,p){
+  color:var(--ui-text-muted)!important;
+}
+.device-card.selected{
+  border-color:color-mix(in srgb,var(--ui-accent) 58%,var(--ui-border))!important;
+  box-shadow:var(--ui-focus)!important;
+}
+.device-card.selected .edit-device,
+.connection-refresh-button,
+.library-pane-heading>button,
+.add-rule{
+  border-color:color-mix(in srgb,var(--ui-accent) 36%,var(--ui-border))!important;
+  background:color-mix(in srgb,var(--ui-accent-soft) 66%,var(--ui-control-surface))!important;
+  color:var(--ui-accent-strong)!important;
+}
+.connection-refresh-control,
+.route-options label,
+.registration-routing>label,
+.device-defaults,
+.flat-rule,
+.egress-mode,
+.library-item,
+.library-editor,
+.builtin-template,
+.builtin-rule-grid details,
+.template-rule-set-options label,
+.catalog-rule-preview,
+.inline-advanced{
+  border-color:var(--ui-border)!important;
+  background-color:var(--ui-surface-soft)!important;
+  background-image:linear-gradient(145deg,var(--ui-glass-highlight-soft),transparent 48%)!important;
+  color:var(--ui-text-secondary)!important;
+}
+.route-options label.active,
+.registration-routing>label.active,
+.device-defaults.following{
+  border-color:color-mix(in srgb,var(--ui-accent) 48%,var(--ui-border))!important;
+  background-color:color-mix(in srgb,var(--ui-accent-soft) 58%,var(--ui-surface-soft))!important;
+  color:var(--ui-text)!important;
+}
+.device-defaults.legacy,
+.legacy-mode-warning,
+.identity-rebind{
+  border-color:color-mix(in srgb,var(--ui-warning) 42%,var(--ui-border))!important;
+  background-color:color-mix(in srgb,var(--ui-warning) 11%,var(--ui-surface-soft))!important;
+  background-image:linear-gradient(145deg,var(--ui-glass-highlight-soft),transparent 48%)!important;
+  color:var(--ui-text-secondary)!important;
+}
+.device-defaults>small,
+.device-defaults.following>small,
+.device-defaults.legacy>small,
+.legacy-mode-warning small,
+.identity-rebind :where(small,.identity-rebind-note){
+  color:var(--ui-text-muted)!important;
+}
+.device-meta-item,
+.rule-chip,
+.token{
+  border-color:var(--ui-border)!important;
+  background:color-mix(in srgb,var(--ui-accent-soft) 56%,var(--ui-control-surface))!important;
+  color:var(--ui-text-secondary)!important;
+}
+.token button{color:var(--ui-text-muted)!important}
+.rule-summary>strong,
+.catalog-rule-preview,
+.builtin-rule-grid pre{
+  color:var(--ui-accent-strong)!important;
+}
+.rule-library-tabs{
+  border-color:var(--ui-border)!important;
+}
+.rule-library-tabs button{
+  min-height:var(--ui-control-height)!important;
+  border:1px solid var(--ui-border)!important;
+  border-radius:var(--ui-radius-control)!important;
+  background:var(--ui-control-surface)!important;
+  color:var(--ui-text-secondary)!important;
+  font-size:var(--ui-font-control)!important;
+  transition:border-color var(--ui-motion-control) var(--ui-ease),background var(--ui-motion-control) var(--ui-ease),color var(--ui-motion-control) var(--ui-ease)!important;
+}
+.rule-library-tabs button[aria-selected="true"]{
+  border-color:color-mix(in srgb,var(--ui-accent) 52%,var(--ui-border))!important;
+  background:color-mix(in srgb,var(--ui-accent-soft) 72%,var(--ui-control-surface))!important;
+  color:var(--ui-accent-strong)!important;
+}
+.rule-library-tabs button span{
+  background:color-mix(in srgb,var(--ui-accent-soft) 68%,var(--ui-control-surface))!important;
+  color:var(--ui-accent-strong)!important;
+}
+.library-pane-heading>button,
+.library-item-actions button:not(.primary):not(.danger-link),
+.library-editor button:not(.primary):not(.danger-link),
+.candidate-add button,
+.token-entry button,
+.rule-actions button:not(.danger-link),
+.add-rule{
+  min-height:var(--ui-control-height)!important;
+  padding:0 12px!important;
+  border:1px solid var(--ui-border)!important;
+  border-radius:var(--ui-radius-control)!important;
+  background:var(--ui-control-surface)!important;
+  color:var(--ui-text-secondary)!important;
+  font-size:var(--ui-font-control)!important;
+}
+.library-pane-heading>button,
+.add-rule{
+  border-color:color-mix(in srgb,var(--ui-accent) 36%,var(--ui-border))!important;
+  background:color-mix(in srgb,var(--ui-accent-soft) 62%,var(--ui-control-surface))!important;
+  color:var(--ui-accent-strong)!important;
+}
+.library-item-actions .danger-link,
+.rule-actions .danger-link{
+  border-color:color-mix(in srgb,var(--ui-danger) 38%,var(--ui-border))!important;
+  background:color-mix(in srgb,var(--ui-danger) 12%,var(--ui-control-surface))!important;
+  color:color-mix(in srgb,var(--ui-text) 72%,var(--ui-danger) 28%)!important;
+}
+.library-item.is-catalog,
+.builtin-template{
+  border-color:color-mix(in srgb,var(--ui-accent) 28%,var(--ui-border))!important;
+  background-color:color-mix(in srgb,var(--ui-accent-soft) 28%,var(--ui-surface-soft))!important;
+}
+.library-editor :where(input,select,textarea),
+.device-route-picker select,
+.candidate-picker :where(input,select){
+  border-color:var(--ui-border)!important;
+  background:var(--ui-control-surface)!important;
+  color:var(--ui-text)!important;
+}
+.template-rule-set-options input,
+.route-source-kind input,
+.route-options input,
+.registration-routing input{
+  accent-color:var(--ui-accent)!important;
+}
+.library-pane-heading h3,
+.rule-library-heading strong,
+.library-item strong,
+.builtin-template h4{
+  color:var(--ui-text)!important;
+}
+.library-item small,
+.library-pane-heading p,
+.builtin-template p,
+.builtin-source,
+.builtin-rule-grid summary span{
+  color:var(--ui-text-muted)!important;
+}
+.builtin-source a{color:var(--ui-accent-strong)!important}
+.builtin-rule-grid summary,
+.route-source-kind label,
+.egress-mode,
+.device-route-picker{
+  color:var(--ui-text-secondary)!important;
+}
+
 /* Page motion mirrors MoviePilot's short route transition. */
 .workspace-canvas>*{
   animation:ui-page-enter var(--ui-motion-page) var(--ui-ease) both;
@@ -655,28 +828,14 @@ dialog.reload-dialog>.dialog-actions{
 .cloudflare-page{display:block;min-width:0}
 .cloudflare-page .ui-panel{margin-top:var(--ui-space-4)!important}
 .cloudflare-page .page-header+.ui-summary-grid{margin-top:0}
-.cloudflare-target-list{display:grid;gap:var(--ui-space-3)}
-.cloudflare-target-card{
-  display:grid;
-  grid-template-columns:minmax(0,1fr) auto;
-  align-items:end;
-  gap:var(--ui-space-4);
-  padding:var(--ui-space-4);
-}
-.cloudflare-target-fields{
-  display:grid;
-  grid-template-columns:minmax(0,2fr) minmax(150px,1fr);
-  gap:var(--ui-space-3);
-}
-.cloudflare-target-actions{
-  display:flex;
-  align-items:center;
-  justify-content:flex-end;
-  gap:var(--ui-space-2);
-}
-.cloudflare-target-card--simple{
-  grid-template-columns:minmax(0,1fr) auto;
-  align-items:end;
+.cloudflare-target-editor{padding:var(--ui-space-4)}
+.cloudflare-target-textarea{
+  width:100%;
+  min-height:184px;
+  resize:vertical;
+  line-height:1.6!important;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace!important;
+  font-variant-ligatures:none;
 }
 .cloudflare-simple-settings{max-width:520px}
 .cloudflare-page .ui-table{min-width:760px}
@@ -695,9 +854,7 @@ dialog.reload-dialog>.dialog-actions{
   .ui-form-grid>.span-2,.form-grid>.span-2{grid-column:auto}
   .ui-summary-grid{grid-template-columns:1fr 1fr}
   .ui-summary-main{grid-column:1/-1}
-  .cloudflare-target-card{grid-template-columns:1fr;align-items:stretch}
-  .cloudflare-target-card--simple>.ui-button{width:100%}
-  .cloudflare-target-actions{justify-content:space-between}
+  .cloudflare-target-editor{padding:var(--ui-space-3)}
   .cloudflare-simple-settings{max-width:none}
 }
 
@@ -709,9 +866,6 @@ dialog.reload-dialog>.dialog-actions{
   .ui-summary-grid{grid-template-columns:1fr}
   .ui-summary-main{grid-column:auto}
   .ui-summary-grid>*{min-height:72px}
-  .cloudflare-target-fields{grid-template-columns:1fr}
-  .cloudflare-target-actions{display:grid;grid-template-columns:1fr 1fr}
-  .cloudflare-target-actions .ui-switch{grid-column:1/-1}
   .ui-action-bar,.sticky-actions,.sticky-save{display:grid!important;grid-template-columns:1fr 1fr!important}
   .ui-action-bar>span,.sticky-actions>span,.sticky-save>span{grid-column:1/-1;margin-right:0}
 }
