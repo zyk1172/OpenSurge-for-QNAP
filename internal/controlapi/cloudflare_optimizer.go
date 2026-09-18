@@ -58,6 +58,15 @@ func (a *cloudflareOptimizerAPI) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		a.handleScan(w, r)
 		return
 	}
+	if r.URL.Path == "/api/v1/cloudflare-opt/check" {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		a.handleCheck(w, r)
+		return
+	}
 	a.next.ServeHTTP(w, r)
 }
 
@@ -73,6 +82,7 @@ func (a *cloudflareOptimizerAPI) handleGet(w http.ResponseWriter, _ *http.Reques
 		return
 	}
 	a.populateNextRun(&state, cfg)
+	a.populateNextHealthCheck(&state, cfg)
 	writeJSON(w, http.StatusOK, cloudflareopt.Response{Config: cfg, State: state})
 }
 
@@ -98,6 +108,7 @@ func (a *cloudflareOptimizerAPI) handlePut(w http.ResponseWriter, r *http.Reques
 	}
 
 	filtered := retainEnabledOptimizerResults(state.Results, cfg.Targets)
+	state.Health = retainEnabledOptimizerHealth(state.Health, cfg.Targets)
 	if !sameOptimizerResults(state.Results, filtered) {
 		previous := append([]cloudflareopt.TargetResult(nil), state.Results...)
 		state.Results = filtered
@@ -120,6 +131,7 @@ func (a *cloudflareOptimizerAPI) handlePut(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	a.populateNextRun(&state, cfg)
+	a.populateNextHealthCheck(&state, cfg)
 	if err := a.saveState(state); err != nil {
 		writeError(w, http.StatusInternalServerError, "cloudflare_optimizer_save_failed", err.Error())
 		return
@@ -131,6 +143,15 @@ func (a *cloudflareOptimizerAPI) handleScan(w http.ResponseWriter, r *http.Reque
 	response, err := a.runScan(r.Context())
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "cloudflare_optimizer_scan_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (a *cloudflareOptimizerAPI) handleCheck(w http.ResponseWriter, r *http.Request) {
+	response, _, err := a.runHealthCheck(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "cloudflare_optimizer_health_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -163,6 +184,7 @@ func (a *cloudflareOptimizerAPI) runScan(ctx context.Context) (cloudflareopt.Res
 	now := time.Now().UTC()
 	state.SchemaVersion = cloudflareopt.SchemaVersion
 	state.Running = true
+	state.Checking = false
 	state.StartedAt = &now
 	state.LastError = ""
 	if err := a.saveState(state); err != nil {
@@ -178,6 +200,7 @@ func (a *cloudflareOptimizerAPI) runScan(ctx context.Context) (cloudflareopt.Res
 			state.LastError = runErr.Error()
 		}
 		a.populateNextRun(&state, cfg)
+		a.populateNextHealthCheck(&state, cfg)
 		_ = a.saveState(state)
 	}
 
@@ -219,8 +242,74 @@ func (a *cloudflareOptimizerAPI) runScan(ctx context.Context) (cloudflareopt.Res
 			return cloudflareopt.Response{}, err
 		}
 	}
+	healthNow := time.Now().UTC()
+	state.Health = healthFromScanResults(state.Results, healthNow)
+	state.LastHealthCheckAt = &healthNow
 	finish(nil)
 	return cloudflareopt.Response{Config: cfg, State: state}, nil
+}
+
+func (a *cloudflareOptimizerAPI) runHealthCheck(ctx context.Context) (cloudflareopt.Response, bool, error) {
+	a.scanMu.Lock()
+	defer a.scanMu.Unlock()
+
+	cfg, err := a.loadConfig()
+	if err != nil {
+		return cloudflareopt.Response{}, false, err
+	}
+	if err := cloudflareopt.Validate(cfg); err != nil {
+		return cloudflareopt.Response{}, false, err
+	}
+	if !hasEnabledOptimizerTargets(cfg.Targets) {
+		return cloudflareopt.Response{}, false, fmt.Errorf("no enabled Cloudflare optimizer targets")
+	}
+	gatewayCfg, err := config.Load(a.configPath)
+	if err != nil {
+		return cloudflareopt.Response{}, false, err
+	}
+	state, err := a.loadState()
+	if err != nil {
+		return cloudflareopt.Response{}, false, err
+	}
+	if len(state.Results) == 0 {
+		a.populateNextRun(&state, cfg)
+		a.populateNextHealthCheck(&state, cfg)
+		return cloudflareopt.Response{Config: cfg, State: state}, false, nil
+	}
+
+	state.Checking = true
+	state.LastError = ""
+	if err := a.saveState(state); err != nil {
+		return cloudflareopt.Response{}, false, err
+	}
+	finish := func(checkErr error, health []cloudflareopt.HealthResult) {
+		checkedAt := time.Now().UTC()
+		state.Checking = false
+		state.LastHealthCheckAt = &checkedAt
+		if checkErr != nil {
+			state.LastError = checkErr.Error()
+		} else {
+			state.Health = health
+		}
+		a.populateNextRun(&state, cfg)
+		a.populateNextHealthCheck(&state, cfg)
+		_ = a.saveState(state)
+	}
+
+	health, allHealthy, err := cloudflareopt.CheckCurrentHealth(ctx, cfg.Targets, state.Results, cloudflareopt.ScanOptions{
+		Interface:  gatewayCfg.Gateway.Interface,
+		SourceIPv4: gatewayCfg.Gateway.LANIP,
+		Settings:   cfg.Scan,
+		VerifyRoute: func(ctx context.Context, candidate string) error {
+			return cloudflareopt.VerifyDirectRoute(ctx, gatewayCfg.Gateway.Interface, gatewayCfg.Gateway.LANIP, candidate)
+		},
+	}, cfg.Health)
+	if err != nil {
+		finish(err, nil)
+		return cloudflareopt.Response{}, false, err
+	}
+	finish(nil, health)
+	return cloudflareopt.Response{Config: cfg, State: state}, !allHealthy, nil
 }
 
 func (a *cloudflareOptimizerAPI) applyResults(ctx context.Context, cfg config.Config) error {
@@ -240,18 +329,32 @@ func (a *cloudflareOptimizerAPI) schedulerLoop() {
 	defer ticker.Stop()
 	for now := range ticker.C {
 		cfg, err := a.loadConfig()
-		if err != nil || !cfg.Enabled || !hasEnabledOptimizerTargets(cfg.Targets) {
+		if err != nil || !hasEnabledOptimizerTargets(cfg.Targets) {
 			continue
 		}
 		state, err := a.loadState()
-		if err != nil || state.Running {
+		if err != nil || state.Running || state.Checking {
 			continue
 		}
 		a.populateNextRun(&state, cfg)
-		if state.NextRunAt == nil || now.Before(*state.NextRunAt) {
+		a.populateNextHealthCheck(&state, cfg)
+
+		if state.NextRunAt != nil && !now.Before(*state.NextRunAt) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Scan.BudgetSeconds+20)*time.Second)
+			_, _ = a.runScan(ctx)
+			cancel()
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Scan.BudgetSeconds+20)*time.Second)
+		if state.NextHealthCheckAt == nil || now.Before(*state.NextHealthCheckAt) {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_, needsScan, checkErr := a.runHealthCheck(ctx)
+		cancel()
+		if checkErr != nil || !needsScan {
+			continue
+		}
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(cfg.Scan.BudgetSeconds+20)*time.Second)
 		_, _ = a.runScan(ctx)
 		cancel()
 	}
@@ -270,6 +373,19 @@ func (a *cloudflareOptimizerAPI) populateNextRun(state *cloudflareopt.State, cfg
 	}
 	next = next.UTC()
 	state.NextRunAt = &next
+}
+
+func (a *cloudflareOptimizerAPI) populateNextHealthCheck(state *cloudflareopt.State, cfg cloudflareopt.Config) {
+	if !cfg.Health.Enabled || !hasEnabledOptimizerTargets(cfg.Targets) || len(state.Results) == 0 {
+		state.NextHealthCheckAt = nil
+		return
+	}
+	anchor := time.Now()
+	if state.LastHealthCheckAt != nil && !state.LastHealthCheckAt.IsZero() {
+		anchor = *state.LastHealthCheckAt
+	}
+	next := anchor.Add(time.Duration(cfg.Health.CheckIntervalMinutes) * time.Minute).UTC()
+	state.NextHealthCheckAt = &next
 }
 
 func (a *cloudflareOptimizerAPI) loadConfig() (cloudflareopt.Config, error) {
@@ -300,7 +416,7 @@ func (a *cloudflareOptimizerAPI) saveConfig(cfg cloudflareopt.Config) error {
 func (a *cloudflareOptimizerAPI) loadState() (cloudflareopt.State, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	state := cloudflareopt.State{SchemaVersion: cloudflareopt.SchemaVersion, Results: []cloudflareopt.TargetResult{}}
+	state := cloudflareopt.State{SchemaVersion: cloudflareopt.SchemaVersion, Health: []cloudflareopt.HealthResult{}, Results: []cloudflareopt.TargetResult{}}
 	if err := readJSON(filepath.Join(a.storeDir, "cloudflare-optimizer-state.json"), &state); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return state, nil
@@ -309,6 +425,9 @@ func (a *cloudflareOptimizerAPI) loadState() (cloudflareopt.State, error) {
 	}
 	if state.Results == nil {
 		state.Results = []cloudflareopt.TargetResult{}
+	}
+	if state.Health == nil {
+		state.Health = []cloudflareopt.HealthResult{}
 	}
 	return state, nil
 }
@@ -319,6 +438,9 @@ func (a *cloudflareOptimizerAPI) saveState(state cloudflareopt.State) error {
 	state.SchemaVersion = cloudflareopt.SchemaVersion
 	if state.Results == nil {
 		state.Results = []cloudflareopt.TargetResult{}
+	}
+	if state.Health == nil {
+		state.Health = []cloudflareopt.HealthResult{}
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
@@ -372,6 +494,34 @@ func retainEnabledOptimizerResults(results []cloudflareopt.TargetResult, targets
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return optimizerDomain(out[i].Domain) < optimizerDomain(out[j].Domain) })
+	return out
+}
+
+func retainEnabledOptimizerHealth(health []cloudflareopt.HealthResult, targets []cloudflareopt.Target) []cloudflareopt.HealthResult {
+	enabled := enabledOptimizerDomains(targets)
+	out := make([]cloudflareopt.HealthResult, 0, len(health))
+	for _, item := range health {
+		if enabled[optimizerDomain(item.Domain)] {
+			out = append(out, item)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return optimizerDomain(out[i].Domain) < optimizerDomain(out[j].Domain) })
+	return out
+}
+
+func healthFromScanResults(results []cloudflareopt.TargetResult, checkedAt time.Time) []cloudflareopt.HealthResult {
+	out := make([]cloudflareopt.HealthResult, 0, len(results))
+	for _, result := range results {
+		out = append(out, cloudflareopt.HealthResult{
+			Domain:    result.Domain,
+			IP:        result.Selected.IP,
+			Healthy:   true,
+			LatencyMS: result.Selected.LatencyMS,
+			LossRate:  result.Selected.LossRate,
+			TTFBMS:    result.Selected.TTFBMS,
+			CheckedAt: checkedAt,
+		})
+	}
 	return out
 }
 
