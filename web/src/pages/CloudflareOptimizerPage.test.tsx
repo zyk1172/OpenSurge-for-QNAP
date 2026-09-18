@@ -60,7 +60,8 @@ describe('CloudflareOptimizerPage', () => {
 
     expect(container.querySelector('.ui-summary-grid')).toBeTruthy()
     expect(container.querySelectorAll('.ui-panel').length).toBe(4)
-    expect(container.querySelector('.ui-card.cloudflare-target-card--simple')).toBeTruthy()
+    expect(container.querySelector('.ui-card.cloudflare-target-editor')).toBeTruthy()
+    expect(screen.getByLabelText('域名列表')).toBeTruthy()
     expect(container.querySelector('.ui-table-wrap .ui-table')).toBeTruthy()
     expect(container.querySelector('.ui-action-bar')).toBeTruthy()
 
@@ -77,20 +78,24 @@ describe('CloudflareOptimizerPage', () => {
     expect(container.querySelector('.source-actions')).toBeNull()
   })
 
-  it('marks domain edits dirty and normalizes hidden target details on save', async () => {
+  it('accepts multiline domain input, removes blank lines and deduplicates on save', async () => {
     render(<CloudflareOptimizerPage />)
-    const domain = await screen.findByDisplayValue('api.example.com')
+    const domains = await screen.findByLabelText('域名列表')
+    expect((domains as HTMLTextAreaElement).value).toBe('api.example.com')
     expect((screen.getByRole('button', { name: '保存设置' }) as HTMLButtonElement).disabled).toBe(true)
 
-    await userEvent.clear(domain)
-    await userEvent.type(domain, 'cdn.example.com')
+    await userEvent.clear(domains)
+    await userEvent.type(domains, 'cdn.example.com\nassets.example.com\n\ncdn.example.com')
     await userEvent.click(screen.getByRole('button', { name: '保存设置' }))
 
     await waitFor(() => {
       const put = vi.mocked(request).mock.calls.find(([, init]) => init?.method === 'PUT')
       expect(put).toBeTruthy()
       const payload = JSON.parse(String(put?.[1]?.body))
-      expect(payload.targets).toEqual([{ domain: 'cdn.example.com', enabled: true, test_path: '/' }])
+      expect(payload.targets).toEqual([
+        { domain: 'cdn.example.com', enabled: true, test_path: '/' },
+        { domain: 'assets.example.com', enabled: true, test_path: '/' },
+      ])
     })
   })
 
