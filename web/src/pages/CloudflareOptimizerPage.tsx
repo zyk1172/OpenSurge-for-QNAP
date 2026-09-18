@@ -26,7 +26,6 @@ type ScanMode = 'fast' | 'standard' | 'full' | 'deep'
 type ScheduleChoice = 'off' | '1' | '3' | '7' | '14' | '30' | 'custom'
 
 const optimizerRequest = (path: string, init?: RequestInit) => request<OptimizerResponse>(path, init)
-const defaultTarget = (): Target => ({ domain: '', enabled: true, test_path: '/' })
 const intervalChoices = new Set([1, 3, 7, 14, 30])
 
 const scanPresets: Record<ScanMode, ScanSettings> = {
@@ -83,6 +82,7 @@ const scanPresets: Record<ScanMode, ScanSettings> = {
 export function CloudflareOptimizerPage() {
   const [data, setData] = useState<OptimizerResponse | null>(null)
   const [draft, setDraft] = useState<OptimizerConfig | null>(null)
+  const [targetsText, setTargetsText] = useState('')
   const [saving, setSaving] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState('')
@@ -92,6 +92,7 @@ export function CloudflareOptimizerPage() {
       const next = await optimizerRequest('/api/v1/cloudflare-opt')
       setData(next)
       setDraft(next.config)
+      setTargetsText(targetsToText(next.config.targets))
       setError('')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -109,10 +110,15 @@ export function CloudflareOptimizerPage() {
     return 'custom'
   }, [draft])
 
-  const updateTargetDomain = (index: number, domain: string) => setDraft(current => current ? {
-    ...current,
-    targets: current.targets.map((target, targetIndex) => targetIndex === index ? { ...target, domain, enabled: true, test_path: '/' } : target),
-  } : current)
+  const updateTargetsText = (value: string) => {
+    setTargetsText(value)
+    setDraft(current => current ? { ...current, targets: targetsFromText(value) } : current)
+  }
+
+  const restoreDraft = (config: OptimizerConfig) => {
+    setDraft(config)
+    setTargetsText(targetsToText(config.targets))
+  }
 
   const updateScheduleChoice = (choice: ScheduleChoice) => setDraft(current => {
     if (!current || choice === 'custom') return current
@@ -133,7 +139,7 @@ export function CloudflareOptimizerPage() {
     try {
       const next = await optimizerRequest('/api/v1/cloudflare-opt', { method: 'PUT', body: JSON.stringify(simpleDraft) })
       setData(next)
-      setDraft(next.config)
+      restoreDraft(next.config)
       return true
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -151,7 +157,7 @@ export function CloudflareOptimizerPage() {
     try {
       const next = await optimizerRequest('/api/v1/cloudflare-opt/scan', { method: 'POST', body: '{}' })
       setData(next)
-      setDraft(next.config)
+      restoreDraft(next.config)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -196,15 +202,22 @@ export function CloudflareOptimizerPage() {
       <SectionHeader
         eyebrow="TARGETS"
         title="优选域名"
-        subtitle="每行只需要填写一个域名；列表中的域名都会参与优选，不再要求单独设置测试路径或启用开关。"
-        action={<button className="ui-button" type="button" onClick={() => setDraft(current => current ? { ...current, targets: [...current.targets, defaultTarget()] } : current)}>+ {t('添加域名')}</button>}
+        subtitle="一行一个域名，可直接粘贴整批列表；空行会忽略，重复域名只保留一份。"
       />
-      <div className="cloudflare-target-list">
-        {draft.targets.length === 0 && <Empty text="尚未添加域名。" />}
-        {draft.targets.map((target, index) => <div className="ui-card cloudflare-target-card cloudflare-target-card--simple" key={`target-${index}`}>
-          <FormField label="域名"><input value={target.domain} placeholder="api.example.com" onChange={event => updateTargetDomain(index, event.target.value)} /></FormField>
-          <button className="ui-button ui-button--danger" type="button" onClick={() => setDraft(current => current ? { ...current, targets: current.targets.filter((_, targetIndex) => targetIndex !== index) } : current)}>{t('删除')}</button>
-        </div>)}
+      <div className="ui-card cloudflare-target-editor">
+        <FormField label="域名列表" hint="支持直接粘贴多行内容；保存时会忽略空行并自动去重。">
+          <textarea
+            className="cloudflare-target-textarea"
+            aria-label={t('优选域名列表')}
+            rows={8}
+            spellCheck={false}
+            placeholder={`api.example.com
+cdn.example.com
+assets.example.com`}
+            value={targetsText}
+            onChange={event => updateTargetsText(event.target.value)}
+          />
+        </FormField>
       </div>
     </Panel>
 
@@ -247,10 +260,19 @@ export function CloudflareOptimizerPage() {
     </Panel>
 
     <ActionBar status={t(dirty ? '有未保存修改' : '配置已保存')}>
-      <button className="ui-button" type="button" disabled={!dirty || saving || scanning} onClick={() => setDraft(data.config)}>{t('撤销')}</button>
+      <button className="ui-button" type="button" disabled={!dirty || saving || scanning} onClick={() => restoreDraft(data.config)}>{t('撤销')}</button>
       <button className="ui-button ui-button--primary" type="button" disabled={!dirty || saving || scanning} onClick={() => void save()}>{t(saving ? '正在保存…' : '保存设置')}</button>
     </ActionBar>
   </div>
+}
+
+function targetsToText(targets: Target[]) {
+  return targets.map(target => target.domain.trim()).filter(Boolean).join('\n')
+}
+
+function targetsFromText(value: string): Target[] {
+  const domains = [...new Set(value.split(/\r?\n/).map(line => line.trim()).filter(Boolean))]
+  return domains.map(domain => ({ domain, enabled: true, test_path: '/' }))
 }
 
 function simplifyTargets(config: OptimizerConfig): OptimizerConfig {
