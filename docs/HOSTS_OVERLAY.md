@@ -129,3 +129,9 @@ Supported update fields are `enabled`, `use_hosts`, `use_system_hosts`, `standar
 Saving the overlay changes the persistent desired configuration; it does not bypass the normal OpenSurge apply/start/reload lifecycle. The resulting candidate is still composed and validated before it becomes the running Mihomo configuration.
 
 This feature does not turn arbitrary remote Hosts subscriptions into Mihomo rule providers. A local/pasted Hosts file or native Hosts mapping is compiled into Mihomo's native `hosts:` configuration.
+
+## QNAP host Hosts synchronization
+
+QNAP deployments mount the host `/etc/hosts` read-only at `/run/opensurge/host-hosts`; OpenSurge never replaces the container's own `/etc/hosts`. The advanced overlay exposes enable, scheduled refresh, interval and manual refresh controls. Automatic refresh checks every minute and only writes after the configured interval when the mapped file digest changes.
+
+Synchronized entries are stored between `OPENSURGE QNAP HOST HOSTS` markers inside the traditional Hosts input. Refresh replaces only that managed block, preserving user-written traditional Hosts and native Mihomo Hosts. The supported interval is 5 minutes through 7 days.

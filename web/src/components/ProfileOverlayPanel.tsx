@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { t } from '../i18n'
 import { parseProxyShareLinks, type ProxyShareLinkError } from '../proxyShareLinks'
-import type { ProfileOverlay, ProfileOverlayDocument, ProfileOverlayPreview, Source } from '../types'
+import type { ProfileOverlay, ProfileOverlayDocument, ProfileOverlayPreview, Source, HostHostsSync } from '../types'
 
 type EditorMode = 'guided' | 'yaml'
 type PreviewTab = 'changes' | 'source' | 'overlay' | 'effective' | 'final'
@@ -19,8 +19,11 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
   const [message, setMessage] = useState('')
   const [previewSource, setPreviewSource] = useState('')
   const [preview, setPreview] = useState<ProfileOverlayPreview | null>(null)
-  const [previewTab, setPreviewTab] = useState<PreviewTab>('changes')
+  const [previewTab,setPreviewTab]=useState<PreviewTab>('changes')
+  const [hostSync,setHostSync]=useState<HostHostsSync|null>(null)
+  const [hostSyncBusy,setHostSyncBusy]=useState(false)
 
+  useEffect(()=>{void api.hostHostsSync().then(setHostSync).catch(()=>{})},[])
   useEffect(() => {
     if (!overlay) return
     setDocument(structuredClone(overlay.document))
@@ -134,7 +137,8 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
         {mode === 'guided' ? <div className="overlay-guided-editor">
           <RuleOperationsEditor value={document.rules.prepend} onChange={prepend => update(current => { current.rules.prepend = prepend })} />
           <ManualProxyEditor proxies={document.proxies.add} onChange={proxies => update(current => { current.proxies.add = proxies })} />
-          <HostsFileEditor merge={document.dns.merge} onChange={merge => update(current => { current.dns.merge = merge })} />
+          <HostsFileEditor merge={document.dns.merge} onChange={merge=>update(current=>{current.dns.merge=merge})}/>
+          <section className="overlay-editor-section open host-hosts-sync"><header><span>04</span><div><strong>{t('NAS 宿主机 Hosts 同步')}</strong><small>{t('从只读映射的 QNAP /etc/hosts 导入；自动区与手工 Hosts 相互隔离。')}</small></div></header><div className="overlay-section-body">{hostSync?<><div className="host-sync-settings"><label className="overlay-enable-row"><span><strong>{t('启用宿主 Hosts')}</strong><small>{hostSync.path}</small></span><input type="checkbox" checked={hostSync.enabled} onChange={async e=>{setHostSyncBusy(true);try{setHostSync(await api.saveHostHostsSync({...hostSync,enabled:e.target.checked}))}finally{setHostSyncBusy(false)}}}/></label><label className="overlay-enable-row"><span><strong>{t('定时更新')}</strong><small>{t('内容变化时才写入配置')}</small></span><input type="checkbox" checked={hostSync.auto_update} disabled={!hostSync.enabled} onChange={async e=>{setHostSyncBusy(true);try{setHostSync(await api.saveHostHostsSync({...hostSync,auto_update:e.target.checked}))}finally{setHostSyncBusy(false)}}}/></label><label className="host-sync-interval"><span>{t('更新间隔')}</span><select value={hostSync.interval_minutes} disabled={!hostSync.enabled||!hostSync.auto_update} onChange={async e=>{setHostSyncBusy(true);try{setHostSync(await api.saveHostHostsSync({...hostSync,interval_minutes:Number(e.target.value)}))}finally{setHostSyncBusy(false)}}}><option value={5}>5 min</option><option value={15}>15 min</option><option value={30}>30 min</option><option value={60}>1 h</option><option value={360}>6 h</option><option value={1440}>24 h</option></select></label></div><div className="host-sync-status"><span><small>{t('已同步条目')}</small><strong>{hostSync.last_entries}</strong></span><span><small>{t('上次同步')}</small><strong>{hostSync.last_sync_at?new Date(hostSync.last_sync_at).toLocaleString():t('尚未同步')}</strong></span><button type="button" className="primary" disabled={hostSyncBusy} onClick={async()=>{setHostSyncBusy(true);try{const next=await api.syncHostHostsNow();setHostSync(next);setMessage(t('NAS 宿主机 Hosts 已同步到附加配置。'))}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setHostSyncBusy(false)}}}>{t(hostSyncBusy?'正在同步…':'立即同步')}</button></div>{hostSync.last_error&&<div className="notice warn"><p>{hostSync.last_error}</p></div>}</>:<div className="empty">{t('正在读取宿主 Hosts 同步状态…')}</div>}</div></section>
         </div> : null}
 
         <section className={`overlay-expert-editor ${mode === 'yaml' ? 'open' : ''}`}>

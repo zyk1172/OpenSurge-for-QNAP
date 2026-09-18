@@ -296,3 +296,5 @@ func loadProfileHostsYAML(path string) (string, error) {
 	}
 	return encodeYAMLNode(hosts)
 }
+
+func ParseTraditionalHostsFile(content string) (*yaml.Node, error) { return parseTraditionalHostsFileContent(content) }
