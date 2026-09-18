@@ -2,6 +2,7 @@ package controlapi
 
 import (
 	"testing"
+	"time"
 
 	"open-mihomo-gateway/internal/cloudflareopt"
 )
@@ -45,5 +46,39 @@ func TestRetainEnabledOptimizerResultsDropsRemovedAndDisabledTargets(t *testing.
 	got := retainEnabledOptimizerResults(results, targets)
 	if len(got) != 1 || got[0].Domain != "a.example.com" {
 		t.Fatalf("results = %#v, want only enabled target", got)
+	}
+}
+
+
+func TestRetainEnabledOptimizerHealthDropsRemovedTargets(t *testing.T) {
+	health := []cloudflareopt.HealthResult{
+		{Domain: "a.example.com", IP: "104.16.0.1", Healthy: true},
+		{Domain: "b.example.com", IP: "104.16.0.2", Healthy: false},
+	}
+	targets := []cloudflareopt.Target{{Domain: "a.example.com", Enabled: true}}
+
+	got := retainEnabledOptimizerHealth(health, targets)
+	if len(got) != 1 || got[0].Domain != "a.example.com" {
+		t.Fatalf("health = %#v, want only enabled target", got)
+	}
+}
+
+func TestPopulateNextHealthCheckUsesLastCheckAnchor(t *testing.T) {
+	api := &cloudflareOptimizerAPI{}
+	cfg := cloudflareopt.DefaultConfig()
+	cfg.Targets = []cloudflareopt.Target{{Domain: "a.example.com", Enabled: true}}
+	last := time.Date(2026, 9, 19, 2, 0, 0, 0, time.UTC)
+	state := cloudflareopt.State{
+		LastHealthCheckAt: &last,
+		Results: []cloudflareopt.TargetResult{{
+			Domain: "a.example.com",
+			Selected: cloudflareopt.CandidateResult{IP: "104.16.0.1"},
+		}},
+	}
+
+	api.populateNextHealthCheck(&state, cfg)
+	want := last.Add(30 * time.Minute)
+	if state.NextHealthCheckAt == nil || !state.NextHealthCheckAt.Equal(want) {
+		t.Fatalf("next health check = %v, want %v", state.NextHealthCheckAt, want)
 	}
 }
