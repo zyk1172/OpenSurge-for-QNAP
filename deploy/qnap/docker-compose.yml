@@ -47,6 +47,8 @@ services:
 
     volumes:
       - ${OPENSURGE_DATA_PATH:?set absolute QNAP /share/... persistence path}:/data
+      # Required by “NAS 宿主机 Hosts 同步”. Existing deployments must add
+      # this read-only bind mount and recreate the container; /data is kept.
       - /etc/hosts:/run/opensurge/host-hosts:ro
 
     networks:

@@ -25,6 +25,10 @@
   --ui-space-5:20px;
   --ui-space-6:24px;
   --ui-radius-surface:12px;
+  --ui-radius-card:var(--ui-radius-surface);
+  --ui-neutral-card:rgba(22,24,32,.86);
+  --ui-neutral-card-soft:rgba(27,29,38,.78);
+  --ui-neutral-control:rgba(12,14,20,.76);
   --ui-radius-control:8px;
   --ui-radius-compact:6px;
   --ui-radius-pill:999px;
@@ -63,6 +67,9 @@
 
 html[data-theme="light"]{
   --ui-surface:rgba(255,255,255,.72);
+  --ui-neutral-card:rgba(255,255,255,.90);
+  --ui-neutral-card-soft:rgba(248,249,252,.86);
+  --ui-neutral-control:rgba(255,255,255,.82);
   --ui-surface-soft:rgba(247,248,251,.66);
   --ui-surface-raised:rgba(255,255,255,.92);
   --ui-control-surface:rgba(255,255,255,.70);
@@ -899,3 +906,351 @@ dialog.reload-dialog>.dialog-actions{
 .provider-status-list{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:var(--ui-space-3)!important;padding:0!important}.provider-status-list>.row{display:flex!important;flex-direction:column;align-items:stretch!important;gap:var(--ui-space-2)!important;min-width:0;padding:var(--ui-space-3)!important;border:1px solid var(--ui-border)!important;border-radius:var(--ui-radius-card)!important;background:var(--ui-surface-soft)!important}
 .diagnostic-log-panel{padding:0!important;border:1px solid var(--ui-border)!important;border-radius:var(--ui-radius-card)!important;background:var(--ui-surface-soft)!important;overflow:hidden}.diagnostic-log-panel>summary{padding:var(--ui-space-3) var(--ui-space-4)!important;background:linear-gradient(145deg,var(--ui-glass-highlight-soft),transparent 52%)!important;color:var(--ui-text)!important}.diagnostic-log-panel>pre{margin:0!important;padding:var(--ui-space-4)!important;border-top:1px solid var(--ui-border)!important;background:var(--ui-control-surface)!important;color:var(--ui-text-secondary)!important}
 @media(max-width:900px){.inventory,.source-inventory,.provider-status-list{grid-template-columns:repeat(2,minmax(0,1fr))!important}.overlay-summary{grid-template-columns:repeat(2,minmax(0,1fr))!important}.host-sync-settings{grid-template-columns:1fr}.host-sync-status{grid-template-columns:1fr 1fr}.host-sync-status>button{grid-column:1/-1}}@media(max-width:600px){.inventory,.source-inventory,.provider-status-list,.overlay-summary,.device-metadata,.host-sync-status{grid-template-columns:1fr!important}}
+
+
+/* QNAP visual audit 2026-09: final neutral-card authority.
+ * Semantic state may use a small dot/text accent; large card surfaces stay neutral.
+ * These page-scoped selectors intentionally outrank the historical green theme. */
+html[data-product-target="qnap"] .workspace-canvas :is(
+  .gateway-health-card,.activity-card,.source-card,.source-import-card,.device-card,
+  .policy-health-overview,.policy-toolbar,.policy-group-nav,.policy-health-group,
+  .policy-group-head,.policy-option,.policy-node-card,.policy-local-mac,.policy-local-mac-outlet,
+  .connectivity-overview,.connectivity-score,.connectivity-category,.connectivity-category-head,
+  .connectivity-target,.route-summary,.target-details,.target-evidence,
+  .diagnostic-summary-card,.diagnostic-log-panel
+){
+  border-color:var(--ui-border)!important;
+  background-color:var(--ui-neutral-card)!important;
+  background-image:linear-gradient(145deg,var(--ui-glass-highlight-soft),transparent 48%)!important;
+  color:var(--ui-text-secondary)!important;
+  box-shadow:var(--ui-shadow)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas :is(.source-card,.source-import-card)::before{
+  content:none!important;
+  display:none!important;
+  background:none!important;
+}
+html[data-product-target="qnap"] .workspace-canvas :is(.gateway-health-card,.activity-card,.source-card,.source-import-card) :is(small,.muted),
+html[data-product-target="qnap"] .workspace-canvas :is(.source-head small,.source-origin,.source-origin span,.source-location-copy small,.source-location-copy>span){
+  color:var(--ui-text-muted)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-location-copy code{
+  color:var(--ui-text-secondary)!important;
+}
+
+/* Dashboard */
+html[data-product-target="qnap"] .workspace-canvas .activity-breakdown{
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:var(--ui-space-3)!important;
+  margin-top:var(--ui-space-4)!important;
+  padding-top:0!important;
+  border-top:0!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .activity-breakdown>span{
+  min-height:82px!important;
+  padding:var(--ui-space-3)!important;
+  border:1px solid var(--ui-border)!important;
+  border-radius:var(--ui-radius-card)!important;
+  background:var(--ui-neutral-card-soft)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .activity-breakdown>span+span{border-left:1px solid var(--ui-border)!important}
+html[data-product-target="qnap"] .workspace-canvas .activity-card header small{color:var(--ui-text-muted)!important}
+
+/* QNAP network: both 4-card rows are one fixed geometry, eight cards total. */
+html[data-product-target="qnap"] .workspace-canvas :is(.qnap-network-section,.qnap-host-takeover-section)>.inventory{
+  display:grid!important;
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:var(--ui-space-3)!important;
+  align-items:stretch!important;
+}
+html[data-product-target="qnap"] .workspace-canvas :is(.qnap-network-section,.qnap-host-takeover-section)>.inventory>span{
+  display:flex!important;
+  height:88px!important;
+  min-height:88px!important;
+  box-sizing:border-box!important;
+  flex-direction:column!important;
+  justify-content:center!important;
+  padding:14px!important;
+  border:1px solid var(--ui-border)!important;
+  border-radius:var(--ui-radius-card)!important;
+  background:var(--ui-neutral-card-soft)!important;
+  color:var(--ui-text-secondary)!important;
+  overflow:hidden!important;
+}
+html[data-product-target="qnap"] .workspace-canvas :is(.qnap-network-section,.qnap-host-takeover-section)>.inventory>span strong{
+  color:var(--ui-text)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .qnap-host-policy-grid{
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  grid-auto-rows:184px!important;
+  gap:var(--ui-space-3)!important;
+  align-items:stretch!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .qnap-host-policy-grid>.source-import-card{
+  display:grid!important;
+  grid-template-rows:minmax(0,1fr) auto!important;
+  height:184px!important;
+  min-height:184px!important;
+  box-sizing:border-box!important;
+  padding:var(--ui-space-4)!important;
+  background:var(--ui-neutral-card)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .qnap-host-policy-grid>.source-import-card>.muted{
+  align-self:end!important;
+  margin:0!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .qnap-host-status-panel{
+  display:grid!important;
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:var(--ui-space-3)!important;
+  background:transparent!important;
+  border:0!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .qnap-host-status-panel>div{
+  min-height:94px!important;
+  padding:var(--ui-space-3)!important;
+  border:1px solid var(--ui-border)!important;
+  border-radius:var(--ui-radius-card)!important;
+  background:var(--ui-neutral-card-soft)!important;
+}
+
+/* Sources: no green container or connected segmented strip. */
+html[data-product-target="qnap"] .workspace-canvas .source-location{
+  border:1px solid var(--ui-border)!important;
+  background:var(--ui-neutral-card-soft)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-location-icon{
+  border:1px solid var(--ui-border)!important;
+  background:var(--ui-neutral-control)!important;
+  color:var(--ui-text-secondary)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-location-actions button{
+  border-color:var(--ui-border)!important;
+  background:var(--ui-neutral-control)!important;
+  color:var(--ui-text-secondary)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-location-actions button:only-child{
+  grid-column:1/-1!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-inventory{
+  display:grid!important;
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:var(--ui-space-3)!important;
+  overflow:visible!important;
+  border:0!important;
+  background:transparent!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-inventory>span{
+  display:flex!important;
+  height:82px!important;
+  min-height:82px!important;
+  box-sizing:border-box!important;
+  flex-direction:column!important;
+  justify-content:center!important;
+  padding:12px 14px!important;
+  border:1px solid var(--ui-border)!important;
+  border-radius:var(--ui-radius-card)!important;
+  background:var(--ui-neutral-card-soft)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-inventory>span+span{border-left:1px solid var(--ui-border)!important}
+
+/* Advanced profile overlay. */
+html[data-product-target="qnap"] .workspace-canvas :is(
+  .overlay-enable-row,.overlay-editor-section,.overlay-resource-form,.overlay-share-form,
+  .overlay-manual-proxy,.group-operation-column,.overlay-expert-editor,.overlay-yaml-editor,
+  .overlay-source-compatibility,.overlay-preview-row,.host-sync-status,.host-sync-interval
+){
+  border-color:var(--ui-border)!important;
+  background-color:var(--ui-neutral-card-soft)!important;
+  background-image:linear-gradient(145deg,var(--ui-glass-highlight-soft),transparent 52%)!important;
+  color:var(--ui-text-secondary)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .overlay-summary{
+  display:grid!important;
+  grid-template-columns:repeat(5,minmax(0,1fr))!important;
+  gap:var(--ui-space-3)!important;
+  overflow:visible!important;
+  border:0!important;
+  background:transparent!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .overlay-summary>span{
+  display:flex!important;
+  min-height:82px!important;
+  flex-direction:column!important;
+  justify-content:center!important;
+  padding:12px!important;
+  border:1px solid var(--ui-border)!important;
+  border-radius:var(--ui-radius-card)!important;
+  background:var(--ui-neutral-card-soft)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .compatibility-chips span,
+html[data-product-target="qnap"] .workspace-canvas .compatibility-chips span.ok,
+html[data-product-target="qnap"] .workspace-canvas .compatibility-chips span.bad,
+html[data-product-target="qnap"] .workspace-canvas .compatibility-chips span.muted{
+  border-color:var(--ui-border)!important;
+  background:var(--ui-neutral-control)!important;
+  color:var(--ui-text-secondary)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .overlay-status.live{
+  border-color:color-mix(in srgb,var(--ui-success) 42%,var(--ui-border))!important;
+  background:var(--ui-neutral-control)!important;
+  color:var(--ui-text-secondary)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .host-sync-mount-note{
+  display:grid!important;
+  gap:8px!important;
+  margin-bottom:var(--ui-space-3)!important;
+  padding:var(--ui-space-3)!important;
+  border:1px solid var(--ui-border)!important;
+  border-radius:var(--ui-radius-card)!important;
+  background:var(--ui-neutral-card)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .host-sync-mount-note>div{
+  display:flex!important;
+  align-items:baseline!important;
+  justify-content:space-between!important;
+  gap:12px!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .host-sync-mount-note :is(p,small){margin:0!important;color:var(--ui-text-muted)!important}
+html[data-product-target="qnap"] .workspace-canvas .host-sync-mount-note code{
+  display:block!important;
+  width:max-content!important;
+  max-width:100%!important;
+  overflow-wrap:anywhere!important;
+  padding:6px 8px!important;
+  border:1px solid var(--ui-border)!important;
+  border-radius:var(--ui-radius-compact)!important;
+  background:var(--ui-neutral-control)!important;
+  color:var(--ui-text-secondary)!important;
+}
+
+/* Devices: fixed two-by-two identity block and neutral route/outlet cards. */
+html[data-product-target="qnap"] .workspace-canvas .device-stack{
+  align-items:stretch!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .device-card{
+  display:flex!important;
+  height:100%!important;
+  flex-direction:column!important;
+  background:var(--ui-neutral-card)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .device-metadata{
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  grid-template-rows:repeat(2,52px)!important;
+  gap:var(--ui-space-2)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .device-meta-item{
+  display:grid!important;
+  grid-template-columns:72px minmax(0,1fr)!important;
+  align-items:center!important;
+  height:52px!important;
+  min-height:52px!important;
+  box-sizing:border-box!important;
+  padding:10px 12px!important;
+  border:1px solid var(--ui-border)!important;
+  border-radius:var(--ui-radius-card)!important;
+  background:var(--ui-neutral-card-soft)!important;
+  color:var(--ui-text-secondary)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .device-meta-item :is(code,strong,span){
+  min-width:0!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+  color:var(--ui-text)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas :is(.device-routing-mode,.runtime-route,.default-slot,.outlet-summary,.connection-refresh-control,.route-options label,.registration-routing>label){
+  border-color:var(--ui-border)!important;
+  background:var(--ui-neutral-card-soft)!important;
+  color:var(--ui-text-secondary)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas :is(.route-options label.active,.registration-routing>label.active){
+  border-color:color-mix(in srgb,var(--ui-accent) 46%,var(--ui-border))!important;
+  background:color-mix(in srgb,var(--ui-accent-soft) 48%,var(--ui-neutral-card-soft))!important;
+  color:var(--ui-text)!important;
+}
+
+/* Policies, connectivity and diagnostics: status is semantic, surface is not. */
+html[data-product-target="qnap"] .workspace-canvas :is(
+  .policy-controls-sticky,.policy-toolbar,.policy-group-nav,.policy-health-group,.policy-group-head,
+  .policy-option,.policy-node-card,.policy-local-mac,.policy-local-mac-outlet,
+  .connectivity-overview,.connectivity-score,.connectivity-metrics>span,.connectivity-category,
+  .connectivity-category-head,.connectivity-target,.connectivity-target.excellent,.connectivity-target.good,
+  .connectivity-target.slow,.connectivity-target.very-slow,.connectivity-target.unreachable,
+  .route-summary,.target-details,.target-evidence,.sample-list>span
+){
+  border-color:var(--ui-border)!important;
+  background-color:var(--ui-neutral-card-soft)!important;
+  background-image:linear-gradient(145deg,var(--ui-glass-highlight-soft),transparent 52%)!important;
+  color:var(--ui-text-secondary)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .provider-status-list{
+  display:grid!important;
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:var(--ui-space-3)!important;
+  padding:0!important;
+  border:0!important;
+  background:transparent!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .provider-status-list>.row{
+  display:flex!important;
+  min-height:104px!important;
+  flex-direction:column!important;
+  align-items:stretch!important;
+  justify-content:center!important;
+  gap:var(--ui-space-2)!important;
+  padding:var(--ui-space-3)!important;
+  border:1px solid var(--ui-border)!important;
+  border-radius:var(--ui-radius-card)!important;
+  background:var(--ui-neutral-card-soft)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .diagnostic-log-panel{
+  overflow:hidden!important;
+  border:1px solid var(--ui-border)!important;
+  background:var(--ui-neutral-card)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .diagnostic-log-panel>summary{
+  padding:14px 16px!important;
+  background:var(--ui-neutral-card-soft)!important;
+  color:var(--ui-text)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .diagnostic-log-panel>pre{
+  margin:0!important;
+  padding:16px!important;
+  border-top:1px solid var(--ui-border)!important;
+  background:var(--ui-neutral-control)!important;
+  color:var(--ui-text-secondary)!important;
+}
+
+@media(max-width:900px){
+  html[data-product-target="qnap"] .workspace-canvas :is(.qnap-network-section,.qnap-host-takeover-section)>.inventory,
+  html[data-product-target="qnap"] .workspace-canvas .source-inventory,
+  html[data-product-target="qnap"] .workspace-canvas .provider-status-list{
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  }
+  html[data-product-target="qnap"] .workspace-canvas .qnap-host-policy-grid{
+    grid-template-columns:1fr!important;
+    grid-auto-rows:auto!important;
+  }
+  html[data-product-target="qnap"] .workspace-canvas .qnap-host-policy-grid>.source-import-card{
+    height:auto!important;
+    min-height:164px!important;
+  }
+  html[data-product-target="qnap"] .workspace-canvas :is(.qnap-network-section,.qnap-host-takeover-section)>.inventory>span{
+    height:auto!important;
+    min-height:82px!important;
+  }
+  html[data-product-target="qnap"] .workspace-canvas .qnap-host-status-panel{
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  }
+}
+@media(max-width:600px){
+  html[data-product-target="qnap"] .workspace-canvas :is(.qnap-network-section,.qnap-host-takeover-section)>.inventory,
+  html[data-product-target="qnap"] .workspace-canvas :is(.source-inventory,.provider-status-list,.overlay-summary,.qnap-host-status-panel,.device-metadata){
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .workspace-canvas .device-metadata{grid-template-rows:none!important}
+}

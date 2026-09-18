@@ -59,7 +59,7 @@ export function TutorialPage() {
       <article className="ui-card tutorial-card"><h3>{t('2 · 网络设置')}</h3><p>{t('确认容器接口、OpenSurge IPv4、LAN 与主路由。NAS 主机接管是可选功能，应在网关稳定后启用。')}</p></article>
       <article className="ui-card tutorial-card"><h3>{t('3 · 来源与策略')}</h3><p>{t('导入 HTTPS 订阅或 YAML 后先形成快照；应用后再到策略页选择出口和测速。')}</p></article>
       <article className="ui-card tutorial-card"><h3>{t('4 · 设备与分流')}</h3><p>{t('登记设备 ID、IPv4、MAC，选择跟随网关、独立出口或主路由，再按需要添加规则集和设备分流。')}</p></article>
-      <article className="ui-card tutorial-card"><h3>{t('5 · Hosts')}</h3><p>{t('手工 Hosts、原生 Mihomo Hosts 和 NAS 宿主 Hosts 可以并存。宿主同步使用独立托管区，不覆盖手工内容。')}</p></article>
+      <article className="ui-card tutorial-card"><h3>{t('5 · Hosts')}</h3><p>{t('手工 Hosts、原生 Mihomo Hosts 和 NAS 宿主 Hosts 可以并存。宿主同步使用独立托管区，不覆盖手工内容。QNAP 宿主 /etc/hosts 必须只读映射到 /run/opensurge/host-hosts；旧容器升级后需要补充挂载并重建容器。')}</p></article>
       <article className="ui-card tutorial-card"><h3>{t('6 · 验证与诊断')}</h3><p>{t('先用连通性检查路径，再到诊断查看代理集合、连接、操作记录和近期日志。')}</p></article></div></Panel>
     <Panel><SectionHeader title="使用与维护注意事项" subtitle="区分即时生效、重载和重建容器" /><div className="tutorial-grid">
       <article className="ui-card tutorial-card"><h3>{t('即时操作')}</h3><p>{t('策略节点切换、测速、连通性检测和手动 Hosts 同步可以直接执行。')}</p></article>
