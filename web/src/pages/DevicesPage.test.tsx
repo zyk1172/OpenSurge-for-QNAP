@@ -175,7 +175,7 @@ describe('DevicesPage', () => {
     vi.mocked(api.devicePolicy).mockResolvedValue(documentFor(policy))
     renderPage()
 
-    await screen.findByText('alice')
+    await screen.findAllByText('alice')
     const stack = document.querySelector('.device-stack') as HTMLElement
     expect(screen.getByRole('heading', { name: '当前 Mac 的设备设置' })).toBeTruthy()
     expect(stack.querySelectorAll('.device-card')).toHaveLength(2)
@@ -269,7 +269,7 @@ describe('DevicesPage', () => {
       leases: [{ ip: '192.168.1.121', mac: 'aa:bb:cc:dd:ee:01', hostname: 'Ready', expires_at: '2099-01-01T00:00:00Z', online: true }],
     }))
     renderPage()
-    await screen.findByText('ready')
+    await screen.findAllByText('ready')
     expect(screen.getByText('已应用')).toBeTruthy()
     expect(screen.getByText('待更新')).toBeTruthy()
     expect(screen.getByText('待应用')).toBeTruthy()
@@ -941,7 +941,7 @@ describe('DevicesPage', () => {
     }
     vi.mocked(api.devicePolicy).mockResolvedValue(documentFor(policy))
     renderPage({ ...overview, topology: 'same_lan' } as unknown as Overview)
-    await screen.findByText('console')
+    await screen.findAllByText('console')
     expect(screen.queryByRole('radio', { name: /直连主路由/ })).toBeNull()
   })
 

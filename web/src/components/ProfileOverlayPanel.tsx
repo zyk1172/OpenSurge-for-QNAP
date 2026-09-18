@@ -23,7 +23,7 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
   const [hostSync,setHostSync]=useState<HostHostsSync|null>(null)
   const [hostSyncBusy,setHostSyncBusy]=useState(false)
 
-  useEffect(()=>{void api.hostHostsSync().then(setHostSync).catch(()=>{})},[])
+  useEffect(() => { void api.hostHostsSync?.().then(setHostSync).catch(() => {}) }, [])
   useEffect(() => {
     if (!overlay) return
     setDocument(structuredClone(overlay.document))

@@ -384,8 +384,8 @@ function DeviceCard({ view, running, topology, lanPrefix, routerBypass, routerBy
     <div className="device-metadata">
       <span className="device-meta-item"><small>{t('设备 ID')}</small><span className="device-meta-value">{device.id}</span></span>
       <span className="device-meta-item"><small>IPv4</small><span className="device-meta-value">{device.ipv4}</span></span>
-      <span className="device-meta-item"><small>{t('状态')}</small><span className="device-meta-value">{identity?.state==='waiting'?t('等待设备接入'):deviceStateLabel(view.state)}</span></span>
-      <span className="device-meta-item"><small>MAC</small><span className="device-meta-value">{device.mac.trim()||t(view.state==='paused'?'未登记 · 策略已暂停':'未登记 · IPv4 匹配')}</span></span>
+      <span className="device-meta-item"><small>{t('状态')}</small><span className="device-meta-value">{identity?.state === 'waiting' ? t(topology === 'same_lan' ? '设备按登记 IP 接入后生效' : '身份待确认') : view.state === 'paused' ? t('策略已暂停') : deviceStateLabel(view.state)}</span></span>
+      <span className="device-meta-item"><small>MAC</small><span className="device-meta-value">{device.mac.trim() || t(view.state === 'paused' ? '未登记 · 策略已暂停，补充后恢复' : '未登记 · 当前按固定 IPv4 匹配')}</span></span>
     </div>
     {view.state === 'out_of_lan' && <div className="device-out-of-lan" role="status">
       <strong>{t('不在当前网段')}</strong>
