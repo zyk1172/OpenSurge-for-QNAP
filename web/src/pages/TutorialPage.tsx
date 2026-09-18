@@ -95,6 +95,12 @@ export function TutorialPage() {
           <h3>{t('保留现有配置')}</h3>
           <p>{t('重建容器时继续挂载原来的 /data 持久化目录，即可保留 OpenSurge 配置、来源、认证与运行状态记录。')}</p>
         </article>
+        <article className="ui-card tutorial-card">
+          <h3>{t('NAS Hosts 只读挂载')}</h3>
+          <p>{t('宿主 Hosts 同步需要在创建容器时把 QNAP /etc/hosts 只读映射到 /run/opensurge/host-hosts。旧容器升级不会自动增加该映射。')}</p>
+          <code>/etc/hosts:/run/opensurge/host-hosts:ro</code>
+          <p>{t('修改 Container Station / Compose 后重建容器，并继续挂载原 /data；现有 OpenSurge 配置不会丢失。')}</p>
+        </article>
       </div>
     </Panel>
   </>

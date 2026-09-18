@@ -1,6 +1,9 @@
 import { registerEnglishMessages } from './i18n'
 
 export const uiRefreshEnglishMessages: Record<string, string> = {
+  '修改 Container Station / Compose 后重建容器，并继续挂载原 /data；现有 OpenSurge 配置不会丢失。': 'After changing Container Station / Compose, recreate the container and keep the existing /data mount; current OpenSurge configuration will be preserved.',
+  '宿主 Hosts 同步需要在创建容器时把 QNAP /etc/hosts 只读映射到 /run/opensurge/host-hosts。旧容器升级不会自动增加该映射。': 'Host Hosts synchronization requires mapping QNAP /etc/hosts read-only to /run/opensurge/host-hosts when the container is created. Existing containers do not gain this mount automatically after an upgrade.',
+  'NAS Hosts 只读挂载': 'NAS Hosts read-only mount',
   '等待设备身份': 'Waiting for device identity',
   '等待移除': 'Waiting for removal',
   '配置待更新': 'Configuration update pending',
