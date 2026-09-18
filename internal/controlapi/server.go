@@ -89,7 +89,8 @@ type Server struct {
 	mu          sync.Mutex
 	lifecycleMu sync.Mutex
 	sessions    map[string]time.Time
-	bootstraps  map[string]bootstrapGrant
+	bootstraps        map[string]bootstrapGrant
+	hostHostsSyncOnce sync.Once
 }
 
 type bootstrapGrant struct {
@@ -253,6 +254,7 @@ func (s *Server) bootstrapURLFor(path string) string {
 }
 
 func (s *Server) Handler() http.Handler {
+	s.hostHostsSyncOnce.Do(func() { go s.runHostHostsSyncLoop() })
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /bootstrap", s.exchangeBootstrap)
 	mux.HandleFunc("POST /api/v1/session/bootstrap", s.handleSessionBootstrap)
@@ -303,6 +305,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/tailscale/forget-identity", s.auth(http.HandlerFunc(s.handleTailscaleForgetIdentity)))
 	mux.Handle("GET /api/v1/profile-overlay", s.auth(http.HandlerFunc(s.handleProfileOverlay)))
 	mux.Handle("PUT /api/v1/profile-overlay", s.auth(http.HandlerFunc(s.handleProfileOverlay)))
+	mux.Handle("GET /api/v1/host-hosts-sync", s.auth(http.HandlerFunc(s.handleHostHostsSync)))
+	mux.Handle("PUT /api/v1/host-hosts-sync", s.auth(http.HandlerFunc(s.handleHostHostsSync)))
+	mux.Handle("POST /api/v1/host-hosts-sync", s.auth(http.HandlerFunc(s.handleHostHostsSync)))
 	mux.Handle("GET /api/v1/device-policy", s.auth(http.HandlerFunc(s.handleDevicePolicy)))
 	mux.Handle("PUT /api/v1/device-policy", s.auth(http.HandlerFunc(s.handleDevicePolicy)))
 	mux.Handle("GET /api/v1/devices", s.auth(http.HandlerFunc(s.handleDevices)))
