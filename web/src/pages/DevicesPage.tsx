@@ -382,10 +382,10 @@ function DeviceCard({ view, running, topology, lanPrefix, routerBypass, routerBy
   return <article className={`device-card ${selected ? 'selected' : ''}`}>
     <div className="source-head"><button className="device-title" type="button" disabled={!view.desired} aria-pressed={selected} onClick={onSelect}><small>{device.profile}</small><strong>{view.desired ? displayDeviceName(view.desired) : device.id}</strong></button><span className={`pill ${view.state === 'applied' ? 'ok' : ''}`}>{deviceStateLabel(view.state)}</span></div>
     <div className="device-metadata">
-      {view.desired?.name && <span className="device-meta-item"><small>{t('设备 ID')}</small><span className="device-meta-value">{device.id}</span></span>}
+      <span className="device-meta-item"><small>{t('设备 ID')}</small><span className="device-meta-value">{device.id}</span></span>
       <span className="device-meta-item"><small>IPv4</small><span className="device-meta-value">{device.ipv4}</span></span>
-      {identity?.state === 'waiting' && <span className="device-meta-item"><small>{t('状态')}</small><span className="device-meta-value">{t('设备按登记 IP 接入后生效')}</span></span>}
-      <span className="device-meta-item"><small>MAC</small><span className="device-meta-value">{device.mac.trim() || t(view.state === 'paused' ? '未登记 · 策略已暂停，补充后恢复' : '未登记 · 当前按固定 IPv4 匹配')}</span></span>
+      <span className="device-meta-item"><small>{t('状态')}</small><span className="device-meta-value">{identity?.state==='waiting'?t('等待设备接入'):deviceStateLabel(view.state)}</span></span>
+      <span className="device-meta-item"><small>MAC</small><span className="device-meta-value">{device.mac.trim()||t(view.state==='paused'?'未登记 · 策略已暂停':'未登记 · IPv4 匹配')}</span></span>
     </div>
     {view.state === 'out_of_lan' && <div className="device-out-of-lan" role="status">
       <strong>{t('不在当前网段')}</strong>
