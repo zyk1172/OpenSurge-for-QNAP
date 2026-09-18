@@ -480,7 +480,7 @@ function deviceStateLabel(state: DeviceView['state']) {
 }
 
 function deviceIdentityStatusLabel(identity: DeviceIdentity | null, state: DeviceView['state'], topology?: string) {
-  if (identity?.state === 'waiting') return t(topology === 'same_lan' ? '设备按登记 IP 接入后生效' : '身份待确认')
+  if (identity?.state === 'waiting') return t(topology === 'same_lan' ? '设备按登记 IP 接入后生效' : '等待设备身份')
   if (identity?.state === 'ready') return t('身份已确认')
   if (identity?.state === 'observed') return t('已观察到设备')
   if (identity?.state === 'address_changed') return t('IP 已变化')

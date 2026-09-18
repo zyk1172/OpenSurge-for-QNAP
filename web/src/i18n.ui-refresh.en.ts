@@ -1,6 +1,7 @@
 import { registerEnglishMessages } from './i18n'
 
 export const uiRefreshEnglishMessages: Record<string, string> = {
+  '等待设备身份': 'Waiting for device identity',
   '等待移除': 'Waiting for removal',
   '配置待更新': 'Configuration update pending',
   '等待首次应用': 'Waiting for first apply',
