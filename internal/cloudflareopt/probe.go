@@ -411,7 +411,7 @@ func probeHTTPS(ctx context.Context, target Target, candidate tcpCandidate, opti
 	}
 	io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
 	_ = response.Body.Close()
-	if response.StatusCode < 100 || response.StatusCode > 599 {
+	if !validHTTPSValidationStatus(response.StatusCode) {
 		return httpCandidate{}, false
 	}
 	server := strings.ToLower(response.Header.Get("Server"))
@@ -427,6 +427,10 @@ func probeHTTPS(ctx context.Context, target Target, candidate tcpCandidate, opti
 		ttfb = time.Since(started)
 	}
 	return httpCandidate{tcpCandidate: candidate, TTFB: ttfb, Colo: colo}, true
+}
+
+func validHTTPSValidationStatus(status int) bool {
+	return status >= http.StatusOK && status < http.StatusBadRequest
 }
 
 func probeDownload(ctx context.Context, ip string, options ScanOptions) float64 {
