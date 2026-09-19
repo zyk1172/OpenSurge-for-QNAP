@@ -51,8 +51,9 @@ type ScanProgress struct {
 }
 
 type ScanOutput struct {
-	Results []TargetResult
-	Elapsed time.Duration
+	Results         []TargetResult
+	RejectedDomains []string
+	Elapsed         time.Duration
 }
 
 type tcpCandidate struct {
@@ -192,13 +193,18 @@ func RunScan(ctx context.Context, targets []Target, options ScanOptions, progres
 	}
 
 	results := make([]TargetResult, 0, len(enabledTargets))
+	rejectedDomains := make([]string, 0)
 	for _, target := range enabledTargets {
 		verified := perTarget[target.Domain]
 		if len(verified) == 0 {
 			continue
 		}
 		converted := buildCandidateResults(verified, speedByIP)
+		converted = filterByMinimumDownload(converted, settings.MinDownloadMbps)
 		if len(converted) == 0 {
+			if settings.MinDownloadMbps > 0 {
+				rejectedDomains = append(rejectedDomains, target.Domain)
+			}
 			continue
 		}
 		sort.SliceStable(converted, func(i, j int) bool { return candidateBetter(converted[i], converted[j]) })
@@ -208,10 +214,10 @@ func RunScan(ctx context.Context, targets []Target, options ScanOptions, progres
 		}
 		results = append(results, TargetResult{Domain: target.Domain, Selected: converted[0], Alternatives: alternatives, UpdatedAt: now().UTC()})
 	}
-	if len(results) == 0 {
+	if len(results) == 0 && len(rejectedDomains) == 0 {
 		return ScanOutput{}, fmt.Errorf("Cloudflare optimizer did not produce any usable domain result")
 	}
-	return ScanOutput{Results: results, Elapsed: now().Sub(started)}, nil
+	return ScanOutput{Results: results, RejectedDomains: rejectedDomains, Elapsed: now().Sub(started)}, nil
 }
 
 func buildCandidateResults(verified []httpCandidate, speedByIP map[string]float64) []CandidateResult {
@@ -228,6 +234,19 @@ func buildCandidateResults(verified []httpCandidate, speedByIP map[string]float6
 		})
 	}
 	return converted
+}
+
+func filterByMinimumDownload(candidates []CandidateResult, minimumMbps float64) []CandidateResult {
+	if minimumMbps <= 0 {
+		return candidates
+	}
+	filtered := make([]CandidateResult, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.DownloadMbps >= minimumMbps {
+			filtered = append(filtered, candidate)
+		}
+	}
+	return filtered
 }
 
 func candidateBetter(left, right CandidateResult) bool {

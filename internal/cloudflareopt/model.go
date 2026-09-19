@@ -52,6 +52,7 @@ type ScanSettings struct {
 	DownloadCandidateCount int     `json:"download_candidate_count"`
 	DownloadSeconds        int     `json:"download_seconds"`
 	DownloadMaxBytes       int64   `json:"download_max_bytes"`
+	MinDownloadMbps        float64 `json:"min_download_mbps"`
 }
 
 type Target struct {
@@ -135,6 +136,7 @@ func DefaultConfig() Config {
 			DownloadCandidateCount: 8,
 			DownloadSeconds:        4,
 			DownloadMaxBytes:       8 << 20,
+			MinDownloadMbps:        0,
 		},
 		Targets: []Target{},
 	}
@@ -186,6 +188,7 @@ func Normalize(cfg Config) Config {
 			DownloadCandidateCount: 8,
 			DownloadSeconds:        4,
 			DownloadMaxBytes:       8 << 20,
+			MinDownloadMbps:        0,
 		}
 	}
 	if cfg.Scan.MaxLatencyMS == 0 {
@@ -285,6 +288,12 @@ func validateScan(scan ScanSettings) error {
 	}
 	if scan.DownloadMaxBytes < 256<<10 || scan.DownloadMaxBytes > 64<<20 {
 		return fmt.Errorf("scan download_max_bytes must be between 256 KiB and 64 MiB")
+	}
+	if scan.MinDownloadMbps < 0 || scan.MinDownloadMbps > 10000 {
+		return fmt.Errorf("scan min_download_mbps must be between 0 and 10000")
+	}
+	if scan.MinDownloadMbps > 0 && scan.DownloadCandidateCount == 0 {
+		return fmt.Errorf("scan download_candidate_count must be greater than 0 when min_download_mbps is enabled")
 	}
 	return nil
 }

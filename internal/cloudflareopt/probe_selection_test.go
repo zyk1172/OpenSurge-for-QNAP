@@ -41,3 +41,27 @@ func TestCandidateBetterFallsBackToQualityWhenAllDownloadsFail(t *testing.T) {
 		t.Fatal("when all download probes fail, verified candidates should fall back to TTFB/latency ordering")
 	}
 }
+
+func TestFilterByMinimumDownloadDropsSlowAndUnmeasuredCandidates(t *testing.T) {
+	candidates := []CandidateResult{
+		{IP: "104.18.1.1", DownloadMbps: 0},
+		{IP: "104.18.1.2", DownloadMbps: 19.9},
+		{IP: "104.18.1.3", DownloadMbps: 20},
+		{IP: "104.18.1.4", DownloadMbps: 80},
+	}
+	got := filterByMinimumDownload(candidates, 20)
+	if len(got) != 2 || got[0].IP != "104.18.1.3" || got[1].IP != "104.18.1.4" {
+		t.Fatalf("minimum throughput filter = %#v", got)
+	}
+}
+
+func TestFilterByMinimumDownloadDisabledPreservesFallback(t *testing.T) {
+	candidates := []CandidateResult{
+		{IP: "104.18.1.1", DownloadMbps: 0},
+		{IP: "104.18.1.2", DownloadMbps: 42.5},
+	}
+	got := filterByMinimumDownload(candidates, 0)
+	if len(got) != 2 {
+		t.Fatalf("disabled minimum throughput filter removed candidates: %#v", got)
+	}
+}

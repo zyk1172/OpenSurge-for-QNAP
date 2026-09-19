@@ -45,7 +45,7 @@ Full optimization uses bounded presets instead of an unbounded attempt-to-fill l
 - full: 120 seconds / 1536 candidates;
 - deep: 180 seconds / 2048 candidates.
 
-Candidates first pass TCP/443 sampling, then hard latency/loss filters, target-domain TLS SNI / HTTP Host validation, and finally bounded download testing. The standard preset uses 128 TCP workers, a 100 ms latency ceiling, zero-loss filtering, 30 HTTPS candidates and at most 8 download candidates.
+Candidates first pass TCP/443 sampling, then hard latency/loss filters, target-domain TLS SNI / HTTP Host validation, and finally bounded download testing. The standard preset uses 128 TCP workers, zero-loss filtering, 30 HTTPS candidates and at most 8 download candidates. The scan latency ceiling is user-selectable in the UI (100–1000 ms). An optional minimum download-throughput threshold can be set in Mbps: `0` preserves the HTTPS-verified fallback when download measurement is unavailable, while values above `0` strictly reject unmeasured candidates and candidates below the configured throughput floor. A domain explicitly rejected by this throughput floor does not retain a stale optimizer result from a previous run.
 
 This flow adopts the useful operational ideas from Lyxot/CloudflareSpeedTestDNS and XIU2/CloudflareSpeedTest while keeping the OpenSurge-native engine, physical-egress enforcement, persistence, scheduler and Mihomo reconciliation. No second optimizer container, DDNS subsystem, TOML/CLI configuration layer or separate long-running process is embedded.
 
