@@ -119,7 +119,7 @@ export const cloudflareEnglishMessages: Record<string, string> = {
   '正在检查…': 'Checking…',
   '立即检查': 'Check now',
   '完整优选策略': 'Full optimization strategy',
-  '先并发 TCP 443 粗筛，再按延迟/丢包过滤并执行目标域名 HTTPS 验证；通过验证的候选必须完成下载测速后才可入选，最终优先选择下载速度更高的 IP。': 'Run a concurrent TCP/443 prefilter, apply latency/loss thresholds, and validate target-domain HTTPS. A candidate must complete a download-speed test before it can be selected, and higher measured download speed has final ranking priority.',
+  '先并发 TCP 443 粗筛，再按延迟/丢包过滤并执行目标域名 HTTPS 验证；随后对候选做下载测速。测得有效速度时优先按速度选择；测速端点失败时保留已通过 HTTPS 验证的候选，不会整轮清空。': 'Run a concurrent TCP/443 prefilter, apply latency/loss thresholds, validate target-domain HTTPS, then download-test the candidates. Valid measured throughput is preferred for ranking; if the speed-test endpoint fails, HTTPS-verified candidates remain eligible instead of clearing the whole run.',
   '标准 · 约 75 秒（推荐）': 'Standard · about 75 seconds (recommended)',
   '完整 · 约 120 秒': 'Full · about 120 seconds',
   '深入 · 最多 180 秒': 'Deep · up to 180 seconds',
