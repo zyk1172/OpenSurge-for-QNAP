@@ -53,13 +53,8 @@ type templateData struct {
 	Domain              string
 	LeaseFile           string
 	PIDFile             string
-	DNSPort             int
-	DNSListen           string
-	DNSUpstream         string
 	Reservations        []device.Reservation
-	IPv6GatewayEnabled  bool
 	IPv6RAEnabled       bool
-	IPv6Gateway         string
 	IPv6Prefix          string
 }
 
@@ -109,17 +104,12 @@ func RenderConfig(cfg config.Config, paths runtime.Paths) (string, error) {
 		Domain:              cfg.DHCP.Domain,
 		LeaseFile:           paths.LeaseFile,
 		PIDFile:             paths.DNSMasqPIDFile,
-		DNSPort:             cfg.DNS.Port,
-		DNSListen:           cfg.DNS.Listen,
-		DNSUpstream:         dnsUpstream,
 		Reservations:        reservations,
-		IPv6GatewayEnabled:  cfg.Transparent.TUNIPv6 != config.TUNIPv6Off,
 		// same_lan is selective, manual IPv6 onboarding. Advertising RA on a
 		// shared LAN would silently move devices that were never selected for
 		// the bypass-router path. DHCP-owning topologies deliberately remain
 		// LAN-wide providers.
 		IPv6RAEnabled: cfg.Transparent.TUNIPv6 != config.TUNIPv6Off && cfg.DHCP.Enabled,
-		IPv6Gateway:   config.DownstreamIPv6Gateway,
 		IPv6Prefix:    strings.TrimSuffix(config.DownstreamIPv6Prefix, "/64"),
 	}
 
