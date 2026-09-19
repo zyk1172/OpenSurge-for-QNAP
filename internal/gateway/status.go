@@ -141,21 +141,28 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 				}
 			}
 			dhcpManager := dhcp.New(m.cfg, m.paths)
-			dhcpReady := !m.cfg.DHCP.Enabled
-			if trackedProcessRunning(m.gatewayDeps(), state.PIDDNSMasq, state.DNSMasqProcessFingerprint, dhcpManager.Running) {
-				dhcpReady = true
+			dnsmasqRunning := trackedProcessRunning(m.gatewayDeps(), state.PIDDNSMasq, state.DNSMasqProcessFingerprint, dhcpManager.Running)
+			dhcpReady := !m.cfg.DHCP.Enabled || dnsmasqRunning
+			if dnsmasqRunning {
 				dhcpStatus = "running"
 			}
 			smartDNSManager := smartdns.New(m.cfg, m.paths)
 			dnsRunning := trackedProcessRunning(m.gatewayDeps(), state.PIDSmartDNS, state.SmartDNSProcessFingerprint, smartDNSManager.Running)
+			dnsReady := dnsRunning
 			if dnsRunning {
 				dnsStatus = "running"
+			} else if state.DNSFrontend == "" && dnsmasqRunning {
+				// Runtime states created before the dual-view migration used
+				// dnsmasq itself as LAN :53. Treat that applied runtime as
+				// healthy until the next reload/restart replaces it atomically.
+				dnsReady = true
+				dnsStatus = "legacy-dnsmasq"
 			}
 			// A failed runtime read is an observability warning, not evidence that
 			// the already-running TUN data plane stopped. An explicit disabled
 			// response remains a real degraded condition.
 			tunReady := !m.cfg.Transparent.TUNEnabled() || tunStatus == "ready" || tunStatus == "unknown"
-			if dhcpReady && dnsRunning && mihomoRunning && tunReady {
+			if dhcpReady && dnsReady && mihomoRunning && tunReady {
 				gatewayStatus = "running"
 			} else {
 				gatewayStatus = "degraded"
@@ -265,7 +272,12 @@ func fetchMihomoRuntime(ctx context.Context, cfg config.Config) (mihomo.Version,
 }
 
 func (s Status) Format() string {
-	dnsmasqLabel := "DHCP"
+	dnsStatus := s.DNS
+	if dnsStatus == "" && !s.DHCPEnabled {
+		// Backward-compatible formatting for callers/tests constructing the
+		// pre-dual-view Status shape.
+		dnsStatus = s.DHCP
+	}
 	tunLabel := s.TUN
 	if s.TUNInterface != "" {
 		tunLabel += " (" + s.TUNInterface + ")"
@@ -280,8 +292,7 @@ func (s Status) Format() string {
 		fmt.Sprintf("LAN IP: %s", s.LANIP),
 		fmt.Sprintf("Data plane: %s", s.DataPlane),
 		fmt.Sprintf("Policy routing: %s", s.Routing),
-		fmt.Sprintf("%s: %s", dnsmasqLabel, s.DHCP),
-		fmt.Sprintf("DNS: %s", s.DNS),
+		fmt.Sprintf("DNS: %s", dnsStatus),
 		fmt.Sprintf("mihomo: %s", s.Mihomo),
 		fmt.Sprintf("TUN: %s", tunLabel),
 		fmt.Sprintf("IPv6 DNS queries: %t", s.DNSIPv6),
@@ -289,6 +300,9 @@ func (s Status) Format() string {
 		fmt.Sprintf("nftables: %s", s.NFTables),
 		fmt.Sprintf("IP forwarding: %s", s.Forwarding),
 		fmt.Sprintf("Clients: %d", s.ClientCount),
+	}
+	if s.DHCPEnabled {
+		lines = append(lines, fmt.Sprintf("DHCP: %s", s.DHCP))
 	}
 	if s.RoutingError != "" {
 		lines = append(lines, fmt.Sprintf("Policy routing error: %s", s.RoutingError))
