@@ -344,7 +344,7 @@ export function CloudflareOptimizerPage() {
     </Panel>
 
     <Panel>
-      <SectionHeader eyebrow="SCAN STRATEGY" title="完整优选策略" subtitle="先并发 TCP 443 粗筛，再按延迟/丢包过滤并执行目标域名 HTTPS 验证；下载测速使用 Cloudflare 官方大响应流，收到响应正文后才开始计时，并按测速模式的秒数主动截断。最低下载速度为 0 时保留 HTTPS 兜底；设置大于 0 的门槛后，未测出速度或低于门槛的候选会直接剔除。" />
+      <SectionHeader eyebrow="SCAN STRATEGY" title="完整优选策略" subtitle="先并发 TCP 443 粗筛，再按延迟/丢包过滤并执行目标域名 HTTPS 验证；下载测速使用 Cloudflare 官方 200MB 响应分段，只累计正文传输时间；高速链路提前下完一段会继续下一段，直到达到测速模式的秒数。最低下载速度为 0 时保留 HTTPS 兜底；设置大于 0 的门槛后，未测出速度或低于门槛的候选会直接剔除。" />
       <div className="ui-form-grid">
         <FormField label="测速模式">
           <select value={scanMode} onChange={event => updateScanMode(event.target.value as ScanMode)}>
