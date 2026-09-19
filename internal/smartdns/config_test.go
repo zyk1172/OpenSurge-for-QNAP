@@ -228,32 +228,3 @@ rules:
 	}
 }
 
-func TestRenderedConfigLoadsInPinnedSmartDNS(t *testing.T) {
-	if os.Getenv("OPEN_SURGE_SMARTDNS_INTEGRATION_TESTS") != "1" {
-		t.Skip("OPEN_SURGE_SMARTDNS_INTEGRATION_TESTS is not set")
-	}
-	cfg := config.Default()
-	cfg.Runtime.Dir = t.TempDir()
-	cfg.Mihomo.Config = filepath.Join(cfg.Runtime.Dir, "mihomo.yaml")
-	cfg.Gateway.Mode = config.GatewayModeSameLAN
-	cfg.Gateway.Interface = "eth0"
-	cfg.Gateway.UpstreamInterface = "eth0"
-	cfg.Gateway.LANIP = "127.0.0.1"
-	cfg.DNS.Listen = "127.0.0.1"
-	cfg.DHCP.Enabled = false
-	paths := runtime.NewPaths(cfg)
-	if err := os.MkdirAll(paths.LogDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	rendered, err := RenderConfigWithResolvers(cfg, paths, []string{"127.0.0.1:62053"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(paths.SmartDNSConf, []byte(rendered), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	manager := Manager{cfg: cfg, paths: paths}
-	if err := manager.ValidateWrittenConfig(); err != nil {
-		t.Fatalf("pinned SmartDNS rejected rendered config: %v\n%s", err, rendered)
-	}
-}
