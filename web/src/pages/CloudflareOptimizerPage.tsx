@@ -23,6 +23,7 @@ type ScanSettings = {
   download_candidate_count: number
   download_seconds: number
   download_max_bytes: number
+  min_download_mbps: number
 }
 type Target = { domain: string; enabled: boolean; test_path?: string }
 type Candidate = { ip: string; latency_ms: number; loss_rate: number; ttfb_ms?: number; download_mbps?: number; colo?: string }
@@ -62,6 +63,7 @@ const scanPresets: Record<ScanMode, ScanSettings> = {
     download_candidate_count: 3,
     download_seconds: 2,
     download_max_bytes: 4 << 20,
+    min_download_mbps: 0,
   },
   standard: {
     budget_seconds: 75,
@@ -76,6 +78,7 @@ const scanPresets: Record<ScanMode, ScanSettings> = {
     download_candidate_count: 8,
     download_seconds: 4,
     download_max_bytes: 8 << 20,
+    min_download_mbps: 0,
   },
   full: {
     budget_seconds: 120,
@@ -90,6 +93,7 @@ const scanPresets: Record<ScanMode, ScanSettings> = {
     download_candidate_count: 12,
     download_seconds: 5,
     download_max_bytes: 12 << 20,
+    min_download_mbps: 0,
   },
   deep: {
     budget_seconds: 180,
@@ -104,6 +108,7 @@ const scanPresets: Record<ScanMode, ScanSettings> = {
     download_candidate_count: 20,
     download_seconds: 6,
     download_max_bytes: 16 << 20,
+    min_download_mbps: 0,
   },
 }
 
@@ -164,7 +169,23 @@ export function CloudflareOptimizerPage() {
     health: { ...current.health, ...patch },
   } : current)
 
-  const updateScanMode = (mode: ScanMode) => setDraft(current => current ? { ...current, scan: { ...scanPresets[mode] } } : current)
+  const updateScan = (patch: Partial<ScanSettings>) => setDraft(current => current ? {
+    ...current,
+    scan: { ...current.scan, ...patch },
+  } : current)
+
+  const updateScanMode = (mode: ScanMode) => setDraft(current => {
+    if (!current) return current
+    return {
+      ...current,
+      scan: {
+        ...scanPresets[mode],
+        max_latency_ms: current.scan.max_latency_ms,
+        max_loss_rate: current.scan.max_loss_rate,
+        min_download_mbps: current.scan.min_download_mbps,
+      },
+    }
+  })
 
   const save = async (): Promise<boolean> => {
     if (!simpleDraft || saving) return false
@@ -229,7 +250,6 @@ export function CloudflareOptimizerPage() {
   const healthByDomain = new Map(data.state.health.map(item => [item.domain, item]))
   const unhealthyCount = data.state.health.filter(item => !item.healthy).length
   const busy = scanning || checking || data.state.running || data.state.checking
-  const preset = scanPresets[scanMode]
   const overallStatus = statusLabel(data.state, scanning, checking)
 
   return <div className="cloudflare-page">
@@ -334,11 +354,33 @@ export function CloudflareOptimizerPage() {
             <option value="deep">{t('深入 · 最多 180 秒')}</option>
           </select>
         </FormField>
+        <FormField label="优选延迟上限" hint="超过这个 TCP 延迟的候选会在 HTTPS 和下载测速前直接剔除。">
+          <select value={draft.scan.max_latency_ms} onChange={event => updateScan({ max_latency_ms: Number(event.target.value) })}>
+            <option value={100}>100 ms</option>
+            <option value={150}>150 ms</option>
+            <option value={200}>200 ms</option>
+            <option value={300}>300 ms</option>
+            <option value={500}>500 ms</option>
+            <option value={800}>800 ms</option>
+            <option value={1000}>1000 ms</option>
+          </select>
+        </FormField>
+        <FormField label="最低下载速度（Mbps）" hint="0 表示关闭速度硬筛选；大于 0 时，未测出速度或低于该值的候选都会剔除。">
+          <input
+            type="number"
+            min={0}
+            max={10000}
+            step={1}
+            inputMode="decimal"
+            value={draft.scan.min_download_mbps}
+            onChange={event => updateScan({ min_download_mbps: Math.max(0, Number(event.target.value) || 0) })}
+          />
+        </FormField>
       </div>
       <TableSurface>
         <table className="ui-table">
           <thead><tr><th>{t('候选 IP')}</th><th>{t('TCP 并发')}</th><th>{t('TCP 采样')}</th><th>{t('延迟上限')}</th><th>{t('丢包上限')}</th><th>{t('HTTPS 候选')}</th><th>{t('下载候选')}</th></tr></thead>
-          <tbody><tr><td>{preset.candidate_limit}</td><td>{preset.tcp_concurrency}</td><td>{preset.tcp_attempts}</td><td>{preset.max_latency_ms} ms</td><td>{Math.round(preset.max_loss_rate * 100)}%</td><td>{preset.https_candidate_count}</td><td>{preset.download_candidate_count}</td></tr></tbody>
+          <tbody><tr><td>{draft.scan.candidate_limit}</td><td>{draft.scan.tcp_concurrency}</td><td>{draft.scan.tcp_attempts}</td><td>{draft.scan.max_latency_ms} ms</td><td>{Math.round(draft.scan.max_loss_rate * 100)}%</td><td>{draft.scan.https_candidate_count}</td><td>{draft.scan.download_candidate_count}</td></tr></tbody>
         </table>
       </TableSurface>
     </Panel>
