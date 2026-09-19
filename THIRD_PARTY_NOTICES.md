@@ -41,6 +41,22 @@ image under `/usr/share/opensurge/licenses/`.
 The retained dnsmasq COPYING text is included under
 `/usr/share/opensurge/licenses/third_party/` in the image.
 
+### SmartDNS
+
+- Upstream: <https://github.com/pymumu/smartdns>
+- License: `GPL-3.0-only`
+- Version: `48.4`
+- Release tag: `Release48.4`
+- Distributed form: built from the tagged upstream source inside the
+  target-platform Docker build stage; the build verifies that the checked-out
+  commit is exactly named by that release tag.
+- Retained license text:
+  [`third_party/licenses/smartdns-GPL-3.0.txt`](third_party/licenses/smartdns-GPL-3.0.txt)
+
+SmartDNS owns the LAN DNS frontend in the dual-view DNS architecture. Gateway
+View is isolated to Mihomo's loopback fake-IP resolver, while Resolver View uses
+real upstream DNS and never falls back into the fake-IP plane.
+
 ### Base image and OS packages
 
 The development image currently uses Debian Bookworm-based tagged build/runtime
