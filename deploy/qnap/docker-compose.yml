@@ -1,6 +1,6 @@
 services:
   opensurge:
-    image: ${OPENSURGE_IMAGE:-zyk1172/opensurge-for-qnap:1.0.0}
+    image: ${OPENSURGE_IMAGE:-zykhs/opensurge-for-qnap:1.0.0}
     pull_policy: ${OPENSURGE_PULL_POLICY:-missing}
     container_name: opensurge
     restart: unless-stopped

@@ -94,7 +94,7 @@ docker logs --tail 100 opensurge
 默认镜像：
 
 ```text
-zyk1172/opensurge-for-qnap:1.0.0
+zykhs/opensurge-for-qnap:1.0.0
 ```
 
 如果 `1.0.0` 尚未正式发布，可先使用仓库 Releases 中的 `qnap-test-latest` 测试镜像。

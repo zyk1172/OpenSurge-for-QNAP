@@ -18,7 +18,7 @@
 - `vX.Y.Z` stable tag 先通过 `govulncheck` 与容器 HIGH/CRITICAL 漏洞 gate；
 - stable Release 发布 Docker 归档、SPDX JSON SBOM、`SHA256SUMS`、build provenance 和 SBOM attestation；
 - 同一 stable workflow 发布 GHCR 多架构镜像；
-- 配置 Docker Hub 凭据后，同一 stable workflow 发布 `zyk1172/opensurge-for-qnap:<version>`、`:<tag>` 和 `:latest` 多架构镜像；
+- 配置 Docker Hub 凭据后，同一 stable workflow 发布 `zykhs/opensurge-for-qnap:<version>`、`:<tag>` 和 `:latest` 多架构镜像；
 - stable Release 不覆盖同名既有版本。
 
 真机长稳、reboot、升级/回滚等验收属于发布操作验证，不在本轮代码修改范围内。

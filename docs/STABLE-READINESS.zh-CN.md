@@ -83,6 +83,6 @@ NAS Host Takeover 使用动态 RPDB priority。除精确 `from <NAS-IP>` 外，�
 - GitHub build provenance 与 SBOM attestation；
 - GitHub stable Release；
 - GHCR 多架构镜像；
-- Docker Hub `zyk1172/opensurge-for-qnap` 多架构镜像。
+- Docker Hub `zykhs/opensurge-for-qnap` 多架构镜像。
 
 高权限 GitHub Actions 固定到 commit SHA。正式 Release 不覆盖同名已存在版本。

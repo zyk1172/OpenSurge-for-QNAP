@@ -7,8 +7,8 @@ OpenSurge for QNAP `v1.0.x` supports **IPv4 same-LAN manual gateway** as its sta
 Docker Hub:
 
 ```text
-zyk1172/opensurge-for-qnap:1.0.0
-zyk1172/opensurge-for-qnap:latest
+zykhs/opensurge-for-qnap:1.0.0
+zykhs/opensurge-for-qnap:latest
 ```
 
 The default Compose is pinned to `1.0.0`:
@@ -20,7 +20,7 @@ deploy/qnap/docker-compose.yml
 Override it when needed:
 
 ```sh
-export OPENSURGE_IMAGE=zyk1172/opensurge-for-qnap:1.0.0
+export OPENSURGE_IMAGE=zykhs/opensurge-for-qnap:1.0.0
 ```
 
 GitHub Releases also publish amd64/arm64 Docker archives, SPDX JSON SBOMs, `SHA256SUMS`, build provenance and SBOM attestations.
