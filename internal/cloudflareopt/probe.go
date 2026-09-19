@@ -197,7 +197,7 @@ func RunScan(ctx context.Context, targets []Target, options ScanOptions, progres
 		if len(verified) == 0 {
 			continue
 		}
-		converted := buildCandidateResults(verified, speedByIP, settings.DownloadCandidateCount > 0)
+		converted := buildCandidateResults(verified, speedByIP)
 		if len(converted) == 0 {
 			continue
 		}
@@ -214,13 +214,10 @@ func RunScan(ctx context.Context, targets []Target, options ScanOptions, progres
 	return ScanOutput{Results: results, Elapsed: now().Sub(started)}, nil
 }
 
-func buildCandidateResults(verified []httpCandidate, speedByIP map[string]float64, requireDownload bool) []CandidateResult {
+func buildCandidateResults(verified []httpCandidate, speedByIP map[string]float64) []CandidateResult {
 	converted := make([]CandidateResult, 0, len(verified))
 	for _, candidate := range verified {
 		speed := speedByIP[candidate.IP]
-		if requireDownload && speed <= 0 {
-			continue
-		}
 		converted = append(converted, CandidateResult{
 			IP:           candidate.IP,
 			LatencyMS:    candidate.Latency.Milliseconds(),
