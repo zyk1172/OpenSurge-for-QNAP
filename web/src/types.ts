@@ -8,6 +8,7 @@ export type GatewayStatus = {
   routing_error?: string
   dhcp: string
   dhcp_enabled: boolean
+  dns?: string
   mihomo: string
   mihomo_error?: string
   tun?: string
@@ -287,8 +288,9 @@ export type SourceSnapshotFile = {
 export type DeviceEgressMode = 'inherit_global' | 'dedicated'
 export type AppliedDeviceEgressMode = DeviceEgressMode | 'legacy_fallback'
 export type DeviceGatewayTarget = 'opensurge' | 'upstream_router'
+export type DeviceDNSView = 'auto' | 'gateway' | 'resolver'
 export type PolicyAdjustment = { slot: string; effect: 'inherit_global' | 'skip_rule' | 'filter_candidates'; missing_targets: string[]; selected?: string }
-export type CompiledDevice = { id: string; mac: string; ipv4: string; profile: string; gateway_target?: DeviceGatewayTarget | ''; egress_mode?: AppliedDeviceEgressMode | ''; configured_egress_mode?: AppliedDeviceEgressMode; policy_adjustments?: PolicyAdjustment[]; ipv6_blocked?: boolean; groups: Record<string, string> }
+export type CompiledDevice = { id: string; mac: string; ipv4: string; profile: string; gateway_target?: DeviceGatewayTarget | ''; dns_view?: DeviceDNSView | ''; egress_mode?: AppliedDeviceEgressMode | ''; configured_egress_mode?: AppliedDeviceEgressMode; policy_adjustments?: PolicyAdjustment[]; ipv6_blocked?: boolean; groups: Record<string, string> }
 export type ObservedDevice = { ip: string; mac?: string; active_connections: number; neighbor_observed: boolean }
 export type DevicesResponse = {
   desired_digest?: string
@@ -357,7 +359,7 @@ export type PolicyRule = {
   on_unsupported?: string
 }
 export type PolicyProfile = { id: string; template?: string; default_policies: string[]; on_unsupported?: string; rules?: PolicyRule[] }
-export type PolicyDevice = { id: string; name?: string; mac: string; ipv4: string; profile: string; gateway_target?: DeviceGatewayTarget; egress_mode?: DeviceEgressMode }
+export type PolicyDevice = { id: string; name?: string; mac: string; ipv4: string; profile: string; gateway_target?: DeviceGatewayTarget; dns_view?: DeviceDNSView; egress_mode?: DeviceEgressMode }
 export type PolicyTemplate = { id: string; rule_sets?: string[]; default_policies?: string[]; on_unsupported?: string; rules?: PolicyRule[] }
 export type PolicyRuleSet = { id: string; type?: 'inline' | 'http'; behavior: 'domain' | 'ipcidr' | 'classical'; format?: string; url?: string; interval?: number; payload?: string[] }
 export type PolicySet = { devices: PolicyDevice[]; profiles: PolicyProfile[]; templates: PolicyTemplate[]; rule_sets: PolicyRuleSet[] }
