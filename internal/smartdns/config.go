@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"open-mihomo-gateway/internal/config"
 	"open-mihomo-gateway/internal/device"
+	"open-mihomo-gateway/internal/dhcp"
 	"open-mihomo-gateway/internal/mihomo"
 	"open-mihomo-gateway/internal/runtime"
 )
@@ -18,6 +19,7 @@ import (
 const (
 	GatewayGroup  = "opensurge-gateway"
 	ResolverGroup = "opensurge-resolver"
+	LocalGroup    = "opensurge-local"
 	mihomoDNS     = "127.0.0.1:1053"
 )
 
@@ -66,6 +68,13 @@ func RenderConfigWithResolvers(cfg config.Config, paths runtime.Paths, resolvers
 	out.WriteString("log-level info\n")
 	out.WriteString("log-console yes\n")
 	out.WriteString("cache-size 32768\n")
+	out.WriteString("max-reply-ip-num 8\n")
+	out.WriteString("group-begin " + GatewayGroup + " -inherit none\n")
+	out.WriteString("speed-check-mode none\n")
+	out.WriteString("dualstack-ip-selection no\n")
+	out.WriteString("serve-expired no\n")
+	out.WriteString("group-end\n")
+	out.WriteString("group-begin " + ResolverGroup + " -inherit none\n")
 	out.WriteString("prefetch-domain yes\n")
 	out.WriteString("serve-expired yes\n")
 	out.WriteString("serve-expired-ttl 600\n")
@@ -73,10 +82,7 @@ func RenderConfigWithResolvers(cfg config.Config, paths runtime.Paths, resolvers
 	out.WriteString("speed-check-mode tcp:443,tcp:80\n")
 	out.WriteString("response-mode fastest-ip\n")
 	out.WriteString("dualstack-ip-selection no\n")
-	out.WriteString("max-reply-ip-num 8\n")
-	if cfg.DHCP.Enabled {
-		fmt.Fprintf(&out, "dnsmasq-lease-file %s\n", paths.LeaseFile)
-	}
+	out.WriteString("group-end\n")
 
 	listenTarget := net.JoinHostPort(listen, fmt.Sprintf("%d", cfg.DNS.Port))
 	defaultOptions := resolverOptions()
@@ -89,6 +95,15 @@ func RenderConfigWithResolvers(cfg config.Config, paths runtime.Paths, resolvers
 	fmt.Fprintf(&out, "server %s -group %s -exclude-default-group\n", mihomoDNS, GatewayGroup)
 	for _, resolver := range resolvers {
 		fmt.Fprintf(&out, "server %s -group %s -exclude-default-group\n", resolver, ResolverGroup)
+	}
+	if dhcp.ShouldRun(cfg) {
+		localDNS := net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", dhcp.LocalDNSPort))
+		fmt.Fprintf(&out, "server %s -group %s -exclude-default-group\n", localDNS, LocalGroup)
+		if domain := strings.Trim(strings.ToLower(strings.TrimSpace(cfg.DHCP.Domain)), "."); domain != "" {
+			for _, group := range []string{GatewayGroup, ResolverGroup} {
+				fmt.Fprintf(&out, "domain-rules /%s/ -nameserver %s -no-cache -no-serve-expired -group %s\n", domain, LocalGroup, group)
+			}
+		}
 	}
 
 	bundle := cfg.DevicePolicy.Bundle
@@ -188,9 +203,11 @@ func writeLocalDeviceRules(out *strings.Builder, cfg config.Config, bundle *devi
 		if name == "" {
 			continue
 		}
-		fmt.Fprintf(out, "domain-rules /%s/ -address %s\n", name, ip.To4().String())
-		if domain != "" {
-			fmt.Fprintf(out, "domain-rules /%s.%s/ -address %s\n", name, domain, ip.To4().String())
+		for _, group := range []string{GatewayGroup, ResolverGroup} {
+			fmt.Fprintf(out, "domain-rules /%s/ -address %s -group %s\n", name, ip.To4().String(), group)
+			if domain != "" {
+				fmt.Fprintf(out, "domain-rules /%s.%s/ -address %s -group %s\n", name, domain, ip.To4().String(), group)
+			}
 		}
 	}
 }
