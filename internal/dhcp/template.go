@@ -13,14 +13,15 @@ import (
 
 const dnsmasqTemplate = `interface={{ .Interface }}
 bind-interfaces
+port=0
 
 {{ if .DHCPEnabled }}
 dhcp-range={{ .RangeStart }},{{ .RangeEnd }},{{ .Netmask }},{{ .LeaseTime }}
 dhcp-option=option:router,{{ .GatewayIP }}
 dhcp-option=option:dns-server,{{ .GatewayIP }}
 {{ if .RouterBypassEnabled }}dhcp-option=tag:opensurge-router-bypass,option:router,{{ .BypassGateway }}
-dhcp-option=tag:opensurge-router-bypass,option:dns-server,{{ .BypassDNS }}
-{{ end }}
+{{ if .BypassDNSEnabled }}dhcp-option=tag:opensurge-router-bypass,option:dns-server,{{ .BypassDNS }}
+{{ end }}{{ end }}
 domain={{ .Domain }}
 {{ range .Reservations }}dhcp-host={{ .MAC }}{{ if eq .GatewayTarget "upstream_router" }},set:opensurge-router-bypass{{ end }},{{ .IPv4 }}
 {{ end }}
@@ -34,18 +35,7 @@ ra-param={{ .Interface }},20,60
 log-dhcp
 dhcp-leasefile={{ .LeaseFile }}
 {{ end }}
-log-queries
-
 pid-file={{ .PIDFile }}
-
-port={{ .DNSPort }}
-listen-address={{ .DNSListen }}
-{{ if .IPv6GatewayEnabled }}listen-address={{ .IPv6Gateway }}
-{{ end }}
-{{ if .DNSUpstream }}
-no-resolv
-server={{ .DNSUpstream }}
-{{ end }}
 `
 
 type templateData struct {
@@ -59,6 +49,7 @@ type templateData struct {
 	BypassGateway       string
 	BypassDNS           string
 	RouterBypassEnabled bool
+	BypassDNSEnabled    bool
 	Domain              string
 	LeaseFile           string
 	PIDFile             string
@@ -103,10 +94,6 @@ func RenderConfig(cfg config.Config, paths runtime.Paths) (string, error) {
 			break
 		}
 	}
-	dnsUpstream := strings.TrimSpace(cfg.DNS.Upstream)
-	if dnsUpstream == "" {
-		dnsUpstream = config.MihomoDNSUpstream
-	}
 	data := templateData{
 		DHCPEnabled:         cfg.DHCP.Enabled,
 		Interface:           cfg.Gateway.Interface,
@@ -118,6 +105,7 @@ func RenderConfig(cfg config.Config, paths runtime.Paths) (string, error) {
 		BypassGateway:       cfg.DHCP.BypassGateway,
 		BypassDNS:           strings.Join(cfg.DHCP.BypassDNS, ","),
 		RouterBypassEnabled: routerBypassEnabled,
+		BypassDNSEnabled:    len(cfg.DHCP.BypassDNS) > 0,
 		Domain:              cfg.DHCP.Domain,
 		LeaseFile:           paths.LeaseFile,
 		PIDFile:             paths.DNSMasqPIDFile,
