@@ -35,6 +35,7 @@ type ManagedDevice struct {
 	IPv4          string `json:"ipv4"`
 	Profile       string `json:"profile"`
 	GatewayTarget string `json:"gateway_target,omitempty"`
+	DNSView       string `json:"dns_view,omitempty"`
 	EgressMode    string `json:"egress_mode,omitempty"`
 }
 
@@ -47,6 +48,12 @@ const (
 const (
 	GatewayTargetOpenSurge      = "opensurge"
 	GatewayTargetUpstreamRouter = "upstream_router"
+)
+
+const (
+	DNSViewAuto     = "auto"
+	DNSViewGateway  = "gateway"
+	DNSViewResolver = "resolver"
 )
 
 // Profile is a reusable routing policy. Every device that uses it still gets
@@ -136,6 +143,7 @@ type CompiledDevice struct {
 	IPv4                 string             `json:"ipv4"`
 	Profile              string             `json:"profile"`
 	GatewayTarget        string             `json:"gateway_target"`
+	DNSView              string             `json:"dns_view"`
 	EgressMode           string             `json:"egress_mode"`
 	ConfiguredEgressMode string             `json:"configured_egress_mode,omitempty"`
 	PolicyAdjustments    []PolicyAdjustment `json:"policy_adjustments,omitempty"`
@@ -306,6 +314,12 @@ func ValidatePolicySet(set PolicySet) error {
 		if managed.GatewayTarget != "" && managed.GatewayTarget != GatewayTargetOpenSurge && managed.GatewayTarget != GatewayTargetUpstreamRouter {
 			return fmt.Errorf("device %q gateway_target must be %q or %q", managed.ID, GatewayTargetOpenSurge, GatewayTargetUpstreamRouter)
 		}
+		if managed.DNSView != "" && managed.DNSView != DNSViewAuto && managed.DNSView != DNSViewGateway && managed.DNSView != DNSViewResolver {
+			return fmt.Errorf("device %q dns_view must be %q, %q, or %q", managed.ID, DNSViewAuto, DNSViewGateway, DNSViewResolver)
+		}
+		if EffectiveGatewayTarget(managed.GatewayTarget) == GatewayTargetUpstreamRouter && EffectiveDNSView(managed.DNSView) == DNSViewGateway {
+			return fmt.Errorf("device %q cannot use dns_view %q while gateway_target is %q", managed.ID, DNSViewGateway, GatewayTargetUpstreamRouter)
+		}
 		if EffectiveGatewayTarget(managed.GatewayTarget) == GatewayTargetUpstreamRouter && strings.TrimSpace(managed.MAC) == "" {
 			return fmt.Errorf("device %q gateway_target %q requires a MAC address", managed.ID, GatewayTargetUpstreamRouter)
 		}
@@ -468,6 +482,7 @@ func compilePolicySet(set PolicySet, ipOnlyDevicesActive bool, resolution *Polic
 			IPv4:          ip,
 			Profile:       profile.ID,
 			GatewayTarget: EffectiveGatewayTarget(managed.GatewayTarget),
+			DNSView:       EffectiveDNSView(managed.DNSView),
 			EgressMode:    EffectiveEgressMode(managed.EgressMode),
 			Groups:        map[string]string{},
 		}
@@ -579,6 +594,15 @@ func EffectiveGatewayTarget(target string) string {
 		return GatewayTargetOpenSurge
 	}
 	return target
+}
+
+// EffectiveDNSView preserves automatic topology-aware classification unless an
+// operator explicitly pins a device to one of the two DNS planes.
+func EffectiveDNSView(view string) string {
+	if view == "" {
+		return DNSViewAuto
+	}
+	return view
 }
 
 func UsesUpstreamRouter(set PolicySet) bool {

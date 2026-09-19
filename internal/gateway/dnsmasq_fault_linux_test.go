@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -29,13 +28,9 @@ func TestDNSMasqCrashRecoveryLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := exec.LookPath("dig"); err != nil {
-		t.Fatal(err)
-	}
-
 	root := t.TempDir()
 	cfg := config.Default()
-	cfg.Gateway.Mode = config.GatewayModeSameLAN
+	cfg.Gateway.Mode = config.GatewayModeSameWiFiDHCP
 	cfg.Gateway.Interface = "os-gw-lan"
 	cfg.Gateway.UpstreamInterface = "os-gw-lan"
 	cfg.Gateway.LANIP = "10.77.1.1"
@@ -43,7 +38,9 @@ func TestDNSMasqCrashRecoveryLinux(t *testing.T) {
 	cfg.Gateway.LANCIDR = "10.77.1.0/24"
 	cfg.Gateway.UpstreamGateway = "10.77.1.254"
 	cfg.DHCP.Binary = dnsmasqBinary
-	cfg.DHCP.Enabled = false
+	cfg.DHCP.Enabled = true
+	cfg.DHCP.RangeStart = "10.77.1.100"
+	cfg.DHCP.RangeEnd = "10.77.1.200"
 	cfg.DNS.Listen = "10.77.1.1"
 	cfg.DNS.Port = 53
 	cfg.Transparent.Mode = config.TransparentModeTUN
@@ -123,13 +120,7 @@ func TestDNSMasqCrashRecoveryLinux(t *testing.T) {
 		t.Fatalf("replacement ownership match=%v err=%v", matches, err)
 	}
 
-	queryCtx, queryCancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer queryCancel()
-	out, err := exec.CommandContext(queryCtx, "dig", "+short", "@10.77.1.1", "localhost", "A").CombinedOutput()
-	if err != nil {
-		t.Fatalf("dns query after recovery failed: %v: %s", err, out)
-	}
-	if !strings.Contains(string(out), "127.0.0.1") {
-		t.Fatalf("unexpected localhost answer after recovery: %q", out)
-	}
+	// dnsmasq is DHCP-only in the dual-view architecture. Process identity and
+	// replacement ownership are the fault-injection contract; LAN :53 belongs to
+	// SmartDNS and is covered by its own renderer/lifecycle tests.
 }

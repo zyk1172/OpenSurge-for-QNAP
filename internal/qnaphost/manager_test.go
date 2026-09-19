@@ -72,6 +72,22 @@ func TestIntentPersistsOptInAndDefaultCoexistencePolicy(t *testing.T) {
 	}
 }
 
+
+func TestNASDNSModesMapToDedicatedGatewayPath(t *testing.T) {
+	for _, test := range []struct {
+		mode string
+		want bool
+	}{
+		{mode: DNSModeAuto, want: true},
+		{mode: DNSModeOpenSurge, want: true},
+		{mode: DNSModeHost, want: false},
+	} {
+		if got := usesOpenSurgeDNS(test.mode); got != test.want {
+			t.Fatalf("usesOpenSurgeDNS(%q) = %t, want %t", test.mode, got, test.want)
+		}
+	}
+}
+
 func TestReadStateMigratesV2ToTailscaleSafeDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), stateFileName)
 	payload := `{"schema_version":2,"enabled":true,"host_priorities":{"dns_udp":19996,"dns_tcp":19997,"main":19998,"proxy":19999}}`

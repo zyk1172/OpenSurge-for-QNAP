@@ -24,9 +24,7 @@ func TestRenderConfig(t *testing.T) {
 		"interface=en0",
 		"dhcp-range=192.168.50.100,192.168.50.200,255.255.255.0,12h",
 		"dhcp-option=option:router,192.168.50.1",
-		"port=53",
-		"no-resolv",
-		"server=127.0.0.1#1053",
+		"port=5353",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered config missing %q:\n%s", want, rendered)
@@ -34,15 +32,20 @@ func TestRenderConfig(t *testing.T) {
 	}
 }
 
-func TestRenderConfigMigratesEmptyDNSUpstreamToMihomo(t *testing.T) {
+func TestRenderConfigOwnsOnlyLoopbackLocalDNS(t *testing.T) {
 	cfg := config.Default()
-	cfg.DNS.Upstream = ""
+	cfg.DNS.Upstream = "1.1.1.1"
 	rendered, err := RenderConfig(cfg, runtime.NewPaths(cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rendered, "server="+config.MihomoDNSUpstream) {
-		t.Fatalf("rendered config does not use mihomo DNS fallback:\n%s", rendered)
+	for _, want := range []string{"port=5353", "listen-address=127.0.0.1", "no-resolv", "local=/lan/"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("local-only dnsmasq config missing %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "server=") || strings.Contains(rendered, "1.1.1.1") {
+		t.Fatalf("public DNS forwarding leaked into local dnsmasq:\n%s", rendered)
 	}
 }
 
@@ -113,22 +116,15 @@ func TestRenderConfigWithPerDeviceRouterBypass(t *testing.T) {
 	}
 }
 
-func TestRenderConfigWithDNSUpstream(t *testing.T) {
+func TestRenderConfigIgnoresLegacyDNSUpstream(t *testing.T) {
 	cfg := config.Default()
 	cfg.DNS.Upstream = "1.1.1.1"
-	paths := runtime.NewPaths(cfg)
-	rendered, err := RenderConfig(cfg, paths)
+	rendered, err := RenderConfig(cfg, runtime.NewPaths(cfg))
 	if err != nil {
 		t.Fatalf("RenderConfig() error = %v", err)
 	}
-
-	for _, want := range []string{
-		"no-resolv",
-		"server=1.1.1.1",
-	} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("rendered config missing %q:\n%s", want, rendered)
-		}
+	if strings.Contains(rendered, "1.1.1.1") || strings.Contains(rendered, "server=") {
+		t.Fatalf("legacy DNS upstream leaked into local-only dnsmasq:\n%s", rendered)
 	}
 }
 
@@ -145,9 +141,10 @@ func TestRenderConfigSameLANDNSOnly(t *testing.T) {
 
 	for _, want := range []string{
 		"interface=en0",
-		"port=53",
-		"listen-address=192.168.50.1",
-		"server=127.0.0.1#1053",
+		"port=5353",
+		"listen-address=127.0.0.1",
+		"no-resolv",
+		"local=/lan/",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered config missing %q:\n%s", want, rendered)
@@ -216,7 +213,7 @@ func TestRenderConfigSameWiFiDHCP(t *testing.T) {
 		"dhcp-option=option:router,192.168.1.20",
 		"dhcp-option=option:dns-server,192.168.1.20",
 		"log-dhcp",
-		"server=127.0.0.1#1053",
+		"port=5353",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered config missing %q:\n%s", want, rendered)
@@ -237,7 +234,6 @@ func TestRenderConfigWithDownstreamIPv6RAAndRDNSS(t *testing.T) {
 		"dhcp-range=fdfe:dcba:9878::,ra-stateless,64,12h",
 		"dhcp-option=option6:dns-server,[fe80::]",
 		"ra-param=en0,20,60",
-		"listen-address=fdfe:dcba:9878::1",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered IPv6 dnsmasq config missing %q:\n%s", want, rendered)
@@ -266,8 +262,8 @@ func TestRenderConfigSameLANIPv6ListensWithoutAdvertisingRA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rendered, "listen-address="+config.DownstreamIPv6Gateway) {
-		t.Fatalf("same-LAN IPv6 DNS listener missing:\n%s", rendered)
+	if !strings.Contains(rendered, "port=5353") || !strings.Contains(rendered, "listen-address=127.0.0.1") {
+		t.Fatalf("same-LAN DHCP-disabled config did not keep loopback local DNS:\n%s", rendered)
 	}
 	for _, forbidden := range []string{"enable-ra", "ra-stateless", "option6:dns-server", "ra-param="} {
 		if strings.Contains(rendered, forbidden) {

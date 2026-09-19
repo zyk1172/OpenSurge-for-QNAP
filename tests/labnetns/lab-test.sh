@@ -4,13 +4,34 @@ set -euo pipefail
 CLIENT_NS="opensurge-lab-client"
 GATEWAY_NS="opensurge-lab-gateway"
 UPSTREAM_NS="opensurge-lab-upstream"
+DNS_GATEWAY_CLIENT_NS="opensurge-lab-dns-gateway-client"
+DNS_RESOLVER_CLIENT_NS="opensurge-lab-dns-resolver-client"
 TEST_BIN="${OPEN_SURGE_LAB_TEST_BIN:-/tmp/opensurge-linux-network.test}"
 GATEWAY_TEST_BIN="${OPEN_SURGE_GATEWAY_TEST_BIN:-/tmp/opensurge-gateway.test}"
+SMARTDNS_TEST_BIN="${OPEN_SURGE_SMARTDNS_TEST_BIN:-/tmp/opensurge-smartdns.test}"
 
 log() { printf '[labnetns] %s\n' "$*"; }
 
+stop_root_pidfile() {
+  local pidfile="$1"
+  local pid=""
+  if sudo test -s "$pidfile"; then
+    pid="$(sudo cat "$pidfile" 2>/dev/null || true)"
+    if [[ "$pid" =~ ^[0-9]+$ ]]; then
+      sudo kill "$pid" 2>/dev/null || true
+    fi
+  fi
+  sudo rm -f "$pidfile" 2>/dev/null || true
+}
+
 cleanup() {
   set +e
+  for pidfile in /tmp/opensurge-lab-smartdns.pid /tmp/opensurge-lab-fake-dns.pid /tmp/opensurge-lab-real-dns.pid /tmp/opensurge-lab-host-dns.pid; do
+    stop_root_pidfile "$pidfile"
+  done
+  rm -f /tmp/opensurge-lab-smartdns.conf /tmp/opensurge-lab-smartdns.log
+  sudo ip netns del "$DNS_GATEWAY_CLIENT_NS" 2>/dev/null
+  sudo ip netns del "$DNS_RESOLVER_CLIENT_NS" 2>/dev/null
   sudo ip netns del "$CLIENT_NS" 2>/dev/null
   sudo ip netns del "$GATEWAY_NS" 2>/dev/null
   sudo ip netns del "$UPSTREAM_NS" 2>/dev/null
@@ -21,7 +42,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 cleanup
 
-for tool in ip nft ping dnsmasq dig; do
+for tool in ip nft ping dnsmasq dig smartdns; do
   command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
 done
 
@@ -38,6 +59,13 @@ if [[ ! -x "$GATEWAY_TEST_BIN" ]]; then
   log "building gateway fault-injection test binary"
   go test -c -o "$GATEWAY_TEST_BIN" ./internal/gateway
 fi
+if [[ ! -x "$SMARTDNS_TEST_BIN" ]]; then
+  log "building SmartDNS integration test binary"
+  go test -c -o "$SMARTDNS_TEST_BIN" ./internal/smartdns
+fi
+
+log "validating project-generated SmartDNS config with the pinned runtime"
+OPEN_SURGE_SMARTDNS_INTEGRATION_TESTS=1 "$SMARTDNS_TEST_BIN" -test.v -test.run '^TestRenderedConfigLoadsInPinnedSmartDNS$'
 
 log "creating isolated client -> gateway -> upstream topology"
 sudo ip netns add "$CLIENT_NS"
@@ -109,6 +137,91 @@ sudo ip -n "$GATEWAY_NS" rule del pref 20242 iif os-gw-lan prohibit 2>/dev/null 
 sudo ip netns exec "$GATEWAY_NS" ip route flush table 20241 2>/dev/null || true
 sudo ip netns exec "$CLIENT_NS" ping -c 2 -W 2 203.0.113.1 >/dev/null
 
+log "proving SmartDNS Gateway/Resolver views with two real client namespaces"
+sudo ip netns add "$DNS_GATEWAY_CLIENT_NS"
+sudo ip netns add "$DNS_RESOLVER_CLIENT_NS"
+sudo ip -n "$DNS_GATEWAY_CLIENT_NS" link set lo up
+sudo ip -n "$DNS_RESOLVER_CLIENT_NS" link set lo up
+
+sudo ip link add odgwc type veth peer name odgwp
+sudo ip link set odgwc netns "$DNS_GATEWAY_CLIENT_NS"
+sudo ip link set odgwp netns "$GATEWAY_NS"
+sudo ip link add odrsc type veth peer name odrsp
+sudo ip link set odrsc netns "$DNS_RESOLVER_CLIENT_NS"
+sudo ip link set odrsp netns "$GATEWAY_NS"
+
+sudo ip -n "$GATEWAY_NS" link add odbr type bridge
+sudo ip -n "$GATEWAY_NS" link set odgwp master odbr
+sudo ip -n "$GATEWAY_NS" link set odrsp master odbr
+sudo ip -n "$GATEWAY_NS" addr add 10.88.0.1/24 dev odbr
+sudo ip -n "$GATEWAY_NS" link set odbr up
+sudo ip -n "$GATEWAY_NS" link set odgwp up
+sudo ip -n "$GATEWAY_NS" link set odrsp up
+
+sudo ip -n "$DNS_GATEWAY_CLIENT_NS" addr add 10.88.0.2/24 dev odgwc
+sudo ip -n "$DNS_GATEWAY_CLIENT_NS" link set odgwc up
+sudo ip -n "$DNS_GATEWAY_CLIENT_NS" route add default via 10.88.0.1
+sudo ip -n "$DNS_RESOLVER_CLIENT_NS" addr add 10.88.0.3/24 dev odrsc
+sudo ip -n "$DNS_RESOLVER_CLIENT_NS" link set odrsc up
+sudo ip -n "$DNS_RESOLVER_CLIENT_NS" route add default via 10.88.0.1
+
+sudo rm -f /tmp/opensurge-lab-fake-dns.pid /tmp/opensurge-lab-real-dns.pid /tmp/opensurge-lab-smartdns.pid
+sudo ip netns exec "$GATEWAY_NS" dnsmasq --conf-file=/dev/null --no-resolv --no-hosts --bind-interfaces --listen-address=127.0.0.1 --port=61053 --address=/resolver-first.opensurge.test/198.18.0.10 --address=/gateway-first.opensurge.test/198.18.0.10 --pid-file=/tmp/opensurge-lab-fake-dns.pid
+sudo ip netns exec "$GATEWAY_NS" dnsmasq --conf-file=/dev/null --no-resolv --no-hosts --bind-interfaces --listen-address=127.0.0.1 --port=62053 --address=/resolver-first.opensurge.test/203.0.113.55 --address=/gateway-first.opensurge.test/203.0.113.55 --pid-file=/tmp/opensurge-lab-real-dns.pid
+
+cat >/tmp/opensurge-lab-smartdns.conf <<'EOF'
+server-name opensurge-lab
+log-level info
+cache-size 128
+group-begin opensurge-gateway -inherit none
+speed-check-mode none
+dualstack-ip-selection no
+serve-expired no
+group-end
+group-begin opensurge-resolver -inherit none
+speed-check-mode none
+dualstack-ip-selection no
+group-end
+bind 10.88.0.1:53 -group opensurge-resolver -force-aaaa-soa
+bind-tcp 10.88.0.1:53 -group opensurge-resolver -force-aaaa-soa
+server 127.0.0.1:61053 -group opensurge-gateway -exclude-default-group
+server 127.0.0.1:62053 -group opensurge-resolver -exclude-default-group
+client-rules 10.88.0.2/32 -group opensurge-gateway -no-speed-check -no-cache -no-dualstack-selection -force-aaaa-soa -no-serve-expired
+client-rules 10.88.0.3/32 -group opensurge-resolver -force-aaaa-soa
+EOF
+sudo ip netns exec "$GATEWAY_NS" smartdns -c /tmp/opensurge-lab-smartdns.conf -p /tmp/opensurge-lab-smartdns.pid
+for _ in $(seq 1 20); do
+  sudo test -s /tmp/opensurge-lab-smartdns.pid && break
+  sleep 0.1
+done
+if ! sudo test -s /tmp/opensurge-lab-smartdns.pid; then
+  echo "SmartDNS lab frontend did not create a pid file" >&2
+  exit 1
+fi
+
+resolver_first="$(sudo ip netns exec "$DNS_RESOLVER_CLIENT_NS" dig @10.88.0.1 resolver-first.opensurge.test A +short +time=2 +tries=1)"
+gateway_after_resolver="$(sudo ip netns exec "$DNS_GATEWAY_CLIENT_NS" dig @10.88.0.1 resolver-first.opensurge.test A +short +time=2 +tries=1)"
+test "$resolver_first" = "203.0.113.55"
+test "$gateway_after_resolver" = "198.18.0.10"
+
+gateway_first="$(sudo ip netns exec "$DNS_GATEWAY_CLIENT_NS" dig @10.88.0.1 gateway-first.opensurge.test A +short +time=2 +tries=1)"
+resolver_after_gateway="$(sudo ip netns exec "$DNS_RESOLVER_CLIENT_NS" dig @10.88.0.1 gateway-first.opensurge.test A +short +time=2 +tries=1)"
+test "$gateway_first" = "198.18.0.10"
+test "$resolver_after_gateway" = "203.0.113.55"
+
+gateway_tcp="$(sudo ip netns exec "$DNS_GATEWAY_CLIENT_NS" dig @10.88.0.1 gateway-first.opensurge.test A +tcp +short +time=2 +tries=1)"
+resolver_tcp="$(sudo ip netns exec "$DNS_RESOLVER_CLIENT_NS" dig @10.88.0.1 resolver-first.opensurge.test A +tcp +short +time=2 +tries=1)"
+test "$gateway_tcp" = "198.18.0.10"
+test "$resolver_tcp" = "203.0.113.55"
+
+stop_root_pidfile /tmp/opensurge-lab-smartdns.pid
+stop_root_pidfile /tmp/opensurge-lab-fake-dns.pid
+stop_root_pidfile /tmp/opensurge-lab-real-dns.pid
+rm -f /tmp/opensurge-lab-smartdns.conf /tmp/opensurge-lab-smartdns.log
+sudo ip netns del "$DNS_GATEWAY_CLIENT_NS"
+sudo ip netns del "$DNS_RESOLVER_CLIENT_NS"
+sudo ip -n "$GATEWAY_NS" link del odbr
+
 log "proving NAS-host DNS takeover with L4 policy routing and no firewall NAT"
 # CLIENT_NS models the QNAP host. GATEWAY_NS models the QNET OpenSurge
 # namespace. A dedicated veth path models tun0 and terminates at a DNS server
@@ -154,7 +267,7 @@ fi
 # an explicit loopback iif. Real local sockets are exactly what `iif lo` rules
 # are intended to select.
 DNSMASQ_PIDFILE=/tmp/opensurge-lab-host-dns.pid
-rm -f "$DNSMASQ_PIDFILE"
+sudo rm -f "$DNSMASQ_PIDFILE"
 sudo ip netns exec "$UPSTREAM_NS" dnsmasq \
   --conf-file=/dev/null \
   --no-resolv \
@@ -177,10 +290,7 @@ grep -q 'dev os-client' <<<"$host_lan_route"
 
 # Exact teardown mirrors product ownership: dedicated priorities plus route
 # protocol only. No global rule/route flush and no nftables mutation.
-if [[ -s "$DNSMASQ_PIDFILE" ]]; then
-  sudo kill "$(cat "$DNSMASQ_PIDFILE")" 2>/dev/null || true
-fi
-rm -f "$DNSMASQ_PIDFILE"
+stop_root_pidfile "$DNSMASQ_PIDFILE"
 sudo ip -n "$CLIENT_NS" rule del pref 24090 iif lo ipproto udp dport 53 table 20242
 sudo ip -n "$CLIENT_NS" rule del pref 24091 iif lo ipproto tcp dport 53 table 20242
 sudo ip -n "$CLIENT_NS" rule del pref 24110 iif lo table 20242

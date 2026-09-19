@@ -401,6 +401,50 @@ describe('DevicesPage', () => {
     expect(vi.mocked(api.saveDevicePolicy).mock.calls[0][0].devices[0]).toEqual(expect.objectContaining({ id: 'pixel-living-room', name: 'Pixel Living Room', egress_mode: 'dedicated' }))
   })
 
+  it('persists the advanced Resolver DNS view for a registered device', async () => {
+    renderPage()
+
+    await userEvent.click(await screen.findByText('高级：DNS 视图'))
+    const dnsView = screen.getByLabelText('DNS 视图') as HTMLSelectElement
+    expect(dnsView.value).toBe('auto')
+    await userEvent.selectOptions(dnsView, 'resolver')
+    expect(screen.getByText(/纯 DNS 模式只使用真实 DNS 解析/)).toBeTruthy()
+
+    await userEvent.type(screen.getByLabelText('设备名称'), 'DNS Only Tablet')
+    await userEvent.type(screen.getByLabelText('设备 MAC'), 'aa:bb:cc:dd:ee:77')
+    await userEvent.type(screen.getByLabelText('固定 IPv4'), '192.168.1.177')
+    await userEvent.click(screen.getByRole('button', { name: '登记或更新设备' }))
+    await userEvent.click(screen.getByRole('button', { name: '保存设备配置' }))
+
+    await waitFor(() => expect(api.saveDevicePolicy).toHaveBeenCalled())
+    expect(vi.mocked(api.saveDevicePolicy).mock.calls[0][0].devices[0]).toEqual(expect.objectContaining({
+      id: 'dns-only-tablet',
+      dns_view: 'resolver',
+    }))
+  })
+
+  it('allows router bypass with OpenSurge Resolver DNS when no bypass DNS is configured', async () => {
+    vi.mocked(api.config).mockResolvedValue({
+      gateway: { mode: 'same_wifi_dhcp' },
+      dhcp: { bypass_gateway: '192.168.1.1', bypass_dns: [] },
+      device_policy: { enabled: true },
+    } as never)
+    renderPage({ ...overview, topology: 'same_wifi_dhcp' } as unknown as Overview)
+
+    const routerBypass = await screen.findByRole('radio', { name: /直连主路由/ })
+    expect((routerBypass as HTMLInputElement).disabled).toBe(false)
+    expect(screen.getByText(/DNS 继续使用 OpenSurge，并自动切到真实 IP 的 Resolver View/)).toBeTruthy()
+
+    await userEvent.click(screen.getByText('高级：DNS 视图'))
+    const dnsView = screen.getByLabelText('DNS 视图') as HTMLSelectElement
+    await userEvent.selectOptions(dnsView, 'gateway')
+    expect(dnsView.value).toBe('gateway')
+    await userEvent.click(routerBypass)
+    expect(dnsView.value).toBe('auto')
+    const gatewayOption = within(dnsView).getByRole('option', { name: '网关模式（Fake-IP）' }) as HTMLOptionElement
+    expect(gatewayOption.disabled).toBe(true)
+  })
+
   it('removes a device with its private profile and keeps the other devices intact', async () => {
     const policy: PolicySet = {
       ...basePolicy,

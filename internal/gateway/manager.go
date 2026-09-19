@@ -18,6 +18,7 @@ import (
 	"open-mihomo-gateway/internal/platform/factory"
 	"open-mihomo-gateway/internal/process"
 	"open-mihomo-gateway/internal/runtime"
+	"open-mihomo-gateway/internal/smartdns"
 )
 
 // Manager owns the gateway lifecycle: start, stop, reload and rollback.
@@ -49,6 +50,16 @@ type mihomoService interface {
 	Running(int) bool
 }
 
+type smartDNSService interface {
+	Check() error
+	WriteConfig() error
+	ValidateWrittenConfig() error
+	ValidateWrittenConfigContext(context.Context) error
+	Start() (int, error)
+	Stop(int) error
+	Running(int) bool
+}
+
 type gatewayDeps struct {
 	geteuid            func() int
 	loadState          func(string) (runtime.State, bool, error)
@@ -57,6 +68,7 @@ type gatewayDeps struct {
 	ensure             func(runtime.Paths) error
 	newDHCP            func(config.Config, runtime.Paths) dhcpService
 	newMihomo          func(config.Config, runtime.Paths) mihomoService
+	newSmartDNS        func(config.Config, runtime.Paths) smartDNSService
 	newBackend         func() (platform.NetworkBackend, error)
 	interfaces         func() ([]net.Interface, error)
 	interfaceByName    func(string) (*net.Interface, error)
@@ -82,6 +94,9 @@ func defaultGatewayDeps() gatewayDeps {
 		},
 		newMihomo: func(cfg config.Config, paths runtime.Paths) mihomoService {
 			return mihomo.New(cfg, paths)
+		},
+		newSmartDNS: func(cfg config.Config, paths runtime.Paths) smartDNSService {
+			return smartdns.New(cfg, paths)
 		},
 		newBackend: func() (platform.NetworkBackend, error) {
 			return factory.New()
@@ -114,6 +129,31 @@ func (m Manager) backend() (platform.NetworkBackend, error) {
 		return factory.New()
 	}
 	return deps.newBackend()
+}
+
+type noopSmartDNSService struct{}
+
+func (noopSmartDNSService) Check() error                                   { return nil }
+func (noopSmartDNSService) WriteConfig() error                             { return nil }
+func (noopSmartDNSService) ValidateWrittenConfig() error                   { return nil }
+func (noopSmartDNSService) ValidateWrittenConfigContext(context.Context) error { return nil }
+func (noopSmartDNSService) Start() (int, error)                            { return 0, nil }
+func (noopSmartDNSService) Stop(int) error                                  { return nil }
+func (noopSmartDNSService) Running(int) bool                                { return true }
+
+func newSmartDNSService(deps gatewayDeps, cfg config.Config, paths runtime.Paths) smartDNSService {
+	if deps.newSmartDNS != nil {
+		return deps.newSmartDNS(cfg, paths)
+	}
+	// Manager.New always carries the production SmartDNS constructor. A nil
+	// constructor exists only on focused unit-test dependency seams that predate
+	// the DNS frontend; keep those seams deterministic instead of reaching into
+	// the host PATH for a real SmartDNS binary.
+	if deps.geteuid != nil {
+		return noopSmartDNSService{}
+	}
+	manager := smartdns.New(cfg, paths)
+	return manager
 }
 
 func currentBoot(deps gatewayDeps) (runtime.BootSession, error) {
@@ -231,7 +271,11 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 
 	dhcpManager := deps.newDHCP(m.cfg, m.paths)
 	mihomoManager := deps.newMihomo(m.cfg, m.paths)
+	smartDNSManager := newSmartDNSService(deps, m.cfg, m.paths)
 	if err := m.preflight(ctx, backend, dhcpManager, mihomoManager, deps); err != nil {
+		return err
+	}
+	if err := smartDNSManager.Check(); err != nil {
 		return err
 	}
 	ReportProgress(ctx, "checking_reservations")
@@ -245,8 +289,14 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 	if err := dhcpManager.WriteConfig(); err != nil {
 		return err
 	}
+	if err := smartDNSManager.WriteConfig(); err != nil {
+		return err
+	}
 	ReportProgress(ctx, "validating_config")
 	if err := mihomoManager.ValidateWrittenConfigContext(ctx); err != nil {
+		return err
+	}
+	if err := smartDNSManager.ValidateWrittenConfigContext(ctx); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
@@ -321,6 +371,7 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 		BootSessionID:   bootSession.ID,
 		ProfileDigest:   profileDigest,
 		DNSIPv6:         m.cfg.DNS.IPv6,
+		DNSFrontend:     "smartdns",
 		NetworkSnapshot: snapshot,
 	}
 	if bundle := m.cfg.DevicePolicy.Bundle; bundle != nil {
@@ -333,24 +384,24 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 
 	ReportProgress(ctx, "enabling_forwarding")
 	if err := ctx.Err(); err != nil {
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
 	if _, err := backend.EnableIPv4Forwarding(ctx); err != nil {
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
 	state.ForwardingApplied = true
 	state.NetworkSnapshot.Applied.IPv4Forwarding = true
 	if err := deps.saveState(m.paths.StateFile, state); err != nil {
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
 
 	ReportProgress(ctx, "starting_mihomo")
 	if err := ctx.Err(); err != nil {
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
 	mihomoPID, err := mihomoManager.Start()
 	if err != nil {
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
 	state.PIDMihomo = mihomoPID
 	state.MihomoProcessFingerprint, err = processFingerprint(deps, mihomoPID)
@@ -358,16 +409,16 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 		if err == nil {
 			err = fmt.Errorf("mihomo pid %d disappeared before its identity could be recorded", mihomoPID)
 		}
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
 	if err := deps.saveState(m.paths.StateFile, state); err != nil {
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
 
 	ReportProgress(ctx, "starting_dns")
 	pid, err := dhcpManager.Start()
 	if err != nil {
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
 	state.PIDDNSMasq = pid
 	state.DNSMasqProcessFingerprint, err = processFingerprint(deps, pid)
@@ -375,16 +426,16 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 		if err == nil {
 			err = fmt.Errorf("dnsmasq pid %d disappeared before its identity could be recorded", pid)
 		}
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
 	if err := deps.saveState(m.paths.StateFile, state); err != nil {
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
 
 	ReportProgress(ctx, "waiting_for_tun")
 	tunDevice, err := backend.WaitForTUN(ctx, m.cfg.Transparent.TUNDevice)
 	if err != nil {
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
 	state.TUNDevice = tunDevice.Name
 	routingConfig.TUNDevice = tunDevice.Name
@@ -394,32 +445,52 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 	}
 	state.NetworkSnapshot.Routing = &routingConfig
 	if err := deps.saveState(m.paths.StateFile, state); err != nil {
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
 
 	if !useIngressRouting {
 		ReportProgress(ctx, "applying_firewall")
 		if err := backend.SetupNAT(ctx, natConfig); err != nil {
-			return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+			return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 		}
 		state.NATApplied = true
 		state.NetworkSnapshot.Applied.NAT = true
 		if err := deps.saveState(m.paths.StateFile, state); err != nil {
-			return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+			return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 		}
 	}
 
 	ReportProgress(ctx, "applying_routes")
 	if err := backend.SetupPolicyRouting(ctx, routingConfig); err != nil {
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
 	if err := verifyPolicyRouting(ctx, backend, routingConfig); err != nil {
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
 	state.RoutingApplied = true
 	state.NetworkSnapshot.Applied.PolicyRouting = true
 	if err := deps.saveState(m.paths.StateFile, state); err != nil {
-		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager)
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
+	}
+
+	// Expose LAN :53 only after Mihomo, optional DHCP, TUN and policy routing are
+	// all ready. This prevents clients from receiving a DNS answer while the
+	// corresponding data plane is still incomplete.
+	ReportProgress(ctx, "starting_dns_frontend")
+	smartPID, err := smartDNSManager.Start()
+	if err != nil {
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
+	}
+	state.PIDSmartDNS = smartPID
+	state.SmartDNSProcessFingerprint, err = processFingerprint(deps, smartPID)
+	if err != nil || (smartPID > 0 && state.SmartDNSProcessFingerprint == "") {
+		if err == nil {
+			err = fmt.Errorf("smartdns pid %d disappeared before its identity could be recorded", smartPID)
+		}
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
+	}
+	if err := deps.saveState(m.paths.StateFile, state); err != nil {
+		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
 
 	fmt.Printf("Gateway runtime prepared in %s\n", m.paths.Dir)
@@ -427,7 +498,10 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 		fmt.Printf("mihomo started with pid %d\n", mihomoPID)
 	}
 	if pid > 0 {
-		fmt.Printf("dnsmasq started with pid %d\n", pid)
+		fmt.Printf("dnsmasq DHCP started with pid %d\n", pid)
+	}
+	if smartPID > 0 {
+		fmt.Printf("SmartDNS started with pid %d\n", smartPID)
 	}
 	m.warmManagedTailscale(ctx, deps)
 	if useIngressRouting {
@@ -520,9 +594,12 @@ func (m Manager) reload(ctx context.Context) error {
 	}
 	dhcpManager := deps.newDHCP(m.cfg, m.paths)
 	mihomoManager := deps.newMihomo(m.cfg, m.paths)
-	if !trackedProcessRunning(deps, state.PIDDNSMasq, state.DNSMasqProcessFingerprint, dhcpManager.Running) ||
+	smartDNSManager := newSmartDNSService(deps, m.cfg, m.paths)
+	dhcpReady := !m.cfg.DHCP.Enabled || trackedProcessRunning(deps, state.PIDDNSMasq, state.DNSMasqProcessFingerprint, dhcpManager.Running)
+	if !dhcpReady ||
+		!trackedProcessRunning(deps, state.PIDSmartDNS, state.SmartDNSProcessFingerprint, smartDNSManager.Running) ||
 		!trackedProcessRunning(deps, state.PIDMihomo, state.MihomoProcessFingerprint, mihomoManager.Running) {
-		return fmt.Errorf("gateway is degraded; reload requires both DNS and mihomo to be running")
+		return fmt.Errorf("gateway is degraded; reload requires SmartDNS, mihomo, and enabled DHCP to be running")
 	}
 	if err := m.validateReloadCandidate(ctx); err != nil {
 		return fmt.Errorf("reload candidate validation failed: %w", err)
@@ -717,7 +794,11 @@ func (m Manager) validateReloadCandidate(ctx context.Context) error {
 	}
 	dhcpManager := deps.newDHCP(candidate.cfg, candidate.paths)
 	mihomoManager := deps.newMihomo(candidate.cfg, candidate.paths)
+	smartDNSManager := newSmartDNSService(deps, candidate.cfg, candidate.paths)
 	if err := candidate.preflightWithOwnership(ctx, backend, dhcpManager, mihomoManager, deps, false); err != nil {
+		return err
+	}
+	if err := smartDNSManager.Check(); err != nil {
 		return err
 	}
 	ReportProgress(ctx, "checking_reservations")
@@ -731,8 +812,14 @@ func (m Manager) validateReloadCandidate(ctx context.Context) error {
 	if err := dhcpManager.WriteConfig(); err != nil {
 		return err
 	}
+	if err := smartDNSManager.WriteConfig(); err != nil {
+		return err
+	}
 	ReportProgress(ctx, "validating_config")
-	return mihomoManager.ValidateWrittenConfig()
+	if err := mihomoManager.ValidateWrittenConfig(); err != nil {
+		return err
+	}
+	return smartDNSManager.ValidateWrittenConfigContext(ctx)
 }
 
 func (m Manager) Stop(ctx context.Context) error {
@@ -773,6 +860,11 @@ func (m Manager) stop(ctx context.Context) error {
 		if state.NetworkSnapshot == nil && (state.ForwardingApplied || state.NATApplied || state.RoutingApplied) {
 			return fmt.Errorf("runtime state records applied network changes but has no network snapshot; refusing blind cleanup")
 		}
+		// Stop the LAN DNS front door first so no new client can receive an
+		// answer while the network data plane is being dismantled.
+		ReportProgress(ctx, "stopping_dns_frontend")
+		smartDNSManager := newSmartDNSService(deps, m.cfg, m.paths)
+		cleanupErr = errors.Join(cleanupErr, stopTrackedProcess(deps, "smartdns", state.PIDSmartDNS, state.SmartDNSProcessFingerprint, smartDNSManager.Stop))
 		ReportProgress(ctx, "restoring_network")
 		if state.NetworkSnapshot != nil {
 			cleanupErr = errors.Join(cleanupErr, backend.Restore(ctx, state.NetworkSnapshot))
@@ -909,7 +1001,7 @@ func (m Manager) preflightWithOwnership(ctx context.Context, backend platform.Ne
 	return nil
 }
 
-func (m Manager) rollback(ctx context.Context, cause error, state runtime.State, backend platform.NetworkBackend, dhcpManager dhcpService, mihomoManager mihomoService) error {
+func (m Manager) rollback(ctx context.Context, cause error, state runtime.State, backend platform.NetworkBackend, dhcpManager dhcpService, mihomoManager mihomoService, smartDNSManager smartDNSService) error {
 	if ctx.Err() != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
@@ -918,6 +1010,7 @@ func (m Manager) rollback(ctx context.Context, cause error, state runtime.State,
 	ReportProgress(ctx, "rolling_back")
 	deps := m.gatewayDeps()
 	var cleanupErr error
+	cleanupErr = errors.Join(cleanupErr, stopTrackedProcess(deps, "smartdns", state.PIDSmartDNS, state.SmartDNSProcessFingerprint, smartDNSManager.Stop))
 	if state.NetworkSnapshot != nil {
 		cleanupErr = errors.Join(cleanupErr, backend.Restore(ctx, state.NetworkSnapshot))
 	}
