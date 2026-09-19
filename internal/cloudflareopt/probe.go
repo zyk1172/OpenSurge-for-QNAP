@@ -531,70 +531,96 @@ func hasExplicitCloudflareEdgeIPError(header http.Header, bodyPreview []byte) bo
 func probeDownload(ctx context.Context, ip string, options ScanOptions) float64 {
 	settings := options.Settings
 	window := time.Duration(settings.DownloadSeconds) * time.Second
+	headerTimeout := time.Duration(settings.HTTPTimeoutMS) * time.Millisecond
 	if deadline, ok := ctx.Deadline(); ok {
 		remaining := time.Until(deadline)
-		// Do not report a biased partial sample when the whole optimization
-		// budget is already too close to expiry.
 		if remaining <= window+250*time.Millisecond {
 			return 0
 		}
 	}
 
-	headerTimeout := time.Duration(settings.HTTPTimeoutMS) * time.Millisecond
 	dialer := directDialer(options.Interface, options.SourceIPv4, headerTimeout)
 	transport := &http.Transport{
-		Proxy:                  nil,
-		ForceAttemptHTTP2:      true,
-		TLSHandshakeTimeout:    headerTimeout,
-		ResponseHeaderTimeout:  headerTimeout,
-		TLSClientConfig:        &tls.Config{MinVersion: tls.VersionTLS12, ServerName: "speed.cloudflare.com"},
+		Proxy:                 nil,
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   headerTimeout,
+		ResponseHeaderTimeout: headerTimeout,
+		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12, ServerName: "speed.cloudflare.com"},
 		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
 			return dialer.DialContext(ctx, "tcp4", net.JoinHostPort(ip, "443"))
 		},
 	}
 	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport}
 
-	requestCtx, cancelRequest := context.WithCancel(ctx)
-	defer cancelRequest()
 	bytesText := strconv.FormatInt(settings.DownloadMaxBytes, 10)
 	testURL := "https://speed.cloudflare.com/__down?bytes=" + url.QueryEscape(bytesText)
-	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, testURL, nil)
-	if err != nil {
-		return 0
-	}
-	request.Header.Set("User-Agent", "OpenSurge-Cloudflare-Optimizer/1")
-	request.Header.Set("Accept-Encoding", "identity")
+	var totalRead int64
+	var activeBody time.Duration
 
-	client := &http.Client{Transport: transport}
-	response, err := client.Do(request)
-	if err != nil {
-		return 0
-	}
-	if response.StatusCode != http.StatusOK {
+	for activeBody < window {
+		if ctx.Err() != nil {
+			return 0
+		}
+		remainingWindow := window - activeBody
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= remainingWindow+250*time.Millisecond {
+			return 0
+		}
+
+		requestCtx, cancelRequest := context.WithCancel(ctx)
+		request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, testURL, nil)
+		if err != nil {
+			cancelRequest()
+			return 0
+		}
+		request.Header.Set("User-Agent", "OpenSurge-Cloudflare-Optimizer/1")
+		request.Header.Set("Accept-Encoding", "identity")
+
+		response, err := client.Do(request)
+		if err != nil {
+			cancelRequest()
+			return 0
+		}
+		if response.StatusCode != http.StatusOK {
+			_ = response.Body.Close()
+			cancelRequest()
+			return 0
+		}
+
+		bodyStarted := time.Now()
+		timer := time.AfterFunc(remainingWindow, cancelRequest)
+		read, _ := io.Copy(io.Discard, response.Body)
+		timer.Stop()
 		_ = response.Body.Close()
-		return 0
+		elapsed := time.Since(bodyStarted)
+		if elapsed > remainingWindow {
+			elapsed = remainingWindow
+		}
+		cancelRequest()
+
+		if ctx.Err() != nil || read <= 0 || elapsed <= 0 {
+			return 0
+		}
+		totalRead += read
+		activeBody += elapsed
+
+		// A full 200 MB response can complete before the requested sample
+		// window on fast links. In that case issue another request on the same
+		// transport/connection and keep accumulating active body time.
+		if read >= settings.DownloadMaxBytes {
+			continue
+		}
+
+		// The final read is expected to be canceled when the measurement window
+		// expires. An earlier short response/error is not a trustworthy sample.
+		if activeBody < window*8/10 {
+			return 0
+		}
+		break
 	}
 
-	// Throughput timing starts only after response headers arrive. TCP setup,
-	// TLS negotiation and TTFB are already measured separately and must not
-	// depress the Mbps score.
-	bodyStarted := time.Now()
-	timer := time.AfterFunc(window, cancelRequest)
-	read, readErr := io.Copy(io.Discard, response.Body)
-	timer.Stop()
-	_ = response.Body.Close()
-	elapsed := time.Since(bodyStarted)
-
-	if ctx.Err() != nil || read <= 0 || elapsed <= 0 {
+	if totalRead <= 0 || activeBody <= 0 {
 		return 0
 	}
-	// A canceled read at the intended sample boundary is expected. A much
-	// earlier short/error response is not a trustworthy throughput sample
-	// unless the requested large stream actually completed.
-	completedStream := read >= settings.DownloadMaxBytes
-	if !completedStream && elapsed < window*8/10 {
-		_ = readErr
-		return 0
-	}
-	return float64(read) * 8 / elapsed.Seconds() / 1_000_000
+	return float64(totalRead) * 8 / activeBody.Seconds() / 1_000_000
 }
