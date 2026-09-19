@@ -62,7 +62,7 @@ const scanPresets: Record<ScanMode, ScanSettings> = {
     http_timeout_ms: 1800,
     download_candidate_count: 3,
     download_seconds: 2,
-    download_max_bytes: 1_000_000_000,
+    download_max_bytes: 200_000_000,
     min_download_mbps: 0,
   },
   standard: {
@@ -77,7 +77,7 @@ const scanPresets: Record<ScanMode, ScanSettings> = {
     http_timeout_ms: 2500,
     download_candidate_count: 8,
     download_seconds: 4,
-    download_max_bytes: 1_000_000_000,
+    download_max_bytes: 200_000_000,
     min_download_mbps: 0,
   },
   full: {
@@ -92,7 +92,7 @@ const scanPresets: Record<ScanMode, ScanSettings> = {
     http_timeout_ms: 3000,
     download_candidate_count: 12,
     download_seconds: 5,
-    download_max_bytes: 1_000_000_000,
+    download_max_bytes: 200_000_000,
     min_download_mbps: 0,
   },
   deep: {
@@ -107,7 +107,7 @@ const scanPresets: Record<ScanMode, ScanSettings> = {
     http_timeout_ms: 4000,
     download_candidate_count: 20,
     download_seconds: 6,
-    download_max_bytes: 1_000_000_000,
+    download_max_bytes: 200_000_000,
     min_download_mbps: 0,
   },
 }
