@@ -34,6 +34,7 @@ const response = {
       download_candidate_count: 8,
       download_seconds: 4,
       download_max_bytes: 8388608,
+      min_download_mbps: 0,
     },
     targets: [{ domain: 'api.example.com', enabled: true, test_path: '/' }],
   },
@@ -92,6 +93,8 @@ describe('CloudflareOptimizerPage', () => {
     expect(screen.getByLabelText('最大丢包')).toBeTruthy()
     expect(screen.getByLabelText('强制重新优选')).toBeTruthy()
     expect(screen.getByLabelText('测速模式')).toBeTruthy()
+    expect(screen.getByLabelText('优选延迟上限')).toBeTruthy()
+    expect(screen.getByLabelText('最低下载速度（Mbps）')).toBeTruthy()
 
     expect(screen.queryByText('测试路径')).toBeNull()
     expect(screen.queryByText('Cron 表达式')).toBeNull()
@@ -143,6 +146,7 @@ describe('CloudflareOptimizerPage', () => {
         download_candidate_count: 12,
         download_seconds: 5,
         download_max_bytes: 12582912,
+        min_download_mbps: 0,
       })
     })
   })
@@ -178,5 +182,25 @@ describe('CloudflareOptimizerPage', () => {
     expect(screen.getByText('Current IP')).toBeTruthy()
     expect(screen.getByText('Healthy')).toBeTruthy()
     await waitFor(() => expect(request).toHaveBeenCalledWith('/api/v1/cloudflare-opt', undefined))
+  })
+})
+
+it('preserves custom quality filters when scan intensity changes', async () => {
+  render(<CloudflareOptimizerPage />)
+  await screen.findByText('完整优选策略')
+
+  await userEvent.selectOptions(screen.getByLabelText('优选延迟上限'), '300')
+  await userEvent.clear(screen.getByLabelText('最低下载速度（Mbps）'))
+  await userEvent.type(screen.getByLabelText('最低下载速度（Mbps）'), '25')
+  await userEvent.selectOptions(screen.getByLabelText('测速模式'), 'deep')
+  await userEvent.click(screen.getByRole('button', { name: '保存设置' }))
+
+  await waitFor(() => {
+    const put = vi.mocked(request).mock.calls.find(([, init]) => init?.method === 'PUT')
+    const payload = JSON.parse(String(put?.[1]?.body))
+    expect(payload.scan.max_latency_ms).toBe(300)
+    expect(payload.scan.min_download_mbps).toBe(25)
+    expect(payload.scan.budget_seconds).toBe(180)
+    expect(payload.scan.candidate_limit).toBe(2048)
   })
 })
