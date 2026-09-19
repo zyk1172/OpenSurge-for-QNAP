@@ -53,6 +53,8 @@ type mihomoService interface {
 type smartDNSService interface {
 	Check() error
 	WriteConfig() error
+	ValidateWrittenConfig() error
+	ValidateWrittenConfigContext(context.Context) error
 	Start() (int, error)
 	Stop(int) error
 	Running(int) bool
@@ -131,11 +133,13 @@ func (m Manager) backend() (platform.NetworkBackend, error) {
 
 type noopSmartDNSService struct{}
 
-func (noopSmartDNSService) Check() error              { return nil }
-func (noopSmartDNSService) WriteConfig() error        { return nil }
-func (noopSmartDNSService) Start() (int, error)       { return 0, nil }
-func (noopSmartDNSService) Stop(int) error             { return nil }
-func (noopSmartDNSService) Running(int) bool           { return true }
+func (noopSmartDNSService) Check() error                                   { return nil }
+func (noopSmartDNSService) WriteConfig() error                             { return nil }
+func (noopSmartDNSService) ValidateWrittenConfig() error                   { return nil }
+func (noopSmartDNSService) ValidateWrittenConfigContext(context.Context) error { return nil }
+func (noopSmartDNSService) Start() (int, error)                            { return 0, nil }
+func (noopSmartDNSService) Stop(int) error                                  { return nil }
+func (noopSmartDNSService) Running(int) bool                                { return true }
 
 func newSmartDNSService(deps gatewayDeps, cfg config.Config, paths runtime.Paths) smartDNSService {
 	if deps.newSmartDNS != nil {
@@ -290,6 +294,9 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 	}
 	ReportProgress(ctx, "validating_config")
 	if err := mihomoManager.ValidateWrittenConfigContext(ctx); err != nil {
+		return err
+	}
+	if err := smartDNSManager.ValidateWrittenConfigContext(ctx); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
@@ -809,7 +816,10 @@ func (m Manager) validateReloadCandidate(ctx context.Context) error {
 		return err
 	}
 	ReportProgress(ctx, "validating_config")
-	return mihomoManager.ValidateWrittenConfig()
+	if err := mihomoManager.ValidateWrittenConfig(); err != nil {
+		return err
+	}
+	return smartDNSManager.ValidateWrittenConfigContext(ctx)
 }
 
 func (m Manager) Stop(ctx context.Context) error {
