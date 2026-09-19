@@ -82,3 +82,18 @@ func TestPopulateNextHealthCheckUsesLastCheckAnchor(t *testing.T) {
 		t.Fatalf("next health check = %v, want %v", state.NextHealthCheckAt, want)
 	}
 }
+
+
+func TestCloudflareOptimizerScanTimeoutReservesDownloadPhase(t *testing.T) {
+	cfg := cloudflareopt.DefaultConfig()
+	cfg.Scan.BudgetSeconds = 75
+	cfg.Scan.HTTPSCandidateCount = 30
+	cfg.Scan.DownloadCandidateCount = 8
+	cfg.Scan.DownloadSeconds = 4
+
+	got := cloudflareOptimizerScanTimeout(cfg)
+	want := (75 + 30*4 + 20) * time.Second
+	if got != want {
+		t.Fatalf("scan timeout = %v, want %v", got, want)
+	}
+}
