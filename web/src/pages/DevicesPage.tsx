@@ -8,7 +8,7 @@ import { CLAUDE_CODE_RULE_SET_NAMES, CLAUDE_CODE_RULE_SETS, CLAUDE_CODE_SOURCE, 
 import type { OperationNotification } from '../components/OperationNotifications'
 import { useProxyHealth } from '../hooks/useProxyHealth'
 import { policyDisplayName, TAILSCALE_EXIT_POLICY } from '../policyDisplay'
-import type { AppliedDeviceEgressMode, CompiledDevice, ControlConfig, DeviceEgressMode, DeviceGatewayTarget, DevicePolicyDocument, DevicesResponse, Lease, ObservedDevice, Overview, PolicyDevice, PolicyProfile, PolicyRule, PolicyRuleSet, PolicySet, PolicyTemplate, ProxyGroup, ProxyHealthEntry } from '../types'
+import type { AppliedDeviceEgressMode, CompiledDevice, ControlConfig, DeviceDNSView, DeviceEgressMode, DeviceGatewayTarget, DevicePolicyDocument, DevicesResponse, Lease, ObservedDevice, Overview, PolicyDevice, PolicyProfile, PolicyRule, PolicyRuleSet, PolicySet, PolicyTemplate, ProxyGroup, ProxyHealthEntry } from '../types'
 import { t } from '../i18n'
 
 const emptyPolicy = (): PolicySet => ({ devices: [], profiles: [], templates: [], rule_sets: [] })
@@ -60,7 +60,7 @@ export function DevicesPage({ overview, onChanged, onNavigate, onDirtyChange, on
     gateway: controlConfig?.dhcp.bypass_gateway.trim() ?? '',
     dns: controlConfig?.dhcp.bypass_dns ?? [],
   }
-  const routerBypassReady = Boolean(routerBypass.gateway && routerBypass.dns.length)
+  const routerBypassReady = Boolean(routerBypass.gateway)
   const appliedByID = new Map((data?.applied_devices ?? []).map(device => [device.id, device]))
   const routerBypassRenewalNames = policy.devices.filter(device => desiredGatewayTarget(device) === 'upstream_router' && appliedGatewayTarget(appliedByID.get(device.id)) !== 'upstream_router').map(displayDeviceName)
   const openSurgeRenewalNames = policy.devices.filter(device => desiredGatewayTarget(device) === 'opensurge' && appliedGatewayTarget(appliedByID.get(device.id)) === 'upstream_router').map(displayDeviceName)
@@ -227,7 +227,7 @@ export function DevicesPage({ overview, onChanged, onNavigate, onDirtyChange, on
     if (!target) return
     setRegistrationSeed(current => ({
       token: (current?.token ?? 0) + 1,
-      draft: { id: target.id, name: displayDeviceName(target), mac: target.mac, ipv4: target.ipv4, profile: target.profile, gateway_target: desiredGatewayTarget(target), egress_mode: target.egress_mode ?? '' },
+      draft: { id: target.id, name: displayDeviceName(target), mac: target.mac, ipv4: target.ipv4, profile: target.profile, gateway_target: desiredGatewayTarget(target), dns_view: target.dns_view ?? 'auto', egress_mode: target.egress_mode ?? '' },
     }))
     setRegistrationOpen(true)
     setSelectedDeviceID(deviceID)
@@ -285,7 +285,7 @@ export function DevicesPage({ overview, onChanged, onNavigate, onDirtyChange, on
               const next = copyPolicy(policy)
               next.devices = next.devices.map(device => {
                 if (device.id !== view.desired!.id) return device
-                if (mode === 'upstream_router') return { ...device, gateway_target: 'upstream_router', egress_mode: device.egress_mode ?? 'inherit_global' }
+                if (mode === 'upstream_router') return { ...device, gateway_target: 'upstream_router', dns_view: device.dns_view === 'gateway' ? 'auto' : device.dns_view, egress_mode: device.egress_mode ?? 'inherit_global' }
                 const { gateway_target: _gatewayTarget, ...rest } = device
                 return { ...rest, egress_mode: mode }
               })
@@ -517,7 +517,7 @@ function deviceIdentity(applied: CompiledDevice, topology: string | undefined, l
     : { state: 'waiting', tone: '', text: t('身份待确认：需要在线且未过期的精确 MAC / IPv4 租约') }
 }
 
-type RegistrationDraft = { id: string; name: string; mac: string; ipv4: string; profile: string; gateway_target: DeviceGatewayTarget; egress_mode: DeviceEgressMode | '' }
+type RegistrationDraft = { id: string; name: string; mac: string; ipv4: string; profile: string; gateway_target: DeviceGatewayTarget; dns_view: DeviceDNSView; egress_mode: DeviceEgressMode | '' }
 type RegistrationCandidate = { ip: string; mac: string; hostname: string; source: 'dhcp' | 'traffic' | 'neighbor'; activeConnections: number; online: boolean }
 
 function registrationCandidates(topology: string | undefined, leases: Lease[], observed: ObservedDevice[]): RegistrationCandidate[] {
@@ -544,7 +544,7 @@ function registrationCandidates(topology: string | undefined, leases: Lease[], o
 
 function RegistrationPanel({ open, initialDraft, onToggle, onRefresh, topology, routerBypass, routerBypassReady, onNetworkSettings, leases, observed, observationError, policy, candidates, displayCandidate, onPolicyChange, onRegistered }: { open: boolean; initialDraft?: RegistrationDraft; onToggle: () => void; onRefresh: () => Promise<void>; topology?: string; routerBypass: RouterBypassSettings; routerBypassReady: boolean; onNetworkSettings: () => void; leases: Lease[]; observed: ObservedDevice[]; observationError?: string; policy: PolicySet; candidates: string[]; displayCandidate: (name: string) => string; onPolicyChange: (policy: PolicySet) => void; onRegistered: (id: string) => void }) {
   const sectionRef = useRef<HTMLElement>(null)
-  const [draft, setDraft] = useState<RegistrationDraft>(initialDraft ?? { id: '', name: '', mac: '', ipv4: '', profile: '', gateway_target: 'opensurge', egress_mode: 'inherit_global' })
+  const [draft, setDraft] = useState<RegistrationDraft>(initialDraft ?? { id: '', name: '', mac: '', ipv4: '', profile: '', gateway_target: 'opensurge', dns_view: 'auto', egress_mode: 'inherit_global' })
   const [defaults, setDefaults] = useState(['DIRECT'])
   const [useExisting, setUseExisting] = useState(Boolean(initialDraft?.profile))
   const [error, setError] = useState('')
@@ -578,9 +578,10 @@ function RegistrationPanel({ open, initialDraft, onToggle, onRefresh, topology, 
       next.profiles.push({ id: profile, default_policies: defaults.length ? defaults : ['DIRECT'], on_unsupported: 'reject', rules: [] })
     }
     const gatewayTarget = draft.gateway_target === 'upstream_router' ? { gateway_target: 'upstream_router' as const } : {}
-    next.devices = [...next.devices.filter(item => item.id !== deviceID && !(normalizedMAC !== '' && item.mac.toLowerCase() === normalizedMAC)), { id: deviceID, name, mac: normalizedMAC, ipv4: normalizedIPv4, profile, ...gatewayTarget, egress_mode: egressMode }]
+    const dnsView = draft.dns_view === 'auto' ? {} : { dns_view: draft.dns_view }
+    next.devices = [...next.devices.filter(item => item.id !== deviceID && !(normalizedMAC !== '' && item.mac.toLowerCase() === normalizedMAC)), { id: deviceID, name, mac: normalizedMAC, ipv4: normalizedIPv4, profile, ...gatewayTarget, ...dnsView, egress_mode: egressMode }]
     onPolicyChange(next); onRegistered(deviceID)
-    setDraft({ id: '', name: '', mac: '', ipv4: '', profile: '', gateway_target: 'opensurge', egress_mode: 'inherit_global' }); setDefaults(['DIRECT']); setUseExisting(false); setError('')
+    setDraft({ id: '', name: '', mac: '', ipv4: '', profile: '', gateway_target: 'opensurge', dns_view: 'auto', egress_mode: 'inherit_global' }); setDefaults(['DIRECT']); setUseExisting(false); setError('')
   }
   const visibleCandidates = registrationCandidates(topology, leases, observed)
   const previewID = draft.id || (draft.name.trim() ? availableDeviceID(draft.name.trim(), draft.mac || draft.ipv4, policy.devices) : '')
@@ -613,10 +614,11 @@ function RegistrationPanel({ open, initialDraft, onToggle, onRefresh, topology, 
         <fieldset className="registration-routing"><legend>{t('设备路由方式')}</legend>
           <label className={draft.gateway_target === 'opensurge' && draft.egress_mode === 'inherit_global' ? 'active' : ''}><input type="radio" name="registration-route" checked={draft.gateway_target === 'opensurge' && draft.egress_mode === 'inherit_global'} onChange={() => setDraft({ ...draft, gateway_target: 'opensurge', egress_mode: 'inherit_global' })} /><span><strong>{t('跟随网关规则')}</strong><small>{t('默认推荐；继续使用订阅或托管的网关规则，不跟随 Mac 本机模式。')}</small></span></label>
           <label className={draft.gateway_target === 'opensurge' && draft.egress_mode === 'dedicated' ? 'active' : ''}><input type="radio" name="registration-route" checked={draft.gateway_target === 'opensurge' && draft.egress_mode === 'dedicated'} onChange={() => setDraft({ ...draft, gateway_target: 'opensurge', egress_mode: 'dedicated' })} /><span><strong>{t('独立设备出口')}</strong><small>{t('公网流量优先使用专属 selector，局域网和私网仍直连。')}</small></span></label>
-          {topology === 'same_wifi_dhcp' && <label className={`${draft.gateway_target === 'upstream_router' ? 'active' : ''} ${!routerBypassReady ? 'unavailable' : ''}`}><input type="radio" name="registration-route" disabled={!routerBypassReady} checked={draft.gateway_target === 'upstream_router'} onChange={() => setDraft({ ...draft, gateway_target: 'upstream_router', egress_mode: draft.egress_mode || 'inherit_global' })} /><span><strong>{t('IPv4 直连主路由')}</strong><small>{routerBypassReady ? t('固定 IPv4 仍由 OpenSurge 分配；网关 {{gateway}} · DNS {{dns}}。启用下游 IPv6 时，IPv6 出站会被阻止。', { gateway: routerBypass.gateway, dns: routerBypass.dns.join(', ') }) : t('请先在网络设置中确认主路由网关与 DNS。')}</small></span></label>}
+          {topology === 'same_wifi_dhcp' && <label className={`${draft.gateway_target === 'upstream_router' ? 'active' : ''} ${!routerBypassReady ? 'unavailable' : ''}`}><input type="radio" name="registration-route" disabled={!routerBypassReady} checked={draft.gateway_target === 'upstream_router'} onChange={() => setDraft({ ...draft, gateway_target: 'upstream_router', dns_view: draft.dns_view === 'gateway' ? 'auto' : draft.dns_view, egress_mode: draft.egress_mode || 'inherit_global' })} /><span><strong>{t('IPv4 直连主路由')}</strong><small>{routerBypassReady ? routerBypass.dns.length ? t('固定 IPv4 仍由 OpenSurge 分配；网关 {{gateway}} · DNS {{dns}}（显式绕过 OpenSurge DNS）。启用下游 IPv6 时，IPv6 出站会被阻止。', { gateway: routerBypass.gateway, dns: routerBypass.dns.join(', ') }) : t('固定 IPv4 仍由 OpenSurge 分配；网关 {{gateway}}；DNS 继续使用 OpenSurge，并自动切到真实 IP 的 Resolver View。启用下游 IPv6 时，IPv6 出站会被阻止。', { gateway: routerBypass.gateway }) : t('请先在网络设置中确认主路由网关。')}</small></span></label>}
           {topology === 'same_wifi_dhcp' && !routerBypassReady && <button className="text-link router-bypass-settings-link" type="button" onClick={onNetworkSettings}>{t('前往网络设置填写主路由信息')}</button>}
           {!draft.egress_mode && <small className="field-error" role="status">{t('这是旧版设备，请选择新的路由方式后再保存。')}</small>}
         </fieldset>
+        <details className="inline-advanced"><summary>{t('高级：DNS 视图')}</summary><label>{t('DNS 视图')}<select aria-label={t('DNS 视图')} value={draft.dns_view} onChange={event => setDraft({ ...draft, dns_view: event.target.value as DeviceDNSView })}><option value="auto">{t('自动')}</option><option value="gateway" disabled={draft.gateway_target === 'upstream_router'}>{t('网关模式（Fake-IP）')}</option><option value="resolver">{t('纯 DNS 模式（Real-IP）')}</option></select></label><small className="registration-id-hint">{draft.dns_view === 'auto' ? t('自动模式根据设备网关与当前网络拓扑选择；same_lan 未登记客户端默认返回真实 IP。') : draft.dns_view === 'gateway' ? t('网关模式只适用于流量实际经过 OpenSurge 的设备，DNS 由 Mihomo 返回 Fake-IP。') : t('纯 DNS 模式只使用真实 DNS 解析，不返回 Fake-IP；适合只把 OpenSurge 当 DNS 的设备。')}</small></details>
         {!useExisting && draft.gateway_target === 'opensurge' && draft.egress_mode === 'dedicated' && <CandidatePicker label={t('独立出口候选')} values={defaults} candidates={candidates} displayName={displayCandidate} onChange={setDefaults} />}
         <details className="inline-advanced"><summary>{t('高级：使用已有 Profile')}</summary><label className="checkbox-field"><input type="checkbox" checked={useExisting} onChange={event => setUseExisting(event.target.checked)} /> {t('使用已有 Profile')}</label>{useExisting && <select aria-label={t('设备 Profile')} value={draft.profile} onChange={event => setDraft({ ...draft, profile: event.target.value })}><option value="">{t('选择 Profile')}</option>{policy.profiles.map(profile => <option key={profile.id}>{profile.id}</option>)}</select>}</details>
         {error && <small className="field-error" role="alert">{error}</small>}
