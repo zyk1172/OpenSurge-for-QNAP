@@ -133,7 +133,17 @@ jobs:
           sudo apt-get \
             -o Dir::Etc::sourcelist="sources.list.d/ubuntu.sources" \
             -o Dir::Etc::sourceparts="-" \
-            install -y -qq nftables iproute2 iputils-ping dnsmasq dnsutils
+            install -y -qq nftables iproute2 iputils-ping dnsmasq dnsutils git build-essential libssl-dev zlib1g-dev
+      - name: Build pinned SmartDNS for namespace DNS-view tests
+        run: |
+          rm -rf /tmp/opensurge-smartdns-src
+          git init /tmp/opensurge-smartdns-src
+          git -C /tmp/opensurge-smartdns-src remote add origin https://github.com/pymumu/smartdns.git
+          git -C /tmp/opensurge-smartdns-src fetch --depth=1 origin refs/tags/Release48.4
+          git -C /tmp/opensurge-smartdns-src checkout --detach FETCH_HEAD
+          test "$(git -C /tmp/opensurge-smartdns-src rev-parse HEAD)" = "21c940edc65520849ba03544c5cf8d9cf326e680"
+          make -C /tmp/opensurge-smartdns-src/src -j"$(nproc)"
+          sudo install -Dm0755 /tmp/opensurge-smartdns-src/src/smartdns /usr/local/bin/smartdns
       - name: Compile integration test binaries before entering namespaces
         run: |
           go test -c -o /tmp/opensurge-linux-network.test ./internal/platform/linux
