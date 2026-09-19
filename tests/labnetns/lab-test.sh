@@ -12,13 +12,22 @@ SMARTDNS_TEST_BIN="${OPEN_SURGE_SMARTDNS_TEST_BIN:-/tmp/opensurge-smartdns.test}
 
 log() { printf '[labnetns] %s\n' "$*"; }
 
+stop_root_pidfile() {
+  local pidfile="$1"
+  local pid=""
+  if sudo test -s "$pidfile"; then
+    pid="$(sudo cat "$pidfile" 2>/dev/null || true)"
+    if [[ "$pid" =~ ^[0-9]+$ ]]; then
+      sudo kill "$pid" 2>/dev/null || true
+    fi
+  fi
+  sudo rm -f "$pidfile" 2>/dev/null || true
+}
+
 cleanup() {
   set +e
   for pidfile in /tmp/opensurge-lab-smartdns.pid /tmp/opensurge-lab-fake-dns.pid /tmp/opensurge-lab-real-dns.pid /tmp/opensurge-lab-host-dns.pid; do
-    if [[ -s "$pidfile" ]]; then
-      sudo kill "$(cat "$pidfile")" 2>/dev/null || true
-    fi
-    rm -f "$pidfile"
+    stop_root_pidfile "$pidfile"
   done
   rm -f /tmp/opensurge-lab-smartdns.conf /tmp/opensurge-lab-smartdns.log
   sudo ip netns del "$DNS_GATEWAY_CLIENT_NS" 2>/dev/null
@@ -156,7 +165,7 @@ sudo ip -n "$DNS_RESOLVER_CLIENT_NS" addr add 10.88.0.3/24 dev odrsc
 sudo ip -n "$DNS_RESOLVER_CLIENT_NS" link set odrsc up
 sudo ip -n "$DNS_RESOLVER_CLIENT_NS" route add default via 10.88.0.1
 
-rm -f /tmp/opensurge-lab-fake-dns.pid /tmp/opensurge-lab-real-dns.pid /tmp/opensurge-lab-smartdns.pid
+sudo rm -f /tmp/opensurge-lab-fake-dns.pid /tmp/opensurge-lab-real-dns.pid /tmp/opensurge-lab-smartdns.pid
 sudo ip netns exec "$GATEWAY_NS" dnsmasq --conf-file=/dev/null --no-resolv --no-hosts --bind-interfaces --listen-address=127.0.0.1 --port=61053 --address=/resolver-first.opensurge.test/198.18.0.10 --address=/gateway-first.opensurge.test/198.18.0.10 --pid-file=/tmp/opensurge-lab-fake-dns.pid
 sudo ip netns exec "$GATEWAY_NS" dnsmasq --conf-file=/dev/null --no-resolv --no-hosts --bind-interfaces --listen-address=127.0.0.1 --port=62053 --address=/resolver-first.opensurge.test/203.0.113.55 --address=/gateway-first.opensurge.test/203.0.113.55 --pid-file=/tmp/opensurge-lab-real-dns.pid
 
@@ -182,10 +191,10 @@ client-rules 10.88.0.3/32 -group opensurge-resolver -force-aaaa-soa
 EOF
 sudo ip netns exec "$GATEWAY_NS" smartdns -c /tmp/opensurge-lab-smartdns.conf -p /tmp/opensurge-lab-smartdns.pid
 for _ in $(seq 1 20); do
-  [[ -s /tmp/opensurge-lab-smartdns.pid ]] && break
+  sudo test -s /tmp/opensurge-lab-smartdns.pid && break
   sleep 0.1
 done
-if [[ ! -s /tmp/opensurge-lab-smartdns.pid ]]; then
+if ! sudo test -s /tmp/opensurge-lab-smartdns.pid; then
   echo "SmartDNS lab frontend did not create a pid file" >&2
   exit 1
 fi
@@ -205,10 +214,9 @@ resolver_tcp="$(sudo ip netns exec "$DNS_RESOLVER_CLIENT_NS" dig @10.88.0.1 reso
 test "$gateway_tcp" = "198.18.0.10"
 test "$resolver_tcp" = "203.0.113.55"
 
-sudo kill "$(cat /tmp/opensurge-lab-smartdns.pid)"
-sudo kill "$(cat /tmp/opensurge-lab-fake-dns.pid)"
-sudo kill "$(cat /tmp/opensurge-lab-real-dns.pid)"
-rm -f /tmp/opensurge-lab-smartdns.pid /tmp/opensurge-lab-fake-dns.pid /tmp/opensurge-lab-real-dns.pid
+stop_root_pidfile /tmp/opensurge-lab-smartdns.pid
+stop_root_pidfile /tmp/opensurge-lab-fake-dns.pid
+stop_root_pidfile /tmp/opensurge-lab-real-dns.pid
 rm -f /tmp/opensurge-lab-smartdns.conf /tmp/opensurge-lab-smartdns.log
 sudo ip netns del "$DNS_GATEWAY_CLIENT_NS"
 sudo ip netns del "$DNS_RESOLVER_CLIENT_NS"
@@ -259,7 +267,7 @@ fi
 # an explicit loopback iif. Real local sockets are exactly what `iif lo` rules
 # are intended to select.
 DNSMASQ_PIDFILE=/tmp/opensurge-lab-host-dns.pid
-rm -f "$DNSMASQ_PIDFILE"
+sudo rm -f "$DNSMASQ_PIDFILE"
 sudo ip netns exec "$UPSTREAM_NS" dnsmasq \
   --conf-file=/dev/null \
   --no-resolv \
@@ -282,10 +290,7 @@ grep -q 'dev os-client' <<<"$host_lan_route"
 
 # Exact teardown mirrors product ownership: dedicated priorities plus route
 # protocol only. No global rule/route flush and no nftables mutation.
-if [[ -s "$DNSMASQ_PIDFILE" ]]; then
-  sudo kill "$(cat "$DNSMASQ_PIDFILE")" 2>/dev/null || true
-fi
-rm -f "$DNSMASQ_PIDFILE"
+stop_root_pidfile "$DNSMASQ_PIDFILE"
 sudo ip -n "$CLIENT_NS" rule del pref 24090 iif lo ipproto udp dport 53 table 20242
 sudo ip -n "$CLIENT_NS" rule del pref 24091 iif lo ipproto tcp dport 53 table 20242
 sudo ip -n "$CLIENT_NS" rule del pref 24110 iif lo table 20242
