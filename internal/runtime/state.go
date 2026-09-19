@@ -13,6 +13,8 @@ import (
 type State struct {
 	PIDDNSMasq                int       `json:"pid_dnsmasq,omitempty"`
 	DNSMasqProcessFingerprint string    `json:"dnsmasq_process_fingerprint,omitempty"`
+	PIDSmartDNS               int       `json:"pid_smartdns,omitempty"`
+	SmartDNSProcessFingerprint string   `json:"smartdns_process_fingerprint,omitempty"`
 	PIDMihomo                 int       `json:"pid_mihomo,omitempty"`
 	MihomoProcessFingerprint  string    `json:"mihomo_process_fingerprint,omitempty"`
 	BootSessionID             string    `json:"boot_session_id,omitempty"`
