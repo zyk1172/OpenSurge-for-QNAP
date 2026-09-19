@@ -30,7 +30,7 @@ func TestDNSMasqCrashRecoveryLinux(t *testing.T) {
 	}
 	root := t.TempDir()
 	cfg := config.Default()
-	cfg.Gateway.Mode = config.GatewayModeSameLAN
+	cfg.Gateway.Mode = config.GatewayModeSameWiFiDHCP
 	cfg.Gateway.Interface = "os-gw-lan"
 	cfg.Gateway.UpstreamInterface = "os-gw-lan"
 	cfg.Gateway.LANIP = "10.77.1.1"
