@@ -11,10 +11,15 @@ import (
 	"open-mihomo-gateway/internal/runtime"
 )
 
+const LocalDNSPort = 5353
+
 const dnsmasqTemplate = `interface={{ .Interface }}
 bind-interfaces
-port=0
-
+port={{ .DNSPort }}
+listen-address=127.0.0.1
+no-resolv
+{{ if .Domain }}local=/{{ .Domain }}/
+{{ end }}
 {{ if .DHCPEnabled }}
 dhcp-range={{ .RangeStart }},{{ .RangeEnd }},{{ .Netmask }},{{ .LeaseTime }}
 dhcp-option=option:router,{{ .GatewayIP }}
@@ -41,6 +46,7 @@ pid-file={{ .PIDFile }}
 type templateData struct {
 	DHCPEnabled         bool
 	Interface           string
+	DNSPort             int
 	RangeStart          string
 	RangeEnd            string
 	Netmask             string
@@ -92,6 +98,7 @@ func RenderConfig(cfg config.Config, paths runtime.Paths) (string, error) {
 	data := templateData{
 		DHCPEnabled:         cfg.DHCP.Enabled,
 		Interface:           cfg.Gateway.Interface,
+		DNSPort:             LocalDNSPort,
 		RangeStart:          cfg.DHCP.RangeStart,
 		RangeEnd:            cfg.DHCP.RangeEnd,
 		Netmask:             net.IP(scope.Network.Mask).String(),
