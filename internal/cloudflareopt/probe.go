@@ -406,6 +406,13 @@ func probeHTTPSBatch(ctx context.Context, target Target, candidates []tcpCandida
 	return out
 }
 
+type httpsValidationResponse struct {
+	StatusCode  int
+	Header      http.Header
+	BodyPreview []byte
+	TTFB        time.Duration
+}
+
 func probeHTTPS(ctx context.Context, target Target, candidate tcpCandidate, options ScanOptions) (httpCandidate, bool) {
 	timeout := time.Duration(options.Settings.HTTPTimeoutMS) * time.Millisecond
 	dialer := directDialer(options.Interface, options.SourceIPv4, timeout)
@@ -421,41 +428,104 @@ func probeHTTPS(ctx context.Context, target Target, candidate tcpCandidate, opti
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	requestURL := "https://" + target.Domain + target.TestPath
-	request, err := http.NewRequestWithContext(ctx, http.MethodHead, requestURL, nil)
+
+	validation, err := performHTTPSValidationRequest(ctx, client, http.MethodHead, requestURL)
 	if err != nil {
 		return httpCandidate{}, false
 	}
+	if !validHTTPSValidationResponse(validation.StatusCode, validation.Header, validation.BodyPreview) {
+		return httpCandidate{}, false
+	}
+
+	// PT sites and WAF-protected origins commonly reject automated HEAD requests
+	// with 403/405 even when the candidate Cloudflare edge is valid for the
+	// target SNI. Re-check those statuses with a bounded GET so explicit
+	// Cloudflare edge-IP errors (notably 1034) can be observed without treating
+	// the status code itself as an unusable-IP verdict.
+	if validation.StatusCode == http.StatusForbidden || validation.StatusCode == http.StatusMethodNotAllowed {
+		if fallback, fallbackErr := performHTTPSValidationRequest(ctx, client, http.MethodGet, requestURL); fallbackErr == nil {
+			if !validHTTPSValidationResponse(fallback.StatusCode, fallback.Header, fallback.BodyPreview) {
+				return httpCandidate{}, false
+			}
+			validation = fallback
+		}
+	}
+
+	cfRay := validation.Header.Get("CF-Ray")
+	colo := ""
+	if index := strings.LastIndex(cfRay, "-"); index >= 0 && index+1 < len(cfRay) {
+		colo = strings.ToUpper(strings.TrimSpace(cfRay[index+1:]))
+	}
+	return httpCandidate{tcpCandidate: candidate, TTFB: validation.TTFB, Colo: colo}, true
+}
+
+func performHTTPSValidationRequest(ctx context.Context, client *http.Client, method, requestURL string) (httpsValidationResponse, error) {
+	request, err := http.NewRequestWithContext(ctx, method, requestURL, nil)
+	if err != nil {
+		return httpsValidationResponse{}, err
+	}
 	request.Header.Set("User-Agent", "OpenSurge-Cloudflare-Optimizer/1")
+	if method == http.MethodGet {
+		request.Header.Set("Range", "bytes=0-8191")
+	}
+
 	var ttfb time.Duration
 	started := time.Now()
 	trace := &httptrace.ClientTrace{GotFirstResponseByte: func() { ttfb = time.Since(started) }}
 	request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
 	response, err := client.Do(request)
 	if err != nil {
-		return httpCandidate{}, false
+		return httpsValidationResponse{}, err
 	}
-	io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
+	bodyPreview, _ := io.ReadAll(io.LimitReader(response.Body, 8<<10))
 	_ = response.Body.Close()
-	if !validHTTPSValidationStatus(response.StatusCode) {
-		return httpCandidate{}, false
-	}
-	server := strings.ToLower(response.Header.Get("Server"))
-	cfRay := response.Header.Get("CF-Ray")
-	if server != "cloudflare" && cfRay == "" {
-		return httpCandidate{}, false
-	}
-	colo := ""
-	if index := strings.LastIndex(cfRay, "-"); index >= 0 && index+1 < len(cfRay) {
-		colo = strings.ToUpper(strings.TrimSpace(cfRay[index+1:]))
-	}
 	if ttfb == 0 {
 		ttfb = time.Since(started)
 	}
-	return httpCandidate{tcpCandidate: candidate, TTFB: ttfb, Colo: colo}, true
+	return httpsValidationResponse{
+		StatusCode:  response.StatusCode,
+		Header:      response.Header.Clone(),
+		BodyPreview: bodyPreview,
+		TTFB:        ttfb,
+	}, nil
 }
 
-func validHTTPSValidationStatus(status int) bool {
-	return status >= http.StatusOK && status < http.StatusBadRequest
+func validHTTPSValidationResponse(status int, header http.Header, bodyPreview []byte) bool {
+	if !hasCloudflareEdgeEvidence(header) {
+		return false
+	}
+	if hasExplicitCloudflareEdgeIPError(header, bodyPreview) {
+		return false
+	}
+	if status >= http.StatusOK && status < http.StatusBadRequest {
+		return true
+	}
+	return status == http.StatusForbidden || status == http.StatusMethodNotAllowed
+}
+
+func hasCloudflareEdgeEvidence(header http.Header) bool {
+	server := strings.ToLower(strings.TrimSpace(header.Get("Server")))
+	return strings.Contains(server, "cloudflare") || strings.TrimSpace(header.Get("CF-Ray")) != ""
+}
+
+func hasExplicitCloudflareEdgeIPError(header http.Header, bodyPreview []byte) bool {
+	for _, key := range []string{"CF-Error-Code", "Cloudflare-Error-Code"} {
+		if strings.TrimSpace(header.Get(key)) == "1034" {
+			return true
+		}
+	}
+	body := strings.ToLower(string(bodyPreview))
+	for _, marker := range []string{
+		"error 1034",
+		"error code 1034",
+		"error code: 1034",
+		"edge ip restricted",
+	} {
+		if strings.Contains(body, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func probeDownload(ctx context.Context, ip string, options ScanOptions) float64 {
