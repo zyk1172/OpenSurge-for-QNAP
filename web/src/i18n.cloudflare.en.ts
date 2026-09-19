@@ -123,7 +123,7 @@ export const cloudflareEnglishMessages: Record<string, string> = {
   '超过这个 TCP 延迟的候选会在 HTTPS 和下载测速前直接剔除。': 'Candidates above this TCP latency are discarded before HTTPS validation and download testing.',
   '最低下载速度（Mbps）': 'Minimum download speed (Mbps)',
   '0 表示关闭速度硬筛选；大于 0 时，未测出速度或低于该值的候选都会剔除。': '0 disables the hard throughput filter. Above 0, candidates without a measured speed or below the threshold are discarded.',
-  '先并发 TCP 443 粗筛，再按延迟/丢包过滤并执行目标域名 HTTPS 验证；随后对候选做下载测速。最低下载速度为 0 时保留 HTTPS 兜底；设置大于 0 的门槛后，未测出速度或低于门槛的候选会直接剔除。': 'Run a concurrent TCP/443 prefilter, apply latency/loss thresholds, validate target-domain HTTPS, then download-test candidates. A minimum download speed of 0 keeps the HTTPS fallback; above 0, unmeasured or slower candidates are discarded.',
+  '先并发 TCP 443 粗筛，再按延迟/丢包过滤并执行目标域名 HTTPS 验证；下载测速使用 Cloudflare 官方大响应流，收到响应正文后才开始计时，并按测速模式的秒数主动截断。最低下载速度为 0 时保留 HTTPS 兜底；设置大于 0 的门槛后，未测出速度或低于门槛的候选会直接剔除。': 'Run a concurrent TCP/443 prefilter, apply latency/loss thresholds, and validate target-domain HTTPS. Download testing uses Cloudflare\'s official large response stream, starts timing only after the response body begins, and actively stops after the scan mode\'s sample window. A minimum download speed of 0 keeps the HTTPS fallback; above 0, unmeasured or slower candidates are discarded.',
   '标准 · 约 75 秒（推荐）': 'Standard · about 75 seconds (recommended)',
   '完整 · 约 120 秒': 'Full · about 120 seconds',
   '深入 · 最多 180 秒': 'Deep · up to 180 seconds',
