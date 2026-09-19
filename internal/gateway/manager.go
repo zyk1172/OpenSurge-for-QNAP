@@ -129,6 +129,14 @@ func (m Manager) backend() (platform.NetworkBackend, error) {
 	return deps.newBackend()
 }
 
+func newSmartDNSService(deps gatewayDeps, cfg config.Config, paths runtime.Paths) smartDNSService {
+	if deps.newSmartDNS != nil {
+		return deps.newSmartDNS(cfg, paths)
+	}
+	manager := smartdns.New(cfg, paths)
+	return manager
+}
+
 func currentBoot(deps gatewayDeps) (runtime.BootSession, error) {
 	if deps.currentBoot != nil {
 		return deps.currentBoot()
@@ -244,7 +252,7 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 
 	dhcpManager := deps.newDHCP(m.cfg, m.paths)
 	mihomoManager := deps.newMihomo(m.cfg, m.paths)
-	smartDNSManager := deps.newSmartDNS(m.cfg, m.paths)
+	smartDNSManager := newSmartDNSService(deps, m.cfg, m.paths)
 	if err := m.preflight(ctx, backend, dhcpManager, mihomoManager, deps); err != nil {
 		return err
 	}
@@ -563,7 +571,7 @@ func (m Manager) reload(ctx context.Context) error {
 	}
 	dhcpManager := deps.newDHCP(m.cfg, m.paths)
 	mihomoManager := deps.newMihomo(m.cfg, m.paths)
-	smartDNSManager := deps.newSmartDNS(m.cfg, m.paths)
+	smartDNSManager := newSmartDNSService(deps, m.cfg, m.paths)
 	dhcpReady := !m.cfg.DHCP.Enabled || trackedProcessRunning(deps, state.PIDDNSMasq, state.DNSMasqProcessFingerprint, dhcpManager.Running)
 	if !dhcpReady ||
 		!trackedProcessRunning(deps, state.PIDSmartDNS, state.SmartDNSProcessFingerprint, smartDNSManager.Running) ||
@@ -763,7 +771,7 @@ func (m Manager) validateReloadCandidate(ctx context.Context) error {
 	}
 	dhcpManager := deps.newDHCP(candidate.cfg, candidate.paths)
 	mihomoManager := deps.newMihomo(candidate.cfg, candidate.paths)
-	smartDNSManager := deps.newSmartDNS(candidate.cfg, candidate.paths)
+	smartDNSManager := newSmartDNSService(deps, candidate.cfg, candidate.paths)
 	if err := candidate.preflightWithOwnership(ctx, backend, dhcpManager, mihomoManager, deps, false); err != nil {
 		return err
 	}
@@ -829,7 +837,7 @@ func (m Manager) stop(ctx context.Context) error {
 		// Stop the LAN DNS front door first so no new client can receive an
 		// answer while the network data plane is being dismantled.
 		ReportProgress(ctx, "stopping_dns_frontend")
-		smartDNSManager := deps.newSmartDNS(m.cfg, m.paths)
+		smartDNSManager := newSmartDNSService(deps, m.cfg, m.paths)
 		cleanupErr = errors.Join(cleanupErr, stopTrackedProcess(deps, "smartdns", state.PIDSmartDNS, state.SmartDNSProcessFingerprint, smartDNSManager.Stop))
 		ReportProgress(ctx, "restoring_network")
 		if state.NetworkSnapshot != nil {
