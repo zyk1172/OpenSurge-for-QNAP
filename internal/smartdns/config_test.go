@@ -39,6 +39,7 @@ func TestSameLANDefaultsUnknownClientsToResolverAndRegisteredGatewayToMihomo(t *
 	for _, want := range []string{
 		"group-begin opensurge-gateway -inherit none",
 		"group-begin opensurge-resolver -inherit none",
+		"group-begin opensurge-local -inherit none",
 		"bind 192.168.2.240:53 -group opensurge-resolver -force-aaaa-soa",
 		"server 127.0.0.1:1053 -group opensurge-gateway -exclude-default-group",
 		"server 192.168.2.1 -group opensurge-resolver -exclude-default-group",
