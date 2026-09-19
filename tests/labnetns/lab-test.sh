@@ -219,26 +219,26 @@ sudo ip netns add "$DNS_RESOLVER_CLIENT_NS"
 sudo ip -n "$DNS_GATEWAY_CLIENT_NS" link set lo up
 sudo ip -n "$DNS_RESOLVER_CLIENT_NS" link set lo up
 
-sudo ip link add os-dns-gw-client type veth peer name os-dns-gw-peer
-sudo ip link set os-dns-gw-client netns "$DNS_GATEWAY_CLIENT_NS"
-sudo ip link set os-dns-gw-peer netns "$GATEWAY_NS"
-sudo ip link add os-dns-real-client type veth peer name os-dns-real-peer
-sudo ip link set os-dns-real-client netns "$DNS_RESOLVER_CLIENT_NS"
-sudo ip link set os-dns-real-peer netns "$GATEWAY_NS"
+sudo ip link add od-gw-client type veth peer name od-gw-peer
+sudo ip link set od-gw-client netns "$DNS_GATEWAY_CLIENT_NS"
+sudo ip link set od-gw-peer netns "$GATEWAY_NS"
+sudo ip link add od-real-client type veth peer name od-real-peer
+sudo ip link set od-real-client netns "$DNS_RESOLVER_CLIENT_NS"
+sudo ip link set od-real-peer netns "$GATEWAY_NS"
 
 sudo ip -n "$GATEWAY_NS" link add os-dns-br type bridge
-sudo ip -n "$GATEWAY_NS" link set os-dns-gw-peer master os-dns-br
-sudo ip -n "$GATEWAY_NS" link set os-dns-real-peer master os-dns-br
+sudo ip -n "$GATEWAY_NS" link set od-gw-peer master os-dns-br
+sudo ip -n "$GATEWAY_NS" link set od-real-peer master os-dns-br
 sudo ip -n "$GATEWAY_NS" addr add 10.88.0.1/24 dev os-dns-br
 sudo ip -n "$GATEWAY_NS" link set os-dns-br up
-sudo ip -n "$GATEWAY_NS" link set os-dns-gw-peer up
-sudo ip -n "$GATEWAY_NS" link set os-dns-real-peer up
+sudo ip -n "$GATEWAY_NS" link set od-gw-peer up
+sudo ip -n "$GATEWAY_NS" link set od-real-peer up
 
-sudo ip -n "$DNS_GATEWAY_CLIENT_NS" addr add 10.88.0.2/24 dev os-dns-gw-client
-sudo ip -n "$DNS_GATEWAY_CLIENT_NS" link set os-dns-gw-client up
+sudo ip -n "$DNS_GATEWAY_CLIENT_NS" addr add 10.88.0.2/24 dev od-gw-client
+sudo ip -n "$DNS_GATEWAY_CLIENT_NS" link set od-gw-client up
 sudo ip -n "$DNS_GATEWAY_CLIENT_NS" route add default via 10.88.0.1
-sudo ip -n "$DNS_RESOLVER_CLIENT_NS" addr add 10.88.0.3/24 dev os-dns-real-client
-sudo ip -n "$DNS_RESOLVER_CLIENT_NS" link set os-dns-real-client up
+sudo ip -n "$DNS_RESOLVER_CLIENT_NS" addr add 10.88.0.3/24 dev od-real-client
+sudo ip -n "$DNS_RESOLVER_CLIENT_NS" link set od-real-client up
 sudo ip -n "$DNS_RESOLVER_CLIENT_NS" route add default via 10.88.0.1
 
 rm -f /tmp/opensurge-lab-fake-dns.pid /tmp/opensurge-lab-real-dns.pid /tmp/opensurge-lab-smartdns.pid
