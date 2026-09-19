@@ -78,7 +78,7 @@ func (m Manager) Running(pid int) bool {
 }
 
 func (m Manager) shouldRun() bool {
-	return m.cfg.DHCP.Enabled || m.cfg.Gateway.SameLAN()
+	return m.cfg.DHCP.Enabled
 }
 
 func resolveBinary(path string) (string, error) {
