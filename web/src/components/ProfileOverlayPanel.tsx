@@ -73,7 +73,7 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
     setMessage('')
     try {
       const saved = mode === 'guided'
-        ? await api.saveProfileOverlayDocument(document, overlay.revision)
+        ? await api.saveProfileOverlayDocument(normalizeGuidedDocumentForSave(document), overlay.revision)
         : await api.saveProfileOverlayYAML(yaml, overlay.revision)
       setDocument(structuredClone(saved.document))
       setYAML(saved.yaml)
@@ -139,7 +139,7 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
         </div>
 
         <div className="overlay-summary" aria-label={t('附加配置摘要')}>
-          <OverlayMetric value={document.rules.prepend.length} label="自定义规则" />
+          <OverlayMetric value={parseLines(lines(document.rules.prepend)).length} label="自定义规则" />
           <OverlayMetric value={document.proxies.add.length} label="自定义节点" />
           <OverlayMetric value={hostsEntryCount(document.dns.merge['hosts-file'])} label="Hosts 条目" />
           <OverlayMetric value={expertOperations} label="专家操作" />
@@ -221,7 +221,14 @@ function OverlayMetric({ value, label }: { value: number | string; label: string
 }
 
 function RuleOperationsEditor({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
-  return <section className="overlay-editor-section open"><header><span>01</span><div><strong>{t('高优先级自定义规则')}</strong><small>{t('固定插入订阅规则之前，先命中的规则优先生效。')}</small></div></header><div className="overlay-section-body"><label>{t('自定义规则（每行一条）')}<textarea aria-label={t('高优先级自定义规则')} rows={7} placeholder={'DOMAIN-SUFFIX,example.com,DIRECT\nRULE-SET,private,DIRECT'} value={lines(value)} onChange={event => onChange(parseLines(event.target.value))} /></label></div></section>
+  return <section className="overlay-editor-section open"><header><span>01</span><div><strong>{t('高优先级自定义规则')}</strong><small>{t('固定插入订阅规则之前，先命中的规则优先生效。')}</small></div></header><div className="overlay-section-body"><label>{t('自定义规则（每行一条）')}<textarea
+    aria-label={t('高优先级自定义规则')}
+    rows={7}
+    placeholder={'DOMAIN-SUFFIX,example.com,DIRECT\nRULE-SET,private,DIRECT'}
+    value={lines(value)}
+    onChange={event => onChange(editorLines(event.target.value))}
+    onBlur={event => onChange(parseLines(event.currentTarget.value))}
+  /></label></div></section>
 }
 
 function ManualProxyEditor({ proxies, onChange }: { proxies: Array<Record<string, unknown>>; onChange: (proxies: Array<Record<string, unknown>>) => void }) {
@@ -411,8 +418,18 @@ function lines(values: string[]) {
   return values.join('\n')
 }
 
+function editorLines(value: string) {
+  return value.split(/\r?\n/)
+}
+
 function parseLines(value: string) {
-  return [...new Set(value.split('\n').map(line => line.trim()).filter(Boolean))]
+  return [...new Set(editorLines(value).map(line => line.trim()).filter(Boolean))]
+}
+
+function normalizeGuidedDocumentForSave(document: ProfileOverlayDocument) {
+  const next = structuredClone(document)
+  next.rules.prepend = parseLines(lines(next.rules.prepend))
+  return next
 }
 
 function signed(value: number) {

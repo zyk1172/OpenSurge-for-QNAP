@@ -157,6 +157,32 @@ describe('ProfileOverlayPanel', () => {
     expect(await screen.findByText(/停止态可在策略页预览或直接启动/)).toBeTruthy()
   })
 
+  it('preserves line breaks while editing high-priority rules and normalizes them on save', async () => {
+    vi.mocked(api.saveProfileOverlayDocument).mockImplementation(async candidate => ({ ...overlay, document: candidate }))
+    render(<ProfileOverlayPanel overlay={overlay} sources={[source]} onSaved={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('heading', { name: '高级：全局附加配置' }))
+    const editor = screen.getByLabelText('高优先级自定义规则') as HTMLTextAreaElement
+
+    await userEvent.type(editor, 'DOMAIN,first.example,DIRECT')
+    await userEvent.type(editor, '{enter}')
+    expect(editor.value).toBe('DOMAIN,first.example,DIRECT\n')
+
+    await userEvent.type(editor, '{enter}DOMAIN-SUFFIX,second.example,DIRECT{enter}DOMAIN,first.example,DIRECT')
+    expect(editor.value).toContain('DOMAIN,first.example,DIRECT\n\nDOMAIN-SUFFIX,second.example,DIRECT')
+
+    const saveButton = screen.getByRole('button', { name: '保存附加配置草稿' }) as HTMLButtonElement
+    expect(saveButton.disabled).toBe(false)
+    await userEvent.click(saveButton)
+
+    await waitFor(() => expect(api.saveProfileOverlayDocument).toHaveBeenCalled())
+    const saved = vi.mocked(api.saveProfileOverlayDocument).mock.calls[0][0]
+    expect(saved.rules.prepend).toEqual([
+      'DOMAIN,first.example,DIRECT',
+      'DOMAIN-SUFFIX,second.example,DIRECT',
+    ])
+  })
+
   it('stores wildcard native Hosts separately from traditional Hosts text in the overlay draft', async () => {
     vi.mocked(api.saveProfileOverlayDocument).mockImplementation(async candidate => ({ ...overlay, document: candidate }))
     render(<ProfileOverlayPanel overlay={overlay} sources={[source]} onSaved={vi.fn()} />)
