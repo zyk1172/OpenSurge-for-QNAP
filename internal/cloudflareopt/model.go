@@ -14,7 +14,7 @@ const SchemaVersion = 1
 const (
 	ScheduleInterval            = "interval"
 	ScheduleCron                = "cron"
-	DefaultDownloadRequestBytes = int64(1_000_000_000)
+	DefaultDownloadRequestBytes = int64(200_000_000)
 )
 
 type Config struct {
@@ -294,8 +294,8 @@ func validateScan(scan ScanSettings) error {
 	if scan.DownloadSeconds < 1 || scan.DownloadSeconds > 10 {
 		return fmt.Errorf("scan download_seconds must be between 1 and 10")
 	}
-	if scan.DownloadMaxBytes < 64<<20 || scan.DownloadMaxBytes > 2_000_000_000 {
-		return fmt.Errorf("scan download_max_bytes must be between 64 MiB and 2 GB")
+	if scan.DownloadMaxBytes < 64<<20 || scan.DownloadMaxBytes > 512<<20 {
+		return fmt.Errorf("scan download_max_bytes must be between 64 MiB and 512 MiB")
 	}
 	if scan.MinDownloadMbps < 0 || scan.MinDownloadMbps > 10000 {
 		return fmt.Errorf("scan min_download_mbps must be between 0 and 10000")
