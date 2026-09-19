@@ -24,7 +24,7 @@ func TestRenderConfig(t *testing.T) {
 		"interface=en0",
 		"dhcp-range=192.168.50.100,192.168.50.200,255.255.255.0,12h",
 		"dhcp-option=option:router,192.168.50.1",
-		"port=0",
+		"port=5353",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered config missing %q:\n%s", want, rendered)
@@ -32,20 +32,20 @@ func TestRenderConfig(t *testing.T) {
 	}
 }
 
-func TestRenderConfigDoesNotOwnPublicDNSForwarding(t *testing.T) {
+func TestRenderConfigOwnsOnlyLoopbackLocalDNS(t *testing.T) {
 	cfg := config.Default()
 	cfg.DNS.Upstream = "1.1.1.1"
 	rendered, err := RenderConfig(cfg, runtime.NewPaths(cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rendered, "port=0") {
-		t.Fatalf("dnsmasq DNS was not disabled:\n%s", rendered)
-	}
-	for _, forbidden := range []string{"server=", "no-resolv", "listen-address="} {
-		if strings.Contains(rendered, forbidden) {
-			t.Fatalf("DHCP-only dnsmasq config contains %q:\n%s", forbidden, rendered)
+	for _, want := range []string{"port=5353", "listen-address=127.0.0.1", "no-resolv", "local=/lan/"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("local-only dnsmasq config missing %q:\n%s", want, rendered)
 		}
+	}
+	if strings.Contains(rendered, "server=") || strings.Contains(rendered, "1.1.1.1") {
+		t.Fatalf("public DNS forwarding leaked into local dnsmasq:\n%s", rendered)
 	}
 }
 
@@ -124,7 +124,7 @@ func TestRenderConfigIgnoresLegacyDNSUpstream(t *testing.T) {
 		t.Fatalf("RenderConfig() error = %v", err)
 	}
 	if strings.Contains(rendered, "1.1.1.1") || strings.Contains(rendered, "server=") {
-		t.Fatalf("legacy DNS upstream leaked into DHCP-only dnsmasq:\n%s", rendered)
+		t.Fatalf("legacy DNS upstream leaked into local-only dnsmasq:\n%s", rendered)
 	}
 }
 
@@ -141,7 +141,10 @@ func TestRenderConfigSameLANDNSOnly(t *testing.T) {
 
 	for _, want := range []string{
 		"interface=en0",
-		"port=0",
+		"port=5353",
+		"listen-address=127.0.0.1",
+		"no-resolv",
+		"local=/lan/",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered config missing %q:\n%s", want, rendered)
@@ -210,7 +213,7 @@ func TestRenderConfigSameWiFiDHCP(t *testing.T) {
 		"dhcp-option=option:router,192.168.1.20",
 		"dhcp-option=option:dns-server,192.168.1.20",
 		"log-dhcp",
-		"port=0",
+		"port=5353",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered config missing %q:\n%s", want, rendered)
@@ -259,10 +262,10 @@ func TestRenderConfigSameLANIPv6ListensWithoutAdvertisingRA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rendered, "port=0") {
-		t.Fatalf("same-LAN DHCP-disabled config did not disable dnsmasq DNS:\n%s", rendered)
+	if !strings.Contains(rendered, "port=5353") || !strings.Contains(rendered, "listen-address=127.0.0.1") {
+		t.Fatalf("same-LAN DHCP-disabled config did not keep loopback local DNS:\n%s", rendered)
 	}
-	for _, forbidden := range []string{"enable-ra", "ra-stateless", "option6:dns-server", "ra-param=", "listen-address="} {
+	for _, forbidden := range []string{"enable-ra", "ra-stateless", "option6:dns-server", "ra-param="} {
 		if strings.Contains(rendered, forbidden) {
 			t.Fatalf("same-LAN selective IPv6 config unexpectedly advertises %q:\n%s", forbidden, rendered)
 		}
