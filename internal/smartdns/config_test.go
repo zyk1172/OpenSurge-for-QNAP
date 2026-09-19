@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"open-mihomo-gateway/internal/cloudflareopt"
 	"open-mihomo-gateway/internal/config"
 	"open-mihomo-gateway/internal/device"
 	"open-mihomo-gateway/internal/runtime"
@@ -36,9 +37,14 @@ func TestSameLANDefaultsUnknownClientsToResolverAndRegisteredGatewayToMihomo(t *
 		t.Fatal(err)
 	}
 	for _, want := range []string{
+		"group-begin opensurge-gateway -inherit none",
+		"group-begin opensurge-resolver -inherit none",
 		"bind 192.168.2.240:53 -group opensurge-resolver -force-aaaa-soa",
 		"server 127.0.0.1:1053 -group opensurge-gateway -exclude-default-group",
 		"server 192.168.2.1 -group opensurge-resolver -exclude-default-group",
+		"server 127.0.0.1:5353 -group opensurge-local -exclude-default-group",
+		"domain-rules /lan/ -nameserver opensurge-local -no-cache -no-serve-expired -group opensurge-gateway",
+		"domain-rules /lan/ -nameserver opensurge-local -no-cache -no-serve-expired -group opensurge-resolver",
 		"client-rules 192.168.2.101/32 -group opensurge-gateway -no-speed-check -no-cache -no-dualstack-selection -force-aaaa-soa -no-serve-expired",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -163,11 +169,60 @@ func TestRegisteredLANNamesAreSharedAcrossBothViews(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"domain-rules /storage/ -address 192.168.50.10",
-		"domain-rules /storage.lan/ -address 192.168.50.10",
+		"domain-rules /storage/ -address 192.168.50.10 -group opensurge-gateway",
+		"domain-rules /storage/ -address 192.168.50.10 -group opensurge-resolver",
+		"domain-rules /storage.lan/ -address 192.168.50.10 -group opensurge-gateway",
+		"domain-rules /storage.lan/ -address 192.168.50.10 -group opensurge-resolver",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("local rule missing %q:\n%s", want, rendered)
 		}
+	}
+}
+
+func TestCloudflareOptimizerWinsResolverHostPrecedence(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "profile.yaml")
+	base := []byte(`mixed-port: 7890
+proxies: []
+proxy-groups: []
+hosts:
+  "cdn.example.com": "192.0.2.10"
+  "other.example.com": "192.0.2.20"
+dns:
+  fake-ip-filter: []
+rules:
+  - MATCH,DIRECT
+`)
+	optimized, err := cloudflareopt.ApplyResultsToProfile(base, []cloudflareopt.TargetResult{{
+		Domain: "cdn.example.com",
+		Selected: cloudflareopt.CandidateResult{IP: "104.18.42.212"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(profile, optimized, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Default()
+	cfg.Mihomo.ProfileMode = config.MihomoProfileModeImported
+	cfg.Mihomo.Profile = profile
+	cfg.Gateway.Mode = config.GatewayModeSameLAN
+	cfg.Gateway.Interface = "eth0"
+	cfg.Gateway.UpstreamInterface = "eth0"
+	cfg.Gateway.LANIP = "192.168.2.240"
+	cfg.DNS.Listen = cfg.Gateway.LANIP
+	cfg.DHCP.Enabled = false
+
+	rendered, err := RenderConfigWithResolvers(cfg, runtime.NewPaths(cfg), []string{"192.168.2.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered, "domain-rules /cdn.example.com/ -address 104.18.42.212 -group opensurge-resolver") {
+		t.Fatalf("Cloudflare optimizer result did not reach Resolver View:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "domain-rules /cdn.example.com/ -address 192.0.2.10") {
+		t.Fatalf("underlying host mapping overrode Cloudflare optimizer result:\n%s", rendered)
 	}
 }
