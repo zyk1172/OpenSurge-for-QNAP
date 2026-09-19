@@ -143,7 +143,8 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 			dhcpManager := dhcp.New(m.cfg, m.paths)
 			dnsmasqRunning := trackedProcessRunning(m.gatewayDeps(), state.PIDDNSMasq, state.DNSMasqProcessFingerprint, dhcpManager.Running)
 			dhcpReady := !m.cfg.DHCP.Enabled || dnsmasqRunning
-			if dnsmasqRunning {
+			localDNSReady := !dhcp.ShouldRun(m.cfg) || dnsmasqRunning
+			if m.cfg.DHCP.Enabled && dnsmasqRunning {
 				dhcpStatus = "running"
 			}
 			smartDNSManager := smartdns.New(m.cfg, m.paths)
@@ -162,7 +163,7 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 			// the already-running TUN data plane stopped. An explicit disabled
 			// response remains a real degraded condition.
 			tunReady := !m.cfg.Transparent.TUNEnabled() || tunStatus == "ready" || tunStatus == "unknown"
-			if dhcpReady && dnsReady && mihomoRunning && tunReady {
+			if dhcpReady && localDNSReady && dnsReady && mihomoRunning && tunReady {
 				gatewayStatus = "running"
 			} else {
 				gatewayStatus = "degraded"
