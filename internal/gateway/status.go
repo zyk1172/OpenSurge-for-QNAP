@@ -11,6 +11,7 @@ import (
 	"open-mihomo-gateway/internal/mihomo"
 	"open-mihomo-gateway/internal/platform"
 	"open-mihomo-gateway/internal/runtime"
+	"open-mihomo-gateway/internal/smartdns"
 )
 
 type Status struct {
@@ -24,6 +25,7 @@ type Status struct {
 	RoutingError     string `json:"routing_error,omitempty"`
 	DHCP             string `json:"dhcp"`
 	DHCPEnabled      bool   `json:"dhcp_enabled"`
+	DNS              string `json:"dns"`
 	Mihomo           string `json:"mihomo"`
 	MihomoError      string `json:"mihomo_error,omitempty"`
 	TUN              string `json:"tun"`
@@ -62,7 +64,11 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 	}
 
 	gatewayStatus := "stopped"
-	dhcpStatus := "stopped"
+	dhcpStatus := "disabled"
+	if m.cfg.DHCP.Enabled {
+		dhcpStatus = "stopped"
+	}
+	dnsStatus := "stopped"
 	mihomoStatus := "stopped"
 	mihomoError := ""
 	tunStatus := "disabled"
@@ -136,15 +142,22 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 				}
 			}
 			dhcpManager := dhcp.New(m.cfg, m.paths)
+			dhcpReady := !m.cfg.DHCP.Enabled
 			if trackedProcessRunning(m.gatewayDeps(), state.PIDDNSMasq, state.DNSMasqProcessFingerprint, dhcpManager.Running) {
 				dhcpRunning = true
+				dhcpReady = true
 				dhcpStatus = "running"
+			}
+			smartDNSManager := smartdns.New(m.cfg, m.paths)
+			dnsRunning := trackedProcessRunning(m.gatewayDeps(), state.PIDSmartDNS, state.SmartDNSProcessFingerprint, smartDNSManager.Running)
+			if dnsRunning {
+				dnsStatus = "running"
 			}
 			// A failed runtime read is an observability warning, not evidence that
 			// the already-running TUN data plane stopped. An explicit disabled
 			// response remains a real degraded condition.
 			tunReady := !m.cfg.Transparent.TUNEnabled() || tunStatus == "ready" || tunStatus == "unknown"
-			if dhcpRunning && mihomoRunning && tunReady {
+			if dhcpReady && dnsRunning && mihomoRunning && tunReady {
 				gatewayStatus = "running"
 			} else {
 				gatewayStatus = "degraded"
@@ -208,6 +221,7 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 		RoutingError:     routingError,
 		DHCP:             dhcpStatus,
 		DHCPEnabled:      m.cfg.DHCP.Enabled,
+		DNS:              dnsStatus,
 		Mihomo:           mihomoStatus,
 		MihomoError:      mihomoError,
 		TUN:              tunStatus,
@@ -254,9 +268,6 @@ func fetchMihomoRuntime(ctx context.Context, cfg config.Config) (mihomo.Version,
 
 func (s Status) Format() string {
 	dnsmasqLabel := "DHCP"
-	if !s.DHCPEnabled {
-		dnsmasqLabel = "DNS"
-	}
 	tunLabel := s.TUN
 	if s.TUNInterface != "" {
 		tunLabel += " (" + s.TUNInterface + ")"
@@ -272,6 +283,7 @@ func (s Status) Format() string {
 		fmt.Sprintf("Data plane: %s", s.DataPlane),
 		fmt.Sprintf("Policy routing: %s", s.Routing),
 		fmt.Sprintf("%s: %s", dnsmasqLabel, s.DHCP),
+		fmt.Sprintf("DNS: %s", s.DNS),
 		fmt.Sprintf("mihomo: %s", s.Mihomo),
 		fmt.Sprintf("TUN: %s", tunLabel),
 		fmt.Sprintf("IPv6 DNS queries: %t", s.DNSIPv6),
