@@ -234,11 +234,11 @@ sudo ip link add od-real-client type veth peer name od-real-peer
 sudo ip link set od-real-client netns "$DNS_RESOLVER_CLIENT_NS"
 sudo ip link set od-real-peer netns "$GATEWAY_NS"
 
-sudo ip -n "$GATEWAY_NS" link add os-dns-br type bridge
-sudo ip -n "$GATEWAY_NS" link set od-gw-peer master os-dns-br
-sudo ip -n "$GATEWAY_NS" link set od-real-peer master os-dns-br
-sudo ip -n "$GATEWAY_NS" addr add 10.88.0.1/24 dev os-dns-br
-sudo ip -n "$GATEWAY_NS" link set os-dns-br up
+sudo ip -n "$GATEWAY_NS" link add odbr type bridge
+sudo ip -n "$GATEWAY_NS" link set od-gw-peer master odbr
+sudo ip -n "$GATEWAY_NS" link set od-real-peer master odbr
+sudo ip -n "$GATEWAY_NS" addr add 10.88.0.1/24 dev odbr
+sudo ip -n "$GATEWAY_NS" link set odbr up
 sudo ip -n "$GATEWAY_NS" link set od-gw-peer up
 sudo ip -n "$GATEWAY_NS" link set od-real-peer up
 
@@ -317,7 +317,7 @@ rm -f /tmp/opensurge-lab-smartdns.pid /tmp/opensurge-lab-fake-dns.pid /tmp/opens
 rm -f /tmp/opensurge-lab-smartdns.conf /tmp/opensurge-lab-smartdns.log
 sudo ip netns del "$DNS_GATEWAY_CLIENT_NS"
 sudo ip netns del "$DNS_RESOLVER_CLIENT_NS"
-sudo ip -n "$GATEWAY_NS" link del os-dns-br
+sudo ip -n "$GATEWAY_NS" link del odbr
 
 log "proving the lab namespace still routes after integration and crash recovery"
 # The network integration suite intentionally exercises failure/restore paths.
@@ -601,11 +601,11 @@ sudo ip link add od-real-client type veth peer name od-real-peer
 sudo ip link set od-real-client netns "$DNS_RESOLVER_CLIENT_NS"
 sudo ip link set od-real-peer netns "$GATEWAY_NS"
 
-sudo ip -n "$GATEWAY_NS" link add os-dns-br type bridge
-sudo ip -n "$GATEWAY_NS" link set od-gw-peer master os-dns-br
-sudo ip -n "$GATEWAY_NS" link set od-real-peer master os-dns-br
-sudo ip -n "$GATEWAY_NS" addr add 10.88.0.1/24 dev os-dns-br
-sudo ip -n "$GATEWAY_NS" link set os-dns-br up
+sudo ip -n "$GATEWAY_NS" link add odbr type bridge
+sudo ip -n "$GATEWAY_NS" link set od-gw-peer master odbr
+sudo ip -n "$GATEWAY_NS" link set od-real-peer master odbr
+sudo ip -n "$GATEWAY_NS" addr add 10.88.0.1/24 dev odbr
+sudo ip -n "$GATEWAY_NS" link set odbr up
 sudo ip -n "$GATEWAY_NS" link set od-gw-peer up
 sudo ip -n "$GATEWAY_NS" link set od-real-peer up
 
@@ -684,7 +684,7 @@ rm -f /tmp/opensurge-lab-smartdns.pid /tmp/opensurge-lab-fake-dns.pid /tmp/opens
 rm -f /tmp/opensurge-lab-smartdns.conf /tmp/opensurge-lab-smartdns.log
 sudo ip netns del "$DNS_GATEWAY_CLIENT_NS"
 sudo ip netns del "$DNS_RESOLVER_CLIENT_NS"
-sudo ip -n "$GATEWAY_NS" link del os-dns-br
+sudo ip -n "$GATEWAY_NS" link del odbr
 
 log "proving the lab namespace still routes after integration and crash recovery"
 # The network integration suite intentionally exercises failure/restore paths.
