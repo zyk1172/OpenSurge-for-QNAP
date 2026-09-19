@@ -1,6 +1,7 @@
 package cloudflareopt
 
 import (
+	"net/http"
 	"testing"
 	"time"
 )
@@ -27,12 +28,42 @@ func TestCandidateBetterPrefersMeasuredDownloadSpeed(t *testing.T) {
 	}
 }
 
-func TestValidHTTPSValidationStatusRejects403FromSelectionQueue(t *testing.T) {
-	if validHTTPSValidationStatus(403) {
-		t.Fatal("HTTP 403 must not enter the HTTPS-validated candidate queue")
+func TestHTTPSValidationAcceptsCloudflare403And405(t *testing.T) {
+	cfRay := http.Header{"CF-Ray": []string{"abc-SIN"}}
+	if !validHTTPSValidationResponse(http.StatusForbidden, cfRay, nil) {
+		t.Fatal("Cloudflare 403 should remain eligible after TLS/SNI and edge validation")
+	}
+	server := http.Header{"Server": []string{"cloudflare"}}
+	if !validHTTPSValidationResponse(http.StatusMethodNotAllowed, server, nil) {
+		t.Fatal("Cloudflare 405 should remain eligible because HEAD may be unsupported")
 	}
 }
 
+func TestHTTPSValidationRejects403WithoutCloudflareEvidence(t *testing.T) {
+	if validHTTPSValidationResponse(http.StatusForbidden, http.Header{}, nil) {
+		t.Fatal("403 without Cloudflare edge evidence must be rejected")
+	}
+}
+
+func TestHTTPSValidationRejectsExplicitEdgeIPRestrictedError(t *testing.T) {
+	header := http.Header{"CF-Ray": []string{"abc-SIN"}}
+	body := []byte("<html><title>Error 1034</title><p>Edge IP Restricted</p></html>")
+	if validHTTPSValidationResponse(http.StatusForbidden, header, body) {
+		t.Fatal("Cloudflare error 1034 must reject the candidate")
+	}
+
+	header.Set("CF-Error-Code", "1034")
+	if validHTTPSValidationResponse(http.StatusForbidden, header, nil) {
+		t.Fatal("Cloudflare error code header 1034 must reject the candidate")
+	}
+}
+
+func TestHTTPSValidationStillRejectsServerErrors(t *testing.T) {
+	header := http.Header{"CF-Ray": []string{"abc-SIN"}}
+	if validHTTPSValidationResponse(http.StatusInternalServerError, header, nil) {
+		t.Fatal("5xx response must not enter the validated candidate queue")
+	}
+}
 
 func TestCandidateBetterFallsBackToQualityWhenAllDownloadsFail(t *testing.T) {
 	betterQuality := CandidateResult{IP: "104.18.1.1", DownloadMbps: 0, LossRate: 0, TTFBMS: 20, LatencyMS: 10}
