@@ -364,6 +364,7 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 		BootSessionID:   bootSession.ID,
 		ProfileDigest:   profileDigest,
 		DNSIPv6:         m.cfg.DNS.IPv6,
+		DNSFrontend:     "smartdns",
 		NetworkSnapshot: snapshot,
 	}
 	if bundle := m.cfg.DevicePolicy.Bundle; bundle != nil {
