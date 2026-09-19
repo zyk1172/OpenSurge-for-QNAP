@@ -6,7 +6,8 @@ import (
 )
 
 func TestValidHTTPSValidationResponseStatusMatrix(t *testing.T) {
-	cloudflare := http.Header{"CF-Ray": []string{"abc-SIN"}}
+	cloudflare := http.Header{}
+	cloudflare.Set("CF-Ray", "abc-SIN")
 	tests := []struct {
 		status int
 		want   bool
