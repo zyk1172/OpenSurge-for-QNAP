@@ -47,9 +47,10 @@ The retained dnsmasq COPYING text is included under
 - License: `GPL-3.0-only`
 - Version: `48.4`
 - Release tag: `Release48.4`
+- Source revision: `21c940edc65520849ba03544c5cf8d9cf326e680`
 - Distributed form: built from the tagged upstream source inside the
-  target-platform Docker build stage; the build verifies that the checked-out
-  commit is exactly named by that release tag.
+  target-platform Docker build stage; the build verifies the exact source
+  revision before compiling.
 - Retained license text:
   [`third_party/licenses/smartdns-GPL-3.0.txt`](third_party/licenses/smartdns-GPL-3.0.txt)
 
