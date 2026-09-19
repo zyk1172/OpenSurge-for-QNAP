@@ -231,7 +231,7 @@ func (a *cloudflareOptimizerAPI) runScan(ctx context.Context) (cloudflareopt.Res
 	// fresh result. Keep the last verified result for enabled hostnames omitted
 	// from this run instead of temporarily deleting their Hosts entry. Explicitly
 	// disabled or removed targets are filtered out by configuration updates.
-	mergedResults := mergeBoundedScanResults(previousResults, output.Results, cfg.Targets)
+	mergedResults := mergeBoundedScanResults(previousResults, output.Results, cfg.Targets, output.RejectedDomains)
 	changed := !sameOptimizerResults(previousResults, mergedResults)
 	state.Results = mergedResults
 	if changed {
@@ -552,7 +552,7 @@ func healthFromScanResults(results []cloudflareopt.TargetResult, checkedAt time.
 	return out
 }
 
-func mergeBoundedScanResults(previous, fresh []cloudflareopt.TargetResult, targets []cloudflareopt.Target) []cloudflareopt.TargetResult {
+func mergeBoundedScanResults(previous, fresh []cloudflareopt.TargetResult, targets []cloudflareopt.Target, rejectedDomains []string) []cloudflareopt.TargetResult {
 	enabled := enabledOptimizerDomains(targets)
 	byDomain := map[string]cloudflareopt.TargetResult{}
 	for _, result := range previous {
@@ -560,6 +560,9 @@ func mergeBoundedScanResults(previous, fresh []cloudflareopt.TargetResult, targe
 		if enabled[domain] {
 			byDomain[domain] = result
 		}
+	}
+	for _, domain := range rejectedDomains {
+		delete(byDomain, optimizerDomain(domain))
 	}
 	for _, result := range fresh {
 		domain := optimizerDomain(result.Domain)

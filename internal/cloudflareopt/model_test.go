@@ -16,7 +16,7 @@ func TestDefaultConfigValid(t *testing.T) {
 	if !cfg.Health.Enabled || cfg.Health.CheckIntervalMinutes != 30 || cfg.Health.LatencyThresholdMS != 100 {
 		t.Fatalf("unexpected health defaults: %#v", cfg.Health)
 	}
-	if cfg.Scan.CandidateLimit != 1024 || cfg.Scan.TCPConcurrency != 128 || cfg.Scan.MaxLatencyMS != 100 || cfg.Scan.MaxLossRate != 0 {
+	if cfg.Scan.CandidateLimit != 1024 || cfg.Scan.TCPConcurrency != 128 || cfg.Scan.MaxLatencyMS != 100 || cfg.Scan.MaxLossRate != 0 || cfg.Scan.MinDownloadMbps != 0 || cfg.Scan.DownloadMaxBytes != DefaultDownloadRequestBytes {
 		t.Fatalf("unexpected scan defaults: %#v", cfg.Scan)
 	}
 }
@@ -124,7 +124,7 @@ func TestNormalizeMigratesLegacyContinuousHealthAndStandardScan(t *testing.T) {
 	if !got.Health.Enabled || got.Health.CheckIntervalMinutes != 30 || got.Health.LatencyThresholdMS != 100 {
 		t.Fatalf("legacy health migration = %#v", got.Health)
 	}
-	if got.Scan.CandidateLimit != 1024 || got.Scan.TCPConcurrency != 128 || got.Scan.DownloadCandidateCount != 8 {
+	if got.Scan.CandidateLimit != 1024 || got.Scan.TCPConcurrency != 128 || got.Scan.DownloadCandidateCount != 8 || got.Scan.DownloadMaxBytes != DefaultDownloadRequestBytes {
 		t.Fatalf("legacy scan migration = %#v", got.Scan)
 	}
 	if got.Schedule.EveryDays != 7 {
@@ -142,5 +142,34 @@ func TestValidateRejectsUnsafeHealthAndScanThresholds(t *testing.T) {
 	cfg.Scan.MaxLossRate = 1.1
 	if err := Validate(cfg); err == nil {
 		t.Fatal("expected invalid scan loss threshold to be rejected")
+	}
+}
+
+func TestValidateMinimumDownloadThreshold(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Scan.MinDownloadMbps = 20
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("valid minimum throughput threshold rejected: %v", err)
+	}
+
+	cfg.Scan.MinDownloadMbps = -1
+	if err := Validate(cfg); err == nil {
+		t.Fatal("negative minimum throughput threshold should be rejected")
+	}
+
+	cfg = DefaultConfig()
+	cfg.Scan.MinDownloadMbps = 20
+	cfg.Scan.DownloadCandidateCount = 0
+	if err := Validate(cfg); err == nil {
+		t.Fatal("minimum throughput threshold requires download candidates")
+	}
+}
+
+func TestNormalizeMigratesSmallDownloadStreams(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Scan.DownloadMaxBytes = 16 << 20
+	got := Normalize(cfg)
+	if got.Scan.DownloadMaxBytes != DefaultDownloadRequestBytes {
+		t.Fatalf("small legacy download stream was not migrated: got %d want %d", got.Scan.DownloadMaxBytes, DefaultDownloadRequestBytes)
 	}
 }

@@ -12,8 +12,9 @@ import (
 const SchemaVersion = 1
 
 const (
-	ScheduleInterval = "interval"
-	ScheduleCron     = "cron"
+	ScheduleInterval            = "interval"
+	ScheduleCron                = "cron"
+	DefaultDownloadRequestBytes = int64(200_000_000)
 )
 
 type Config struct {
@@ -52,6 +53,7 @@ type ScanSettings struct {
 	DownloadCandidateCount int     `json:"download_candidate_count"`
 	DownloadSeconds        int     `json:"download_seconds"`
 	DownloadMaxBytes       int64   `json:"download_max_bytes"`
+	MinDownloadMbps        float64 `json:"min_download_mbps"`
 }
 
 type Target struct {
@@ -134,7 +136,8 @@ func DefaultConfig() Config {
 			HTTPTimeoutMS:          2500,
 			DownloadCandidateCount: 8,
 			DownloadSeconds:        4,
-			DownloadMaxBytes:       8 << 20,
+			DownloadMaxBytes:       DefaultDownloadRequestBytes,
+			MinDownloadMbps:        0,
 		},
 		Targets: []Target{},
 	}
@@ -185,11 +188,19 @@ func Normalize(cfg Config) Config {
 			HTTPTimeoutMS:          2500,
 			DownloadCandidateCount: 8,
 			DownloadSeconds:        4,
-			DownloadMaxBytes:       8 << 20,
+			DownloadMaxBytes:       DefaultDownloadRequestBytes,
+			MinDownloadMbps:        0,
 		}
 	}
 	if cfg.Scan.MaxLatencyMS == 0 {
 		cfg.Scan.MaxLatencyMS = 100
+	}
+	// Older presets requested only 4–16 MiB, which let fast links finish in a
+	// fraction of a second and made TLS/TTFB dominate the reported Mbps. The
+	// field is not exposed in the UI, so migrate old/small values to a large
+	// response stream and let DownloadSeconds define the actual sample window.
+	if cfg.Scan.DownloadMaxBytes == 0 || cfg.Scan.DownloadMaxBytes <= 64<<20 {
+		cfg.Scan.DownloadMaxBytes = DefaultDownloadRequestBytes
 	}
 
 	seen := map[string]bool{}
@@ -283,8 +294,14 @@ func validateScan(scan ScanSettings) error {
 	if scan.DownloadSeconds < 1 || scan.DownloadSeconds > 10 {
 		return fmt.Errorf("scan download_seconds must be between 1 and 10")
 	}
-	if scan.DownloadMaxBytes < 256<<10 || scan.DownloadMaxBytes > 64<<20 {
-		return fmt.Errorf("scan download_max_bytes must be between 256 KiB and 64 MiB")
+	if scan.DownloadMaxBytes < 64<<20 || scan.DownloadMaxBytes > 512<<20 {
+		return fmt.Errorf("scan download_max_bytes must be between 64 MiB and 512 MiB")
+	}
+	if scan.MinDownloadMbps < 0 || scan.MinDownloadMbps > 10000 {
+		return fmt.Errorf("scan min_download_mbps must be between 0 and 10000")
+	}
+	if scan.MinDownloadMbps > 0 && scan.DownloadCandidateCount == 0 {
+		return fmt.Errorf("scan download_candidate_count must be greater than 0 when min_download_mbps is enabled")
 	}
 	return nil
 }

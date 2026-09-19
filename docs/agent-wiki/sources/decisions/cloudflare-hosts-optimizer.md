@@ -12,7 +12,7 @@ QNAP-only control-plane feature for a small user-managed set of hostnames that s
 4. Fail closed if `ip route get` does not resolve through that physical interface or indicates TUN traversal.
 5. Reuse the coarse candidate pool for every enabled hostname.
 6. Validate candidates with the target hostname as TLS SNI / HTTP Host.
-7. Run short download tests only for the best few candidates.
+7. Run time-bounded download tests only for the best few candidates using Cloudflare's official `speed.cloudflare.com/__down` endpoint.
 8. Persist the selected addresses in `/data/control/cloudflare-optimizer-state.json`.
 9. During profile reconciliation, inject selected addresses into the effective top-level Mihomo `hosts` mapping and ensure each target uses real-IP handling.
 10. If selected addresses changed while the gateway is running, perform one transactional full reload for the entire batch.
@@ -45,7 +45,11 @@ Full optimization uses bounded presets instead of an unbounded attempt-to-fill l
 - full: 120 seconds / 1536 candidates;
 - deep: 180 seconds / 2048 candidates.
 
-Candidates first pass TCP/443 sampling, then hard latency/loss filters, target-domain TLS SNI / HTTP Host validation, and finally bounded download testing. The standard preset uses 128 TCP workers, a 100 ms latency ceiling, zero-loss filtering, 30 HTTPS candidates and at most 8 download candidates.
+Candidates first pass TCP/443 sampling, then hard latency/loss filters, target-domain TLS SNI / HTTP Host validation, and finally bounded download testing. The standard preset uses 128 TCP workers, zero-loss filtering, 30 HTTPS candidates and at most 8 download candidates. The scan latency ceiling is user-selectable in the UI (100–1000 ms). An optional minimum download-throughput threshold can be set in Mbps: `0` preserves the HTTPS-verified fallback when download measurement is unavailable, while values above `0` strictly reject unmeasured candidates and candidates below the configured throughput floor. A domain explicitly rejected by this throughput floor does not retain a stale optimizer result from a previous run.
+
+Download throughput uses Cloudflare's official `speed.cloudflare.com/__down` endpoint in 200,000,000-byte chunks. The optimizer binds the HTTPS connection directly to the candidate IP while keeping SNI `speed.cloudflare.com`, starts timing only while response bodies are being read, and accumulates active body time until the preset's `download_seconds` window is reached. If a fast link finishes a 200 MB chunk early, another chunk is requested on the same transport and the measurement continues. TCP setup, TLS negotiation, response-header time and TTFB are therefore kept outside the Mbps denominator. Configurations carrying the older 4–16 MiB hidden chunk size are migrated automatically to 200 MB.
+
+HTTPS validation treats the Cloudflare edge identity as authoritative rather than using a strict 2xx/3xx-only rule. A 2xx/3xx response still passes normally. HTTP 403 and 405 are accepted only after the TLS/SNI request succeeds and the response proves Cloudflare edge handling via `CF-Ray` or `Server: cloudflare`; these statuses are common for PT/WAF-protected sites and for origins that reject `HEAD`. Restricted responses are re-checked with a bounded `GET`. Explicit Cloudflare Edge IP Restricted / error 1034 responses remain hard failures and are never admitted to the candidate queue.
 
 This flow adopts the useful operational ideas from Lyxot/CloudflareSpeedTestDNS and XIU2/CloudflareSpeedTest while keeping the OpenSurge-native engine, physical-egress enforcement, persistence, scheduler and Mihomo reconciliation. No second optimizer container, DDNS subsystem, TOML/CLI configuration layer or separate long-running process is embedded.
 

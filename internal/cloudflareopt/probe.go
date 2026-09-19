@@ -51,8 +51,9 @@ type ScanProgress struct {
 }
 
 type ScanOutput struct {
-	Results []TargetResult
-	Elapsed time.Duration
+	Results         []TargetResult
+	RejectedDomains []string
+	Elapsed         time.Duration
 }
 
 type tcpCandidate struct {
@@ -192,13 +193,18 @@ func RunScan(ctx context.Context, targets []Target, options ScanOptions, progres
 	}
 
 	results := make([]TargetResult, 0, len(enabledTargets))
+	rejectedDomains := make([]string, 0)
 	for _, target := range enabledTargets {
 		verified := perTarget[target.Domain]
 		if len(verified) == 0 {
 			continue
 		}
 		converted := buildCandidateResults(verified, speedByIP)
+		converted = filterByMinimumDownload(converted, settings.MinDownloadMbps)
 		if len(converted) == 0 {
+			if settings.MinDownloadMbps > 0 {
+				rejectedDomains = append(rejectedDomains, target.Domain)
+			}
 			continue
 		}
 		sort.SliceStable(converted, func(i, j int) bool { return candidateBetter(converted[i], converted[j]) })
@@ -208,10 +214,10 @@ func RunScan(ctx context.Context, targets []Target, options ScanOptions, progres
 		}
 		results = append(results, TargetResult{Domain: target.Domain, Selected: converted[0], Alternatives: alternatives, UpdatedAt: now().UTC()})
 	}
-	if len(results) == 0 {
+	if len(results) == 0 && len(rejectedDomains) == 0 {
 		return ScanOutput{}, fmt.Errorf("Cloudflare optimizer did not produce any usable domain result")
 	}
-	return ScanOutput{Results: results, Elapsed: now().Sub(started)}, nil
+	return ScanOutput{Results: results, RejectedDomains: rejectedDomains, Elapsed: now().Sub(started)}, nil
 }
 
 func buildCandidateResults(verified []httpCandidate, speedByIP map[string]float64) []CandidateResult {
@@ -228,6 +234,19 @@ func buildCandidateResults(verified []httpCandidate, speedByIP map[string]float6
 		})
 	}
 	return converted
+}
+
+func filterByMinimumDownload(candidates []CandidateResult, minimumMbps float64) []CandidateResult {
+	if minimumMbps <= 0 {
+		return candidates
+	}
+	filtered := make([]CandidateResult, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.DownloadMbps >= minimumMbps {
+			filtered = append(filtered, candidate)
+		}
+	}
+	return filtered
 }
 
 func candidateBetter(left, right CandidateResult) bool {
@@ -387,6 +406,13 @@ func probeHTTPSBatch(ctx context.Context, target Target, candidates []tcpCandida
 	return out
 }
 
+type httpsValidationResponse struct {
+	StatusCode  int
+	Header      http.Header
+	BodyPreview []byte
+	TTFB        time.Duration
+}
+
 func probeHTTPS(ctx context.Context, target Target, candidate tcpCandidate, options ScanOptions) (httpCandidate, bool) {
 	timeout := time.Duration(options.Settings.HTTPTimeoutMS) * time.Millisecond
 	dialer := directDialer(options.Interface, options.SourceIPv4, timeout)
@@ -402,87 +428,199 @@ func probeHTTPS(ctx context.Context, target Target, candidate tcpCandidate, opti
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	requestURL := "https://" + target.Domain + target.TestPath
-	request, err := http.NewRequestWithContext(ctx, http.MethodHead, requestURL, nil)
+
+	validation, err := performHTTPSValidationRequest(ctx, client, http.MethodHead, requestURL)
 	if err != nil {
 		return httpCandidate{}, false
 	}
+	if !validHTTPSValidationResponse(validation.StatusCode, validation.Header, validation.BodyPreview) {
+		return httpCandidate{}, false
+	}
+
+	// PT sites and WAF-protected origins commonly reject automated HEAD requests
+	// with 403/405 even when the candidate Cloudflare edge is valid for the
+	// target SNI. Re-check those statuses with a bounded GET so explicit
+	// Cloudflare edge-IP errors (notably 1034) can be observed without treating
+	// the status code itself as an unusable-IP verdict.
+	if validation.StatusCode == http.StatusForbidden || validation.StatusCode == http.StatusMethodNotAllowed {
+		if fallback, fallbackErr := performHTTPSValidationRequest(ctx, client, http.MethodGet, requestURL); fallbackErr == nil {
+			if !validHTTPSValidationResponse(fallback.StatusCode, fallback.Header, fallback.BodyPreview) {
+				return httpCandidate{}, false
+			}
+			validation = fallback
+		}
+	}
+
+	cfRay := validation.Header.Get("CF-Ray")
+	colo := ""
+	if index := strings.LastIndex(cfRay, "-"); index >= 0 && index+1 < len(cfRay) {
+		colo = strings.ToUpper(strings.TrimSpace(cfRay[index+1:]))
+	}
+	return httpCandidate{tcpCandidate: candidate, TTFB: validation.TTFB, Colo: colo}, true
+}
+
+func performHTTPSValidationRequest(ctx context.Context, client *http.Client, method, requestURL string) (httpsValidationResponse, error) {
+	request, err := http.NewRequestWithContext(ctx, method, requestURL, nil)
+	if err != nil {
+		return httpsValidationResponse{}, err
+	}
 	request.Header.Set("User-Agent", "OpenSurge-Cloudflare-Optimizer/1")
+	if method == http.MethodGet {
+		request.Header.Set("Range", "bytes=0-8191")
+	}
+
 	var ttfb time.Duration
 	started := time.Now()
 	trace := &httptrace.ClientTrace{GotFirstResponseByte: func() { ttfb = time.Since(started) }}
 	request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
 	response, err := client.Do(request)
 	if err != nil {
-		return httpCandidate{}, false
+		return httpsValidationResponse{}, err
 	}
-	io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
+	bodyPreview, _ := io.ReadAll(io.LimitReader(response.Body, 8<<10))
 	_ = response.Body.Close()
-	if !validHTTPSValidationStatus(response.StatusCode) {
-		return httpCandidate{}, false
-	}
-	server := strings.ToLower(response.Header.Get("Server"))
-	cfRay := response.Header.Get("CF-Ray")
-	if server != "cloudflare" && cfRay == "" {
-		return httpCandidate{}, false
-	}
-	colo := ""
-	if index := strings.LastIndex(cfRay, "-"); index >= 0 && index+1 < len(cfRay) {
-		colo = strings.ToUpper(strings.TrimSpace(cfRay[index+1:]))
-	}
 	if ttfb == 0 {
 		ttfb = time.Since(started)
 	}
-	return httpCandidate{tcpCandidate: candidate, TTFB: ttfb, Colo: colo}, true
+	return httpsValidationResponse{
+		StatusCode:  response.StatusCode,
+		Header:      response.Header.Clone(),
+		BodyPreview: bodyPreview,
+		TTFB:        ttfb,
+	}, nil
 }
 
-func validHTTPSValidationStatus(status int) bool {
-	return status >= http.StatusOK && status < http.StatusBadRequest
+func validHTTPSValidationResponse(status int, header http.Header, bodyPreview []byte) bool {
+	if !hasCloudflareEdgeEvidence(header) {
+		return false
+	}
+	if hasExplicitCloudflareEdgeIPError(header, bodyPreview) {
+		return false
+	}
+	if status >= http.StatusOK && status < http.StatusBadRequest {
+		return true
+	}
+	return status == http.StatusForbidden || status == http.StatusMethodNotAllowed
+}
+
+func hasCloudflareEdgeEvidence(header http.Header) bool {
+	server := strings.ToLower(strings.TrimSpace(header.Get("Server")))
+	return strings.Contains(server, "cloudflare") || strings.TrimSpace(header.Get("CF-Ray")) != ""
+}
+
+func hasExplicitCloudflareEdgeIPError(header http.Header, bodyPreview []byte) bool {
+	for _, key := range []string{"CF-Error-Code", "Cloudflare-Error-Code"} {
+		if strings.TrimSpace(header.Get(key)) == "1034" {
+			return true
+		}
+	}
+	body := strings.ToLower(string(bodyPreview))
+	for _, marker := range []string{
+		"error 1034",
+		"error code 1034",
+		"error code: 1034",
+		"edge ip restricted",
+	} {
+		if strings.Contains(body, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func probeDownload(ctx context.Context, ip string, options ScanOptions) float64 {
 	settings := options.Settings
-	timeout := time.Duration(settings.DownloadSeconds) * time.Second
+	window := time.Duration(settings.DownloadSeconds) * time.Second
+	headerTimeout := time.Duration(settings.HTTPTimeoutMS) * time.Millisecond
 	if deadline, ok := ctx.Deadline(); ok {
 		remaining := time.Until(deadline)
-		if remaining <= 250*time.Millisecond {
+		if remaining <= window+250*time.Millisecond {
 			return 0
 		}
-		if remaining < timeout {
-			timeout = remaining
-		}
 	}
-	dialer := directDialer(options.Interface, options.SourceIPv4, timeout)
+
+	dialer := directDialer(options.Interface, options.SourceIPv4, headerTimeout)
 	transport := &http.Transport{
-		Proxy:               nil,
-		ForceAttemptHTTP2:   true,
-		TLSHandshakeTimeout: timeout,
-		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12, ServerName: "speed.cloudflare.com"},
+		Proxy:                 nil,
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   headerTimeout,
+		ResponseHeaderTimeout: headerTimeout,
+		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12, ServerName: "speed.cloudflare.com"},
 		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
 			return dialer.DialContext(ctx, "tcp4", net.JoinHostPort(ip, "443"))
 		},
 	}
 	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, Timeout: timeout}
+	client := &http.Client{Transport: transport}
+
 	bytesText := strconv.FormatInt(settings.DownloadMaxBytes, 10)
 	testURL := "https://speed.cloudflare.com/__down?bytes=" + url.QueryEscape(bytesText)
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
-	if err != nil {
+	var totalRead int64
+	var activeBody time.Duration
+
+	for activeBody < window {
+		if ctx.Err() != nil {
+			return 0
+		}
+		remainingWindow := window - activeBody
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= remainingWindow+250*time.Millisecond {
+			return 0
+		}
+
+		requestCtx, cancelRequest := context.WithCancel(ctx)
+		request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, testURL, nil)
+		if err != nil {
+			cancelRequest()
+			return 0
+		}
+		request.Header.Set("User-Agent", "OpenSurge-Cloudflare-Optimizer/1")
+		request.Header.Set("Accept-Encoding", "identity")
+
+		response, err := client.Do(request)
+		if err != nil {
+			cancelRequest()
+			return 0
+		}
+		if response.StatusCode != http.StatusOK {
+			_ = response.Body.Close()
+			cancelRequest()
+			return 0
+		}
+
+		bodyStarted := time.Now()
+		timer := time.AfterFunc(remainingWindow, cancelRequest)
+		read, _ := io.Copy(io.Discard, response.Body)
+		timer.Stop()
+		_ = response.Body.Close()
+		elapsed := time.Since(bodyStarted)
+		if elapsed > remainingWindow {
+			elapsed = remainingWindow
+		}
+		cancelRequest()
+
+		if ctx.Err() != nil || read <= 0 || elapsed <= 0 {
+			return 0
+		}
+		totalRead += read
+		activeBody += elapsed
+
+		// A full 200 MB response can complete before the requested sample
+		// window on fast links. In that case issue another request on the same
+		// transport/connection and keep accumulating active body time.
+		if read >= settings.DownloadMaxBytes {
+			continue
+		}
+
+		// The final read is expected to be canceled when the measurement window
+		// expires. An earlier short response/error is not a trustworthy sample.
+		if activeBody < window*8/10 {
+			return 0
+		}
+		break
+	}
+
+	if totalRead <= 0 || activeBody <= 0 {
 		return 0
 	}
-	request.Header.Set("User-Agent", "OpenSurge-Cloudflare-Optimizer/1")
-	started := time.Now()
-	response, err := client.Do(request)
-	if err != nil {
-		return 0
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return 0
-	}
-	read, _ := io.Copy(io.Discard, io.LimitReader(response.Body, settings.DownloadMaxBytes))
-	elapsed := time.Since(started).Seconds()
-	if elapsed <= 0 || read <= 0 {
-		return 0
-	}
-	return float64(read) * 8 / elapsed / 1_000_000
+	return float64(totalRead) * 8 / activeBody.Seconds() / 1_000_000
 }
