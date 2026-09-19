@@ -62,3 +62,27 @@ func TestApplyResultsToProfileRuleModeDetectsConflict(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+
+func TestApplyResultsToProfilePrependsOptimizerHostAheadOfImportedHosts(t *testing.T) {
+	input := []byte(`hosts:
+  manual.example.com: 192.0.2.8
+  api.example.com: 192.0.2.9
+  another.example.com: 192.0.2.7
+dns:
+  fake-ip-filter: []
+`)
+	output, err := ApplyResultsToProfile(input, []TargetResult{{Domain: "api.example.com", Selected: CandidateResult{IP: "104.18.1.2"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(output)
+	optimizer := strings.Index(text, "api.example.com")
+	manual := strings.Index(text, "manual.example.com")
+	if optimizer < 0 || manual < 0 || optimizer > manual {
+		t.Fatalf("optimizer host must be rendered before imported/manual hosts: %s", text)
+	}
+	if strings.Contains(text, "192.0.2.9") || !strings.Contains(text, "104.18.1.2") {
+		t.Fatalf("optimizer host did not override imported value: %s", text)
+	}
+}

@@ -350,7 +350,7 @@ func (a *cloudflareOptimizerAPI) schedulerLoop() {
 		a.populateNextHealthCheck(&state, cfg)
 
 		if state.NextRunAt != nil && !now.Before(*state.NextRunAt) {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Scan.BudgetSeconds+20)*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), cloudflareOptimizerScanTimeout(cfg))
 			_, _ = a.runScan(ctx)
 			cancel()
 			continue
@@ -364,10 +364,21 @@ func (a *cloudflareOptimizerAPI) schedulerLoop() {
 		if checkErr != nil || !needsScan {
 			continue
 		}
-		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(cfg.Scan.BudgetSeconds+20)*time.Second)
+		ctx, cancel = context.WithTimeout(context.Background(), cloudflareOptimizerScanTimeout(cfg))
 		_, _ = a.runScan(ctx)
 		cancel()
 	}
+}
+
+func cloudflareOptimizerScanTimeout(cfg cloudflareopt.Config) time.Duration {
+	downloadSeconds := 0
+	if cfg.Scan.DownloadCandidateCount > 0 {
+		// All per-domain HTTPS candidates come from the same shared coarse pool,
+		// so the number of unique IPs that can reach download testing is bounded
+		// by HTTPSCandidateCount rather than target-count × download-count.
+		downloadSeconds = cfg.Scan.HTTPSCandidateCount * cfg.Scan.DownloadSeconds
+	}
+	return time.Duration(cfg.Scan.BudgetSeconds+downloadSeconds+20) * time.Second
 }
 
 func (a *cloudflareOptimizerAPI) populateNextRun(state *cloudflareopt.State, cfg cloudflareopt.Config) {
