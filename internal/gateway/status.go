@@ -114,7 +114,6 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 		} else {
 			runtimeState = "active"
 			appliedCfg := m.cfg
-			dhcpRunning := false
 			mihomoRunning := false
 			mihomoManager := mihomo.New(appliedCfg, m.paths)
 			if trackedProcessRunning(m.gatewayDeps(), state.PIDMihomo, state.MihomoProcessFingerprint, mihomoManager.Running) {
@@ -144,7 +143,6 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 			dhcpManager := dhcp.New(m.cfg, m.paths)
 			dhcpReady := !m.cfg.DHCP.Enabled
 			if trackedProcessRunning(m.gatewayDeps(), state.PIDDNSMasq, state.DNSMasqProcessFingerprint, dhcpManager.Running) {
-				dhcpRunning = true
 				dhcpReady = true
 				dhcpStatus = "running"
 			}
