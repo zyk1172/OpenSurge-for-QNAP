@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DOCKERHUB_REPOSITORY: zyk1172/opensurge-for-qnap
+  DOCKERHUB_REPOSITORY: zykhs/opensurge-for-qnap
   GHCR_REPOSITORY: ghcr.io/zyk1172/opensurge-for-qnap
 
 jobs:
@@ -165,7 +165,7 @@ jobs:
           Stable IPv4 same-LAN QNAP gateway release.
 
           Docker Hub:
-          \`docker pull zyk1172/opensurge-for-qnap:${{ steps.version.outputs.version }}\`
+          \`docker pull zykhs/opensurge-for-qnap:${{ steps.version.outputs.version }}\`
 
           GHCR mirror:
           \`docker pull ghcr.io/zyk1172/opensurge-for-qnap:${{ steps.version.outputs.version }}\`

@@ -74,7 +74,7 @@ docker compose up -d
 默认 Compose 使用：
 
 ```text
-zyk1172/opensurge-for-qnap:1.0.0
+zykhs/opensurge-for-qnap:1.0.0
 ```
 
 如果 `1.0.0` 正式镜像尚未发布，可以先使用仓库 Releases 中的 `qnap-test-latest` 测试镜像。
