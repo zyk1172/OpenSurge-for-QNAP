@@ -530,48 +530,71 @@ func hasExplicitCloudflareEdgeIPError(header http.Header, bodyPreview []byte) bo
 
 func probeDownload(ctx context.Context, ip string, options ScanOptions) float64 {
 	settings := options.Settings
-	timeout := time.Duration(settings.DownloadSeconds) * time.Second
+	window := time.Duration(settings.DownloadSeconds) * time.Second
 	if deadline, ok := ctx.Deadline(); ok {
 		remaining := time.Until(deadline)
-		if remaining <= 250*time.Millisecond {
+		// Do not report a biased partial sample when the whole optimization
+		// budget is already too close to expiry.
+		if remaining <= window+250*time.Millisecond {
 			return 0
 		}
-		if remaining < timeout {
-			timeout = remaining
-		}
 	}
-	dialer := directDialer(options.Interface, options.SourceIPv4, timeout)
+
+	headerTimeout := time.Duration(settings.HTTPTimeoutMS) * time.Millisecond
+	dialer := directDialer(options.Interface, options.SourceIPv4, headerTimeout)
 	transport := &http.Transport{
-		Proxy:               nil,
-		ForceAttemptHTTP2:   true,
-		TLSHandshakeTimeout: timeout,
-		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12, ServerName: "speed.cloudflare.com"},
+		Proxy:                  nil,
+		ForceAttemptHTTP2:      true,
+		TLSHandshakeTimeout:    headerTimeout,
+		ResponseHeaderTimeout:  headerTimeout,
+		TLSClientConfig:        &tls.Config{MinVersion: tls.VersionTLS12, ServerName: "speed.cloudflare.com"},
 		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
 			return dialer.DialContext(ctx, "tcp4", net.JoinHostPort(ip, "443"))
 		},
 	}
 	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, Timeout: timeout}
+
+	requestCtx, cancelRequest := context.WithCancel(ctx)
+	defer cancelRequest()
 	bytesText := strconv.FormatInt(settings.DownloadMaxBytes, 10)
 	testURL := "https://speed.cloudflare.com/__down?bytes=" + url.QueryEscape(bytesText)
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
+	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, testURL, nil)
 	if err != nil {
 		return 0
 	}
 	request.Header.Set("User-Agent", "OpenSurge-Cloudflare-Optimizer/1")
-	started := time.Now()
+	request.Header.Set("Accept-Encoding", "identity")
+
+	client := &http.Client{Transport: transport}
 	response, err := client.Do(request)
 	if err != nil {
 		return 0
 	}
-	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
+		_ = response.Body.Close()
 		return 0
 	}
-	read, _ := io.Copy(io.Discard, io.LimitReader(response.Body, settings.DownloadMaxBytes))
-	elapsed := time.Since(started).Seconds()
-	if elapsed <= 0 || read <= 0 {
+
+	// Throughput timing starts only after response headers arrive. TCP setup,
+	// TLS negotiation and TTFB are already measured separately and must not
+	// depress the Mbps score.
+	bodyStarted := time.Now()
+	timer := time.AfterFunc(window, cancelRequest)
+	read, readErr := io.Copy(io.Discard, response.Body)
+	timer.Stop()
+	_ = response.Body.Close()
+	elapsed := time.Since(bodyStarted)
+
+	if ctx.Err() != nil || read <= 0 || elapsed <= 0 {
 		return 0
 	}
-	return float64(read) * 8 / elapsed / 1_000_000
+	// A canceled read at the intended sample boundary is expected. A much
+	// earlier short/error response is not a trustworthy throughput sample
+	// unless the requested large stream actually completed.
+	completedStream := read >= settings.DownloadMaxBytes
+	if !completedStream && elapsed < window*8/10 {
+		_ = readErr
+		return 0
+	}
+	return float64(read) * 8 / elapsed.Seconds() / 1_000_000
 }
