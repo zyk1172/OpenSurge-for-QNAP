@@ -20,7 +20,7 @@ func TestMergeBoundedScanResultsPreservesUnfinishedEnabledDomain(t *testing.T) {
 		{Domain: "b.example.com", Enabled: true},
 	}
 
-	got := mergeBoundedScanResults(previous, fresh, targets)
+	got := mergeBoundedScanResults(previous, fresh, targets, nil)
 	if len(got) != 2 {
 		t.Fatalf("len(results) = %d, want 2", len(got))
 	}
@@ -95,5 +95,21 @@ func TestCloudflareOptimizerScanTimeoutReservesDownloadPhase(t *testing.T) {
 	want := (75 + 30*4 + 20) * time.Second
 	if got != want {
 		t.Fatalf("scan timeout = %v, want %v", got, want)
+	}
+}
+
+func TestMergeBoundedScanResultsDropsExplicitlyRejectedDomain(t *testing.T) {
+	previous := []cloudflareopt.TargetResult{
+		{Domain: "a.example.com", Selected: cloudflareopt.CandidateResult{IP: "104.16.0.1", DownloadMbps: 5}},
+		{Domain: "b.example.com", Selected: cloudflareopt.CandidateResult{IP: "104.16.0.2", DownloadMbps: 50}},
+	}
+	targets := []cloudflareopt.Target{
+		{Domain: "a.example.com", Enabled: true},
+		{Domain: "b.example.com", Enabled: true},
+	}
+
+	got := mergeBoundedScanResults(previous, nil, targets, []string{"a.example.com"})
+	if len(got) != 1 || got[0].Domain != "b.example.com" {
+		t.Fatalf("rejected domain kept stale result: %#v", got)
 	}
 }
