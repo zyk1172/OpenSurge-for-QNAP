@@ -29,11 +29,13 @@ func TestCandidateBetterPrefersMeasuredDownloadSpeed(t *testing.T) {
 }
 
 func TestHTTPSValidationAcceptsCloudflare403And405(t *testing.T) {
-	cfRay := http.Header{"CF-Ray": []string{"abc-SIN"}}
+	cfRay := http.Header{}
+	cfRay.Set("CF-Ray", "abc-SIN")
 	if !validHTTPSValidationResponse(http.StatusForbidden, cfRay, nil) {
 		t.Fatal("Cloudflare 403 should remain eligible after TLS/SNI and edge validation")
 	}
-	server := http.Header{"Server": []string{"cloudflare"}}
+	server := http.Header{}
+	server.Set("Server", "cloudflare")
 	if !validHTTPSValidationResponse(http.StatusMethodNotAllowed, server, nil) {
 		t.Fatal("Cloudflare 405 should remain eligible because HEAD may be unsupported")
 	}
@@ -46,7 +48,8 @@ func TestHTTPSValidationRejects403WithoutCloudflareEvidence(t *testing.T) {
 }
 
 func TestHTTPSValidationRejectsExplicitEdgeIPRestrictedError(t *testing.T) {
-	header := http.Header{"CF-Ray": []string{"abc-SIN"}}
+	header := http.Header{}
+	header.Set("CF-Ray", "abc-SIN")
 	body := []byte("<html><title>Error 1034</title><p>Edge IP Restricted</p></html>")
 	if validHTTPSValidationResponse(http.StatusForbidden, header, body) {
 		t.Fatal("Cloudflare error 1034 must reject the candidate")
@@ -59,7 +62,8 @@ func TestHTTPSValidationRejectsExplicitEdgeIPRestrictedError(t *testing.T) {
 }
 
 func TestHTTPSValidationStillRejectsServerErrors(t *testing.T) {
-	header := http.Header{"CF-Ray": []string{"abc-SIN"}}
+	header := http.Header{}
+	header.Set("CF-Ray", "abc-SIN")
 	if validHTTPSValidationResponse(http.StatusInternalServerError, header, nil) {
 		t.Fatal("5xx response must not enter the validated candidate queue")
 	}
