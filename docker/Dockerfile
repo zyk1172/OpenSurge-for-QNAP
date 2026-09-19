@@ -39,6 +39,21 @@ RUN curl --fail --show-error --location --proto '=https' \
  && make -C /tmp/dnsmasq -j"$(nproc)" \
  && install -Dm0755 /tmp/dnsmasq/src/dnsmasq /out/dnsmasq
 
+FROM ${DEBIAN_IMAGE} AS smartdns-builder
+ARG SMARTDNS_VERSION=48.4
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates git build-essential libssl-dev zlib1g-dev \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /src/smartdns
+RUN set -eux; \
+    git init; \
+    git remote add origin https://github.com/pymumu/smartdns.git; \
+    git fetch --depth=1 origin "refs/tags/Release${SMARTDNS_VERSION}"; \
+    git checkout --detach FETCH_HEAD; \
+    test "$(git describe --tags --exact-match HEAD)" = "Release${SMARTDNS_VERSION}"; \
+    make -C src -j"$(nproc)"; \
+    install -Dm0755 src/smartdns /out/smartdns
+
 # Upstream v1.19.30 is the latest stable Mihomo release, but its published
 # binaries were built before several Go dependency security fixes. Rebuild the
 # exact stable source commit with the patched module versions instead of
@@ -78,11 +93,12 @@ ARG BUILD_DATE=unknown
 ARG MIHOMO_VERSION=1.19.30
 ARG MIHOMO_COMMIT=ac017cdd246ce8bd547653d927e7bf77d7ee73d5
 ARG DNSMASQ_VERSION=2.93
+ARG SMARTDNS_VERSION=48.4
 
 RUN apt-get update \
  && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends \
-      ca-certificates curl iproute2 netbase nftables tini tzdata util-linux \
+      ca-certificates curl iproute2 libssl3 netbase nftables tini tzdata util-linux zlib1g \
  && grep -Eq '^udp[[:space:]]+17([[:space:]]|$)' /etc/protocols \
  && grep -Eq '^tcp[[:space:]]+6([[:space:]]|$)' /etc/protocols \
  && rm -rf /var/lib/apt/lists/*
@@ -90,6 +106,7 @@ RUN apt-get update \
 COPY --from=go-builder /out/opensurge-container /usr/local/bin/opensurge-container
 COPY --from=go-builder /out/omg /usr/local/bin/omg
 COPY --from=dnsmasq-builder /out/dnsmasq /usr/local/bin/dnsmasq
+COPY --from=smartdns-builder /out/smartdns /usr/local/bin/smartdns
 COPY --from=mihomo-builder /out-mihomo /usr/local/bin/mihomo
 COPY docker/entrypoint.sh /usr/local/bin/opensurge-entrypoint
 COPY deploy/qnap/config.qnap-docker.yaml /usr/share/opensurge/config.qnap-docker.yaml
@@ -108,7 +125,8 @@ LABEL org.opencontainers.image.title="OpenSurge for QNAP" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opensurge.mihomo.version="${MIHOMO_VERSION}" \
       org.opensurge.mihomo.source-revision="${MIHOMO_COMMIT}" \
-      org.opensurge.dnsmasq.version="${DNSMASQ_VERSION}"
+      org.opensurge.dnsmasq.version="${DNSMASQ_VERSION}" \
+      org.opensurge.smartdns.version="${SMARTDNS_VERSION}"
 
 VOLUME ["/data"]
 EXPOSE 8080/tcp 61780/tcp 53/tcp 53/udp
