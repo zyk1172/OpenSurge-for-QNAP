@@ -355,7 +355,7 @@ export function CloudflareOptimizerPage() {
           </select>
         </FormField>
         <FormField label="优选延迟上限" hint="超过这个 TCP 延迟的候选会在 HTTPS 和下载测速前直接剔除。">
-          <select value={draft.scan.max_latency_ms} onChange={event => updateScan({ max_latency_ms: Number(event.target.value) })}>
+          <select aria-label={t('优选延迟上限')} value={draft.scan.max_latency_ms} onChange={event => updateScan({ max_latency_ms: Number(event.target.value) })}>
             <option value={100}>100 ms</option>
             <option value={150}>150 ms</option>
             <option value={200}>200 ms</option>
@@ -367,6 +367,7 @@ export function CloudflareOptimizerPage() {
         </FormField>
         <FormField label="最低下载速度（Mbps）" hint="0 表示关闭速度硬筛选；大于 0 时，未测出速度或低于该值的候选都会剔除。">
           <input
+            aria-label={t('最低下载速度（Mbps）')}
             type="number"
             min={0}
             max={10000}
