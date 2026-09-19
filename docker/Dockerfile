@@ -41,6 +41,7 @@ RUN curl --fail --show-error --location --proto '=https' \
 
 FROM ${DEBIAN_IMAGE} AS smartdns-builder
 ARG SMARTDNS_VERSION=48.4
+ARG SMARTDNS_COMMIT=21c940edc65520849ba03544c5cf8d9cf326e680
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates git build-essential libssl-dev zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*
@@ -50,7 +51,7 @@ RUN set -eux; \
     git remote add origin https://github.com/pymumu/smartdns.git; \
     git fetch --depth=1 origin "refs/tags/Release${SMARTDNS_VERSION}"; \
     git checkout --detach FETCH_HEAD; \
-    test "$(git describe --tags --exact-match HEAD)" = "Release${SMARTDNS_VERSION}"; \
+    test "$(git rev-parse HEAD)" = "${SMARTDNS_COMMIT}"; \
     make -C src -j"$(nproc)"; \
     install -Dm0755 src/smartdns /out/smartdns
 
@@ -94,6 +95,7 @@ ARG MIHOMO_VERSION=1.19.30
 ARG MIHOMO_COMMIT=ac017cdd246ce8bd547653d927e7bf77d7ee73d5
 ARG DNSMASQ_VERSION=2.93
 ARG SMARTDNS_VERSION=48.4
+ARG SMARTDNS_COMMIT=21c940edc65520849ba03544c5cf8d9cf326e680
 
 RUN apt-get update \
  && apt-get upgrade -y \
@@ -126,7 +128,8 @@ LABEL org.opencontainers.image.title="OpenSurge for QNAP" \
       org.opensurge.mihomo.version="${MIHOMO_VERSION}" \
       org.opensurge.mihomo.source-revision="${MIHOMO_COMMIT}" \
       org.opensurge.dnsmasq.version="${DNSMASQ_VERSION}" \
-      org.opensurge.smartdns.version="${SMARTDNS_VERSION}"
+      org.opensurge.smartdns.version="${SMARTDNS_VERSION}" \
+      org.opensurge.smartdns.source-revision="${SMARTDNS_COMMIT}"
 
 VOLUME ["/data"]
 EXPOSE 8080/tcp 61780/tcp 53/tcp 53/udp
