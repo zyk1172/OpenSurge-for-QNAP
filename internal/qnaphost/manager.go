@@ -258,7 +258,7 @@ func (m *Manager) reconcile(ctx context.Context) {
 		return
 	}
 	status := m.statusLocked(ctx)
-	needsDNS := state.DNSMode != DNSModeHost
+	needsDNS := usesOpenSurgeDNS(state.DNSMode)
 	if !status.Enabled || (needsDNS && !status.DNSRedirect) {
 		_ = m.enableLocked(ctx)
 	}
@@ -324,7 +324,7 @@ func (m *Manager) statusLocked(ctx context.Context) Status {
 		}
 	}
 
-	if state.DNSMode != DNSModeHost {
+	if usesOpenSurgeDNS(state.DNSMode) {
 		containerRules, containerRulesErr := m.runContainer(ctx, nil, "ip", "-4", "rule", "show")
 		containerRoutes, containerRoutesErr := m.runContainer(ctx, nil, "ip", "-4", "route", "show", "table", containerDNSRouteTableID)
 		hostDNSRules := hostRulesErr == nil &&
@@ -529,7 +529,7 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 	if err := m.writeIntentWithPrioritiesLocked(state.Enabled, priorities); err != nil {
 		return fmt.Errorf("persist selected NAS host policy priorities: %w", err)
 	}
-	needsDNS := state.DNSMode != DNSModeHost
+	needsDNS := usesOpenSurgeDNS(state.DNSMode)
 	if err := m.ensurePolicySlotsFreeLocked(ctx, needsDNS); err != nil {
 		return err
 	}
@@ -771,6 +771,15 @@ func (m *Manager) runContainer(ctx context.Context, input []byte, command string
 
 func validDNSMode(mode string) bool {
 	return mode == DNSModeAuto || mode == DNSModeOpenSurge || mode == DNSModeHost
+}
+
+// usesOpenSurgeDNS defines the NAS-host side of the dual-DNS contract.
+// Auto/OpenSurge modes deliberately keep the existing L4 policy-routing path
+// straight into the TUN, where Mihomo dns-hijack provides Gateway-View
+// semantics. The NAS host therefore does not need to enter the LAN-facing
+// SmartDNS classifier. Host mode leaves QTS/host DNS untouched.
+func usesOpenSurgeDNS(mode string) bool {
+	return mode == DNSModeAuto || mode == DNSModeOpenSurge
 }
 
 func defaultIntent() intent {
