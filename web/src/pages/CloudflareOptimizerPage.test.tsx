@@ -33,7 +33,7 @@ const response = {
       http_timeout_ms: 2500,
       download_candidate_count: 8,
       download_seconds: 4,
-      download_max_bytes: 8388608,
+      download_max_bytes: 1_000_000_000,
       min_download_mbps: 0,
     },
     targets: [{ domain: 'api.example.com', enabled: true, test_path: '/' }],
@@ -145,7 +145,7 @@ describe('CloudflareOptimizerPage', () => {
         http_timeout_ms: 3000,
         download_candidate_count: 12,
         download_seconds: 5,
-        download_max_bytes: 12582912,
+        download_max_bytes: 1_000_000_000,
         min_download_mbps: 0,
       })
     })
