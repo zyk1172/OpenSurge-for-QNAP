@@ -16,6 +16,7 @@ on:
       - 'internal/gateway/**'
       - 'internal/process/**'
       - 'internal/runtime/**'
+      - 'internal/smartdns/**'
       - 'internal/webgateway/**'
       - 'internal/webui/**'
       - 'internal/linuxnetwork/**'
