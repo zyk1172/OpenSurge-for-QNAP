@@ -129,9 +129,24 @@ func (m Manager) backend() (platform.NetworkBackend, error) {
 	return deps.newBackend()
 }
 
+type noopSmartDNSService struct{}
+
+func (noopSmartDNSService) Check() error              { return nil }
+func (noopSmartDNSService) WriteConfig() error        { return nil }
+func (noopSmartDNSService) Start() (int, error)       { return 0, nil }
+func (noopSmartDNSService) Stop(int) error             { return nil }
+func (noopSmartDNSService) Running(int) bool           { return true }
+
 func newSmartDNSService(deps gatewayDeps, cfg config.Config, paths runtime.Paths) smartDNSService {
 	if deps.newSmartDNS != nil {
 		return deps.newSmartDNS(cfg, paths)
+	}
+	// Manager.New always carries the production SmartDNS constructor. A nil
+	// constructor exists only on focused unit-test dependency seams that predate
+	// the DNS frontend; keep those seams deterministic instead of reaching into
+	// the host PATH for a real SmartDNS binary.
+	if deps.geteuid != nil {
+		return noopSmartDNSService{}
 	}
 	manager := smartdns.New(cfg, paths)
 	return manager
