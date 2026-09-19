@@ -368,6 +368,44 @@ func TestPolicySetValidationRejectsUnsafeOrAmbiguousPolicies(t *testing.T) {
 	}
 }
 
+func TestValidatePolicySetDNSViewOverrides(t *testing.T) {
+	base := PolicySet{
+		Profiles: []Profile{{ID: "home", DefaultPolicies: []string{"DIRECT"}}},
+		Devices: []ManagedDevice{{
+			ID: "phone", MAC: "aa:bb:cc:dd:ee:01", IPv4: "192.168.50.101", Profile: "home",
+			GatewayTarget: GatewayTargetOpenSurge, DNSView: DNSViewResolver,
+		}},
+	}
+	if err := ValidatePolicySet(base); err != nil {
+		t.Fatalf("resolver override on OpenSurge gateway should be valid: %v", err)
+	}
+	base.Devices[0].DNSView = "invalid"
+	if err := ValidatePolicySet(base); err == nil || !strings.Contains(err.Error(), "dns_view") {
+		t.Fatalf("invalid dns_view error = %v", err)
+	}
+	base.Devices[0].DNSView = DNSViewGateway
+	base.Devices[0].GatewayTarget = GatewayTargetUpstreamRouter
+	if err := ValidatePolicySet(base); err == nil || !strings.Contains(err.Error(), "cannot use dns_view") {
+		t.Fatalf("unsafe gateway DNS view error = %v", err)
+	}
+}
+
+func TestCompilePolicySetCarriesAutomaticDNSView(t *testing.T) {
+	set := PolicySet{
+		Profiles: []Profile{{ID: "home", DefaultPolicies: []string{"DIRECT"}}},
+		Devices: []ManagedDevice{{
+			ID: "phone", MAC: "aa:bb:cc:dd:ee:01", IPv4: "192.168.50.101", Profile: "home",
+		}},
+	}
+	compiled, err := CompilePolicySet(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Devices) != 1 || compiled.Devices[0].DNSView != DNSViewAuto {
+		t.Fatalf("compiled devices = %#v", compiled.Devices)
+	}
+}
+
 func TestLoadPolicySetRejectsUnknownJSONFieldsAndValidatesLAN(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "policy.json")
