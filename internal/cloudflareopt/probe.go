@@ -161,7 +161,7 @@ func RunScan(ctx context.Context, targets []Target, options ScanOptions, progres
 	}
 
 	speedByIP := map[string]float64{}
-	if settings.DownloadCandidateCount > 0 && budgetCtx.Err() == nil {
+	if settings.DownloadCandidateCount > 0 && ctx.Err() == nil {
 		unique := make([]string, 0)
 		seen := map[string]bool{}
 		for _, target := range enabledTargets {
@@ -181,10 +181,10 @@ func RunScan(ctx context.Context, targets []Target, options ScanOptions, progres
 			progress(ScanProgress{Phase: "download", Total: len(unique)})
 		}
 		for index, ip := range unique {
-			if budgetCtx.Err() != nil {
+			if ctx.Err() != nil {
 				break
 			}
-			speedByIP[ip] = probeDownload(budgetCtx, ip, options)
+			speedByIP[ip] = probeDownload(ctx, ip, options)
 			if progress != nil {
 				progress(ScanProgress{Phase: "download", Completed: index + 1, Total: len(unique)})
 			}
@@ -197,16 +197,9 @@ func RunScan(ctx context.Context, targets []Target, options ScanOptions, progres
 		if len(verified) == 0 {
 			continue
 		}
-		converted := make([]CandidateResult, 0, len(verified))
-		for _, candidate := range verified {
-			converted = append(converted, CandidateResult{
-				IP:           candidate.IP,
-				LatencyMS:    candidate.Latency.Milliseconds(),
-				LossRate:     candidate.LossRate,
-				TTFBMS:       candidate.TTFB.Milliseconds(),
-				DownloadMbps: speedByIP[candidate.IP],
-				Colo:         candidate.Colo,
-			})
+		converted := buildCandidateResults(verified, speedByIP, settings.DownloadCandidateCount > 0)
+		if len(converted) == 0 {
+			continue
 		}
 		sort.SliceStable(converted, func(i, j int) bool { return candidateBetter(converted[i], converted[j]) })
 		alternatives := converted
@@ -221,15 +214,31 @@ func RunScan(ctx context.Context, targets []Target, options ScanOptions, progres
 	return ScanOutput{Results: results, Elapsed: now().Sub(started)}, nil
 }
 
+func buildCandidateResults(verified []httpCandidate, speedByIP map[string]float64, requireDownload bool) []CandidateResult {
+	converted := make([]CandidateResult, 0, len(verified))
+	for _, candidate := range verified {
+		speed := speedByIP[candidate.IP]
+		if requireDownload && speed <= 0 {
+			continue
+		}
+		converted = append(converted, CandidateResult{
+			IP:           candidate.IP,
+			LatencyMS:    candidate.Latency.Milliseconds(),
+			LossRate:     candidate.LossRate,
+			TTFBMS:       candidate.TTFB.Milliseconds(),
+			DownloadMbps: speed,
+			Colo:         candidate.Colo,
+		})
+	}
+	return converted
+}
+
 func candidateBetter(left, right CandidateResult) bool {
+	if left.DownloadMbps != right.DownloadMbps {
+		return left.DownloadMbps > right.DownloadMbps
+	}
 	if left.LossRate != right.LossRate {
 		return left.LossRate < right.LossRate
-	}
-	leftSpeed, rightSpeed := left.DownloadMbps, right.DownloadMbps
-	if leftSpeed > 0 || rightSpeed > 0 {
-		if leftSpeed != rightSpeed {
-			return leftSpeed > rightSpeed
-		}
 	}
 	if left.TTFBMS != right.TTFBMS {
 		return left.TTFBMS < right.TTFBMS

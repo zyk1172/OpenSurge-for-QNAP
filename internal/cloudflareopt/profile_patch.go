@@ -40,9 +40,7 @@ func ApplyResultsToProfile(profile []byte, results []TargetResult) ([]byte, erro
 	}
 
 	hosts := ensureMapping(root, "hosts")
-	for _, domain := range sortedKeys(selected) {
-		setMappingString(hosts, domain, selected[domain])
-	}
+	prependMappingStrings(hosts, selected)
 
 	dns := ensureMapping(root, "dns")
 	mode := mappingString(dns, "fake-ip-filter-mode")
@@ -108,6 +106,30 @@ func mappingIndex(mapping *yaml.Node, key string) int {
 		}
 	}
 	return -1
+}
+
+func prependMappingStrings(mapping *yaml.Node, values map[string]string) {
+	if len(values) == 0 {
+		return
+	}
+	selectedKeys := sortedKeys(values)
+	remaining := make([]*yaml.Node, 0, len(mapping.Content))
+	for index := 0; index+1 < len(mapping.Content); index += 2 {
+		key := normalizeDomain(mapping.Content[index].Value)
+		if _, overridden := values[key]; overridden {
+			continue
+		}
+		remaining = append(remaining, mapping.Content[index], mapping.Content[index+1])
+	}
+
+	content := make([]*yaml.Node, 0, len(selectedKeys)*2+len(remaining))
+	for _, key := range selectedKeys {
+		content = append(content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key, Style: yaml.DoubleQuotedStyle},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: values[key], Style: yaml.DoubleQuotedStyle},
+		)
+	}
+	mapping.Content = append(content, remaining...)
 }
 
 func setMappingString(mapping *yaml.Node, key, value string) {
