@@ -62,7 +62,7 @@ const scanPresets: Record<ScanMode, ScanSettings> = {
     http_timeout_ms: 1800,
     download_candidate_count: 3,
     download_seconds: 2,
-    download_max_bytes: 4 << 20,
+    download_max_bytes: 1_000_000_000,
     min_download_mbps: 0,
   },
   standard: {
@@ -77,7 +77,7 @@ const scanPresets: Record<ScanMode, ScanSettings> = {
     http_timeout_ms: 2500,
     download_candidate_count: 8,
     download_seconds: 4,
-    download_max_bytes: 8 << 20,
+    download_max_bytes: 1_000_000_000,
     min_download_mbps: 0,
   },
   full: {
@@ -92,7 +92,7 @@ const scanPresets: Record<ScanMode, ScanSettings> = {
     http_timeout_ms: 3000,
     download_candidate_count: 12,
     download_seconds: 5,
-    download_max_bytes: 12 << 20,
+    download_max_bytes: 1_000_000_000,
     min_download_mbps: 0,
   },
   deep: {
@@ -107,7 +107,7 @@ const scanPresets: Record<ScanMode, ScanSettings> = {
     http_timeout_ms: 4000,
     download_candidate_count: 20,
     download_seconds: 6,
-    download_max_bytes: 16 << 20,
+    download_max_bytes: 1_000_000_000,
     min_download_mbps: 0,
   },
 }
@@ -344,7 +344,7 @@ export function CloudflareOptimizerPage() {
     </Panel>
 
     <Panel>
-      <SectionHeader eyebrow="SCAN STRATEGY" title="完整优选策略" subtitle="先并发 TCP 443 粗筛，再按延迟/丢包过滤并执行目标域名 HTTPS 验证；随后对候选做下载测速。最低下载速度为 0 时保留 HTTPS 兜底；设置大于 0 的门槛后，未测出速度或低于门槛的候选会直接剔除。" />
+      <SectionHeader eyebrow="SCAN STRATEGY" title="完整优选策略" subtitle="先并发 TCP 443 粗筛，再按延迟/丢包过滤并执行目标域名 HTTPS 验证；下载测速使用 Cloudflare 官方大响应流，收到响应正文后才开始计时，并按测速模式的秒数主动截断。最低下载速度为 0 时保留 HTTPS 兜底；设置大于 0 的门槛后，未测出速度或低于门槛的候选会直接剔除。" />
       <div className="ui-form-grid">
         <FormField label="测速模式">
           <select value={scanMode} onChange={event => updateScanMode(event.target.value as ScanMode)}>
