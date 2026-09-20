@@ -216,6 +216,10 @@ export type Source = {
   versions: Array<{ digest: string; size: number; valid: boolean; validation?: string; imported_at: string; desired: boolean; applied: boolean }>
   diff: { previous_digest?: string; proxies_added: string[]; proxies_removed: string[]; groups_added: string[]; groups_removed: string[]; proxy_providers_added: string[]; proxy_providers_removed: string[]; rule_providers_added: string[]; rule_providers_removed: string[]; rule_count_delta: number }
   imported_at: string
+  auto_update?: boolean
+  update_interval_minutes?: number
+  last_refresh_attempt_at?: string
+  last_refresh_error?: string
   inventory: {
     proxies: string[]
     proxy_providers: string[]

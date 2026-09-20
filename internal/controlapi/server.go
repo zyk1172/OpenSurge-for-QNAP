@@ -90,7 +90,9 @@ type Server struct {
 	lifecycleMu sync.Mutex
 	sessions    map[string]time.Time
 	bootstraps        map[string]bootstrapGrant
-	hostHostsSyncOnce sync.Once
+	hostHostsSyncOnce  sync.Once
+	sourceRefreshOnce  sync.Once
+	sourceRefreshMu    sync.Mutex
 }
 
 type bootstrapGrant struct {
@@ -255,6 +257,7 @@ func (s *Server) bootstrapURLFor(path string) string {
 
 func (s *Server) Handler() http.Handler {
 	s.hostHostsSyncOnce.Do(func() { go s.runHostHostsSyncLoop() })
+	s.sourceRefreshOnce.Do(func() { go s.runSourceRefreshLoop() })
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /bootstrap", s.exchangeBootstrap)
 	mux.HandleFunc("POST /api/v1/session/bootstrap", s.handleSessionBootstrap)
@@ -294,6 +297,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/sources", s.auth(http.HandlerFunc(s.handleSources)))
 	mux.Handle("POST /api/v1/sources", s.auth(http.HandlerFunc(s.handleSources)))
 	mux.Handle("POST /api/v1/sources/{id}/refresh", s.auth(http.HandlerFunc(s.handleSourceRefresh)))
+	mux.Handle("PUT /api/v1/sources/{id}/refresh-settings", s.auth(http.HandlerFunc(s.handleSourceRefreshSettings)))
 	mux.Handle("POST /api/v1/sources/{id}/apply", s.auth(http.HandlerFunc(s.handleSourceApply)))
 	mux.Handle("GET /api/v1/sources/{id}/preview", s.auth(http.HandlerFunc(s.handleSourcePreview)))
 	mux.Handle("GET /api/v1/sources/{id}/snapshot-location", s.auth(http.HandlerFunc(s.handleSourceSnapshotLocation)))
@@ -1597,19 +1601,15 @@ func (s *Server) handleSources(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSourceRefresh(w http.ResponseWriter, r *http.Request) {
-	source, err := s.sourceByID(r.PathValue("id"))
+	refreshed, err := s.refreshSource(r.Context(), r.PathValue("id"))
 	if err != nil {
-		writeError(w, http.StatusNotFound, "source_not_found", err.Error())
-		return
-	}
-	fetchURL, credentialErr := s.credentials.Get(r.Context(), source.ID)
-	if credentialErr != nil || !strings.HasPrefix(fetchURL, "https://") {
-		writeError(w, http.StatusConflict, "source_not_refreshable", "only HTTPS sources can be refreshed")
-		return
-	}
-	refreshed, err := s.importURL(r.Context(), SourceImportRequest{Name: source.Name, Kind: source.Kind, URL: fetchURL})
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "source_refresh_failed", err.Error())
+		if strings.Contains(err.Error(), "only HTTPS sources") {
+			writeError(w, http.StatusConflict, "source_not_refreshable", err.Error())
+		} else if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, "source_not_found", err.Error())
+		} else {
+			writeError(w, http.StatusBadRequest, "source_refresh_failed", err.Error())
+		}
 		return
 	}
 	refreshed.SnapshotPath = ""

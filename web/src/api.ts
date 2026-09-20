@@ -88,6 +88,7 @@ export const api = {
     return request<Source>('/api/v1/sources', { method: 'POST', body: data })
   },
   refreshSource: (id: string) => request<Source>(`/api/v1/sources/${id}/refresh`, { method: 'POST' }),
+  saveSourceRefreshSettings: (id: string, settings: { auto_update?: boolean; interval_minutes?: number }) => request<Source>(`/api/v1/sources/${id}/refresh-settings`, { method: 'PUT', body: JSON.stringify(settings) }),
   applySource: (id: string, revision: string) => trackedRequest<Source>('apply-profile', `/api/v1/sources/${id}/apply`, { method: 'POST', headers: { 'If-Match': `"${revision}"` } }),
   sourceSnapshotLocation: (id: string) => request<SourceSnapshotFile>(`/api/v1/sources/${encodeURIComponent(id)}/snapshot-location`),
   revealSourceSnapshot: (id: string) => request<SourceSnapshotFile>(`/api/v1/sources/${encodeURIComponent(id)}/reveal`, { method: 'POST' }),

@@ -198,6 +198,7 @@ func (s *Server) importReader(name, kind, origin string, reader io.Reader) (Sour
 		Inventory:     inventory,
 		ImportedAt:    time.Now().UTC(),
 		Versions:      []SourceVersion{},
+		UpdateIntervalMinutes: defaultSourceRefreshIntervalMinutes,
 		Diff:          emptySourceDiff(),
 	}
 	if strings.HasPrefix(origin, "https://") {
@@ -211,6 +212,10 @@ func (s *Server) importReader(name, kind, origin string, reader io.Reader) (Sour
 	for i := range sources {
 		if sources[i].ID == source.ID {
 			previous := sources[i]
+			source.AutoUpdate = previous.AutoUpdate
+			source.UpdateIntervalMinutes = normalizedSourceRefreshInterval(previous.UpdateIntervalMinutes)
+			source.LastRefreshAttemptAt = previous.LastRefreshAttemptAt
+			source.LastRefreshError = previous.LastRefreshError
 			if previous.Digest == source.Digest {
 				source.Versions = append([]SourceVersion{}, previous.Versions...)
 				source.Desired = previous.Desired

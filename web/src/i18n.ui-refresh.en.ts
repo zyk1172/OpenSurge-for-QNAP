@@ -1,6 +1,21 @@
 import { registerEnglishMessages } from './i18n'
 
 export const uiRefreshEnglishMessages: Record<string, string> = {
+  '先导入一个 HTTPS 订阅后即可在这里更新和设置周期。': 'Import an HTTPS subscription first, then update it or configure its refresh schedule here.',
+  '上次更新失败：{{error}}': 'Last refresh failed: {{error}}',
+  '定时更新会下载并校验新的完整配置快照；为避免机场变更导致网关自动断网，新版本仍需确认“应用并重载”。': 'Scheduled refresh downloads and validates a new complete profile snapshot. To avoid an upstream change automatically breaking gateway connectivity, the new version still requires Apply and reload confirmation.',
+  '更新订阅': 'Update subscription',
+  '正在更新…': 'Updating…',
+  '{{name}} 已更新为最新草稿。': '{{name}} updated to the latest draft.',
+  '24 小时': '24 hours',
+  '12 小时': '12 hours',
+  '6 小时': '6 hours',
+  '订阅更新间隔': 'Subscription refresh interval',
+  '订阅定时更新设置已保存。': 'Subscription refresh schedule saved.',
+  '按周期获取最新配置快照': 'Fetch the latest configuration snapshot on a schedule',
+  '选择订阅': 'Select subscription',
+  '更新整个远程 Mihomo 配置，而不是只刷新运行中的 Provider。': 'Refresh the entire remote Mihomo profile, not only a runtime Provider.',
+  '已保存订阅': 'Saved subscriptions',
   '修改 Container Station / Compose 后重建容器，并继续挂载原 /data；现有 OpenSurge 配置不会丢失。': 'After changing Container Station / Compose, recreate the container and keep the existing /data mount; current OpenSurge configuration will be preserved.',
   '宿主 Hosts 同步需要在创建容器时把 QNAP /etc/hosts 只读映射到 /run/opensurge/host-hosts。旧容器升级不会自动增加该映射。': 'Host Hosts synchronization requires mapping QNAP /etc/hosts read-only to /run/opensurge/host-hosts when the container is created. Existing containers do not gain this mount automatically after an upgrade.',
   'NAS Hosts 只读挂载': 'NAS Hosts read-only mount',

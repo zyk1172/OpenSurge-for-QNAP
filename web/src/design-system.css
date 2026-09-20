@@ -1599,3 +1599,95 @@ html body .workspace .workspace-canvas select:not([multiple]){
   font-size:var(--ui-font-control)!important;
   line-height:calc(var(--ui-control-height) - 2px)!important;
 }
+
+
+/* Saved HTTPS subscription refresh controls share the project control contract. */
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-manager{
+  display:grid!important;
+  gap:12px!important;
+  margin-top:4px!important;
+  padding-top:14px!important;
+  border-top:1px solid var(--ui-border)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-manager-head{
+  display:grid!important;
+  gap:3px!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-manager-head>strong{
+  color:var(--ui-text)!important;
+  font-size:var(--ui-font-control)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-manager-head>small,
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-note,
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-empty{
+  color:var(--ui-text-muted)!important;
+  font-size:var(--ui-font-caption)!important;
+  line-height:1.5!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-manager>label,
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-interval{
+  display:grid!important;
+  gap:6px!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-manager label>span{
+  color:var(--ui-text-muted)!important;
+  font-size:var(--ui-font-caption)!important;
+  font-weight:750!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-refresh-grid{
+  display:grid!important;
+  grid-template-columns:minmax(0,1.2fr) minmax(0,.9fr) auto!important;
+  gap:10px!important;
+  align-items:end!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-setting{
+  display:flex!important;
+  min-height:var(--ui-control-height)!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:10px!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-setting>span{
+  display:grid!important;
+  gap:2px!important;
+  min-width:0!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-setting strong{
+  color:var(--ui-text-secondary)!important;
+  font-size:var(--ui-font-control)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-setting small{
+  overflow:hidden!important;
+  color:var(--ui-text-muted)!important;
+  font-size:var(--ui-font-caption)!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-update{
+  width:auto!important;
+  min-width:92px!important;
+  height:var(--ui-control-height)!important;
+  min-height:var(--ui-control-height)!important;
+  padding:0 14px!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-subscription-error{
+  color:var(--ui-warning)!important;
+  font-size:var(--ui-font-caption)!important;
+  line-height:1.5!important;
+}
+@media(max-width:900px){
+  html[data-product-target="qnap"] .workspace-canvas .source-subscription-refresh-grid{
+    grid-template-columns:1fr 1fr!important;
+  }
+  html[data-product-target="qnap"] .workspace-canvas .source-subscription-update{
+    grid-column:1/-1!important;
+  }
+}
+@media(max-width:600px){
+  html[data-product-target="qnap"] .workspace-canvas .source-subscription-refresh-grid{
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .workspace-canvas .source-subscription-update{
+    grid-column:auto!important;
+  }
+}
