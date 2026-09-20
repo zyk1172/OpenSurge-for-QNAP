@@ -6,7 +6,7 @@ import { ProfileOverlayPanel } from '../components/ProfileOverlayPanel'
 import type { Overview, ProfileOverlay, Source } from '../types'
 import { t } from '../i18n'
 
-type Action = 'import-url' | 'import-file' | 'refresh' | 'apply' | 'copy-path' | 'delete' | null
+type Action = 'import-url' | 'import-file' | 'refresh' | 'refresh-settings' | 'apply' | 'copy-path' | 'delete' | null
 
 type DeleteSourceResponse = { deleted: boolean; id: string; cleanup_warning?: string }
 
@@ -20,6 +20,7 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
   const [revision, setRevision] = useState('')
   const [name, setName] = useState('')
   const [url, setURL] = useState('')
+  const [subscriptionID, setSubscriptionID] = useState('')
   const [pending, setPending] = useState<Source | null>(null)
   const [action, setAction] = useState<Action>(null)
   const [activeSource, setActiveSource] = useState('')
@@ -45,6 +46,15 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
   }, [])
 
   useEffect(() => { void refresh().catch(() => {}) }, [refresh])
+  const remoteSources = sources.filter(source => source.origin.startsWith('https://'))
+  const selectedSubscription = remoteSources.find(source => source.id === subscriptionID) ?? remoteSources[0] ?? null
+  useEffect(() => {
+    if (!selectedSubscription) {
+      if (subscriptionID) setSubscriptionID('')
+      return
+    }
+    if (subscriptionID !== selectedSubscription.id) setSubscriptionID(selectedSubscription.id)
+  }, [selectedSubscription, subscriptionID])
 
   const run = async (kind: Action, sourceID: string, operation: () => Promise<unknown>, success: string) => {
     setAction(kind)
@@ -162,6 +172,22 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
           <label><span>{t('来源名称')}</span><input value={name} onChange={event => setName(event.target.value)} placeholder={t('例如 Home')} /></label>
           <label><span>{t('订阅地址')}</span><input value={url} onChange={event => setURL(event.target.value)} placeholder="https://…" /></label>
           <button className="primary source-action-button" type="button" disabled={busy || !url} onClick={() => void run('import-url', '', () => api.importURL(name, url), t('订阅已保存为草稿。'))}>{action === 'import-url' ? t('正在导入…') : t('导入为草稿')}</button>
+          <div className="source-subscription-manager">
+            <div className="source-subscription-manager-head"><strong>{t('已保存订阅')}</strong><small>{t('更新整个远程 Mihomo 配置，而不是只刷新运行中的 Provider。')}</small></div>
+            {selectedSubscription ? <>
+              <label><span>{t('选择订阅')}</span><select aria-label={t('选择订阅')} value={selectedSubscription.id} disabled={busy} onChange={event => setSubscriptionID(event.target.value)}>{remoteSources.map(source => <option key={source.id} value={source.id}>{source.name}</option>)}</select></label>
+              <div className="source-subscription-refresh-grid">
+                <div className="source-subscription-setting">
+                  <span><strong>{t('定时更新')}</strong><small>{t('按周期获取最新配置快照')}</small></span>
+                  <button className={`overlay-switch ${selectedSubscription.auto_update ? 'on' : ''}`} type="button" role="switch" aria-label={t('定时更新')} aria-checked={Boolean(selectedSubscription.auto_update)} disabled={busy} onClick={() => void run('refresh-settings', selectedSubscription.id, () => api.saveSourceRefreshSettings(selectedSubscription.id, { auto_update: !selectedSubscription.auto_update, interval_minutes: selectedSubscription.update_interval_minutes || 1440 }), t('订阅定时更新设置已保存。'))}><i aria-hidden="true" /><span>{t(selectedSubscription.auto_update ? '已启用' : '已停用')}</span></button>
+                </div>
+                <label className="source-subscription-interval"><span>{t('更新间隔')}</span><select aria-label={t('订阅更新间隔')} value={selectedSubscription.update_interval_minutes || 1440} disabled={busy} onChange={event => void run('refresh-settings', selectedSubscription.id, () => api.saveSourceRefreshSettings(selectedSubscription.id, { interval_minutes: Number(event.target.value) }), t('订阅定时更新设置已保存。'))}><option value={60}>{t('1 小时')}</option><option value={360}>{t('6 小时')}</option><option value={720}>{t('12 小时')}</option><option value={1440}>{t('24 小时')}</option><option value={4320}>{t('3 天')}</option><option value={10080}>{t('7 天')}</option></select></label>
+                <button className="primary source-subscription-update" type="button" disabled={busy} onClick={() => void run('refresh', selectedSubscription.id, () => api.refreshSource(selectedSubscription.id), t('{{name}} 已更新为最新草稿。', { name: selectedSubscription.name }))}>{action === 'refresh' && activeSource === selectedSubscription.id ? t('正在更新…') : t('更新订阅')}</button>
+              </div>
+              <small className="source-subscription-note">{t('定时更新会下载并校验新的完整配置快照；为避免机场变更导致网关自动断网，新版本仍需确认“应用并重载”。')}</small>
+              {selectedSubscription.last_refresh_error && <small className="source-subscription-error">{t('上次更新失败：{{error}}', { error: selectedSubscription.last_refresh_error })}</small>}
+            </> : <small className="source-subscription-empty">{t('先导入一个 HTTPS 订阅后即可在这里更新和设置周期。')}</small>}
+          </div>
         </article>
         <article className="source-import-card local">
           <div className="source-import-head"><span aria-hidden="true">⇧</span><div><small>LOCAL PROFILE</small><h3>{t('本地 Mihomo YAML')}</h3></div></div>
@@ -213,7 +239,7 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
           </div>
           <div className={`source-validation ${valid ? 'valid' : 'invalid'}`}><span aria-hidden="true">{valid ? '✓' : '!'}</span><div><strong>{t(valid ? '候选配置可应用' : '候选配置存在问题')}</strong><small>{source.overlay_validation || source.validation || ''}</small></div></div>
           <div className="source-actions">
-            {source.origin.startsWith('https://') && <button type="button" disabled={busy} onClick={() => void run('refresh', source.id, () => api.refreshSource(source.id), t('{{name}} 已刷新为新草稿。', { name: source.name }))}>{refreshing ? t('正在刷新…') : t('刷新草稿')}</button>}
+            {source.origin.startsWith('https://') && <button type="button" disabled={busy} onClick={() => void run('refresh', source.id, () => api.refreshSource(source.id), t('{{name}} 已刷新为新草稿。', { name: source.name }))}>{refreshing ? t('正在更新…') : t('更新订阅')}</button>}
             <button className="primary" type="button" disabled={busy || !revision || !valid || (source.desired && !running) || source.applied} onClick={() => setPending(source)}>{applying ? t('正在应用…') : t(running ? '应用并重载' : '设为下次启动版本')}</button>
             <button className="danger" type="button" disabled={busy || inUse} title={inUse ? t('当前运行或下次启动使用中的来源不能直接删除。') : t('删除配置来源')} onClick={() => void deleteSource(source)}>{deleting ? t('正在删除…') : t('删除配置')}</button>
           </div>

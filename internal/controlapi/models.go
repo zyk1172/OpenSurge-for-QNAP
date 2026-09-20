@@ -360,6 +360,10 @@ type Source struct {
 	Validation          string          `json:"validation,omitempty"`
 	Inventory           Inventory       `json:"inventory"`
 	ImportedAt          time.Time       `json:"imported_at"`
+	AutoUpdate          bool            `json:"auto_update"`
+	UpdateIntervalMinutes int            `json:"update_interval_minutes,omitempty"`
+	LastRefreshAttemptAt *time.Time      `json:"last_refresh_attempt_at,omitempty"`
+	LastRefreshError     string          `json:"last_refresh_error,omitempty"`
 	Desired             bool            `json:"desired"`
 	Applied             bool            `json:"applied"`
 	Versions            []SourceVersion `json:"versions"`
