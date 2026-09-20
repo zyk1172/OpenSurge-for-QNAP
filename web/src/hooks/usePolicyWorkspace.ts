@@ -95,14 +95,18 @@ export function usePolicyWorkspace(refreshKey: string) {
 
   const select = useCallback((group: string, policy: string) => mutate({ action: 'select', group, policy }), [mutate])
 
-  const test = useCallback(async (names: string[]) => {
+  const test = useCallback(async (names: string[], group?: string) => {
     const unique = [...new Set(names.filter(Boolean))]
     if (!unique.length) return
     setTesting(current => new Set([...current, ...unique]))
     setError('')
     try {
-      for (let offset = 0; offset < unique.length; offset += 120) {
-        await mutate({ action: 'test', names: unique.slice(offset, offset + 120) })
+      if (group) {
+        await mutate({ action: 'test', names: unique.slice(0, 120), group })
+      } else {
+        for (let offset = 0; offset < unique.length; offset += 120) {
+          await mutate({ action: 'test', names: unique.slice(offset, offset + 120) })
+        }
       }
     } catch (cause) {
       if (mounted.current) setError(cause instanceof Error ? cause.message : String(cause))

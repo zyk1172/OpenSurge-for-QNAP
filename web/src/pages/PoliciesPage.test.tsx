@@ -128,6 +128,17 @@ describe('PoliciesPage', () => {
     expect(api.testProxyHealth).not.toHaveBeenCalled()
   })
 
+
+  it('uses Mihomo group probing for automatic groups so testing can reselect the current node', async () => {
+    workspace.groups = [{ name: 'Auto', type: 'URLTest', selected: 'Proxy-B', options: ['Proxy-A', 'Proxy-B'] }]
+    render(<PoliciesPageHarness />)
+
+    const heading = await screen.findByRole('heading', { name: 'Auto' })
+    const card = heading.closest('article') as HTMLElement
+    await userEvent.click(within(card).getByRole('button', { name: '检测本组' }))
+    await waitFor(() => expect(api.policyWorkspace).toHaveBeenCalledWith({ action: 'test', names: ['Proxy-A', 'Proxy-B'], group: 'Auto' }))
+  })
+
   it('shows native provider health without sending provider leaves to direct probes', async () => {
     workspace.groups = [{ name: 'Provider URLTest', type: 'URLTest', selected: 'Provider-OK', options: ['Provider-OK', 'Proxy-A'] }]
     workspace.health = {

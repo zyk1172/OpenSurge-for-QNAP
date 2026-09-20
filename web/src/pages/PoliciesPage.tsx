@@ -192,7 +192,7 @@ function LocalMacGlobalPolicy({
   running: boolean
   healthByName: Map<string, ProxyHealthEntry>
   testing: Set<string>
-  onTest: (names: string[]) => Promise<void>
+  onTest: (names: string[], group?: string) => Promise<void>
   onChanged: () => Promise<void>
 }) {
   const [routing, setRouting] = useState<LocalRouting | null>(null)
