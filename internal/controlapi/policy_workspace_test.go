@@ -40,6 +40,20 @@ rules:
     - DOMAIN,overlay.example,Added
 `
 
+
+func TestPolicyGroupUsesNativeGroupProbe(t *testing.T) {
+	for _, value := range []string{"URLTest", "url-test", "Fallback", "LoadBalance", "load-balance"} {
+		if !policyGroupUsesNativeGroupProbe(value) {
+			t.Fatalf("%q should use Mihomo native group probing", value)
+		}
+	}
+	for _, value := range []string{"Selector", "select", "DIRECT"} {
+		if policyGroupUsesNativeGroupProbe(value) {
+			t.Fatalf("%q must keep per-node/manual probing semantics", value)
+		}
+	}
+}
+
 func TestWorkspaceCandidateCompositionMatrix(t *testing.T) {
 	for _, tt := range []struct {
 		name     string

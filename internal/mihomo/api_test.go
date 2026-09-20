@@ -334,6 +334,38 @@ func TestMeasureProxyDelay(t *testing.T) {
 	}
 }
 
+
+func TestMeasureProxyGroupDelayUsesNativeGroupEndpoint(t *testing.T) {
+	cfg := config.Default()
+	cfg.Mihomo.APIAddr = "127.0.0.1:9090"
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("method = %q", req.Method)
+		}
+		if req.URL.Path != "/group/Auto%20Group/delay" && req.URL.EscapedPath() != "/group/Auto%20Group/delay" {
+			t.Fatalf("path = %q escaped=%q", req.URL.Path, req.URL.EscapedPath())
+		}
+		if got := req.URL.Query().Get("url"); got != "https://example.com/204" {
+			t.Fatalf("url = %q", got)
+		}
+		if got := req.URL.Query().Get("timeout"); got != "5000" {
+			t.Fatalf("timeout = %q", got)
+		}
+		if got := req.URL.Query().Get("expected"); got != "204" {
+			t.Fatalf("expected = %q", got)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Body: io.NopCloser(strings.NewReader(`{"Node-B":0,"Node-A":91}`)), Header: make(http.Header)}, nil
+	})}
+
+	results, err := measureProxyGroupDelayWithClient(context.Background(), cfg, client, "Auto Group", "https://example.com/204", "204", 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 || results[0].Name != "Node-A" || results[0].Status != "reachable" || results[0].DelayMS != 91 || results[1].Name != "Node-B" || results[1].Status != "unreachable" {
+		t.Fatalf("results = %#v", results)
+	}
+}
+
 func TestMeasureProxyDelayKeepsTimeoutSeparateFromLatency(t *testing.T) {
 	cfg := config.Default()
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
