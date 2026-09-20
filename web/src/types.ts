@@ -38,7 +38,7 @@ export type DoctorRunStatus = {
   completed_at?: string
 }
 export type Lease = { ip: string; mac: string; hostname?: string; registered_name?: string; expires_at: string; online: boolean }
-export type ProxyGroup = { name: string; type: string; selected: string; options: string[] }
+export type ProxyGroup = { name: string; type: string; selected: string; options: string[]; test_url?: string; expected_status?: string }
 export type LocalRoutingMode = 'rule' | 'global' | 'direct'
 export type LocalRouting = {
   schema_version: number
@@ -74,7 +74,7 @@ export type ProxyHealthTestResponse = {
 export type PolicyWorkspaceRequest =
   | { action: 'read' }
   | { action: 'select'; group: string; policy: string }
-  | { action: 'test'; names: string[] }
+  | { action: 'test'; names: string[]; group?: string }
 export type PolicyWorkspaceSnapshot = {
   schema_version: number
   mode: 'prepared' | 'running'

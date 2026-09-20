@@ -12,7 +12,7 @@ type OutletPickerProps = {
   group: ProxyGroup
   healthByName: Map<string, ProxyHealthEntry>
   testing: Set<string>
-  onTest: (names: string[]) => Promise<void>
+  onTest: (names: string[], group?: string) => Promise<void>
   onSelect: (policy: string) => Promise<void>
   onClose: () => void
 }
@@ -28,6 +28,7 @@ export function OutletPicker({ open, title, group, healthByName, testing, onTest
   }), [group.options, healthByName, search])
   const probeable = useMemo(() => group.options.filter(option => healthByName.get(option)?.probeable), [group.options, healthByName])
   const selectable = ['selector', 'select'].includes(group.type.toLowerCase())
+  const groupTestNames = selectable ? probeable : group.options
 
   useEffect(() => {
     if (!open) return
@@ -58,7 +59,7 @@ export function OutletPicker({ open, title, group, healthByName, testing, onTest
 
   return <dialog className="outlet-dialog" open aria-modal="true" aria-labelledby={titleID}>
     <div className="outlet-dialog-head"><div><small>{group.type}</small><h2 id={titleID}>{t(title)}</h2><p>{group.name} · {t('当前')} {group.selected ? policyDisplayName(group.selected, healthByName.get(group.selected)) : t('未选择')}</p></div><button className="icon-button" type="button" aria-label={t('关闭出口选择')} disabled={Boolean(switching)} onClick={onClose}>×</button></div>
-    <div className="outlet-toolbar"><label><span className="sr-only">{t('搜索出口')}</span><input type="search" value={search} placeholder={t('搜索节点或策略组')} onChange={event => setSearch(event.target.value)} /></label><button type="button" disabled={!probeable.length || probeable.some(name => testing.has(name))} onClick={() => void onTest(probeable)}>{t('检测候选')}</button></div>
+    <div className="outlet-toolbar"><label><span className="sr-only">{t('搜索出口')}</span><input type="search" value={search} placeholder={t('搜索节点或策略组')} onChange={event => setSearch(event.target.value)} /></label><button type="button" disabled={!groupTestNames.length || groupTestNames.some(name => testing.has(name))} onClick={() => void onTest(groupTestNames, group.name)}>{t('检测候选')}</button></div>
     {error && <div className="notice warn" role="alert">{error}</div>}
     <div className="outlet-options">{options.map(option => {
       const health = healthByName.get(option)

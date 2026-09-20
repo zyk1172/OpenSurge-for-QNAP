@@ -10,7 +10,7 @@ type OutletSummaryProps = {
   group: ProxyGroup
   healthByName: Map<string, ProxyHealthEntry>
   testing: Set<string>
-  onTest: (names: string[]) => Promise<void>
+  onTest: (names: string[], group?: string) => Promise<void>
   onSelect: (policy: string) => Promise<void>
   ariaLabel: string
 }
