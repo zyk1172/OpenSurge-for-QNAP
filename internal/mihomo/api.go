@@ -34,10 +34,12 @@ type runtimeConfigResponse struct {
 }
 
 type ProxyGroup struct {
-	Name     string   `json:"name"`
-	Type     string   `json:"type"`
-	Selected string   `json:"selected"`
-	Options  []string `json:"options"`
+	Name           string   `json:"name"`
+	Type           string   `json:"type"`
+	Selected       string   `json:"selected"`
+	Options        []string `json:"options"`
+	TestURL        string   `json:"test_url,omitempty"`
+	ExpectedStatus string   `json:"expected_status,omitempty"`
 }
 
 const (
@@ -125,14 +127,16 @@ type RuleProvider struct {
 }
 
 type proxyRecord struct {
-	Name     string               `json:"name"`
-	Type     string               `json:"type"`
-	Now      string               `json:"now"`
-	All      []string             `json:"all"`
-	Provider string               `json:"provider"`
-	UDP      bool                 `json:"udp"`
-	Alive    *bool                `json:"alive"`
-	History  []proxyHistoryRecord `json:"history"`
+	Name           string               `json:"name"`
+	Type           string               `json:"type"`
+	Now            string               `json:"now"`
+	All            []string             `json:"all"`
+	Provider       string               `json:"provider"`
+	UDP            bool                 `json:"udp"`
+	Alive          *bool                `json:"alive"`
+	History        []proxyHistoryRecord `json:"history"`
+	TestURL        string               `json:"testUrl"`
+	ExpectedStatus string               `json:"expectedStatus"`
 }
 
 type proxyHistoryRecord struct {
@@ -226,6 +230,17 @@ func MeasureProxyDelay(ctx context.Context, cfg config.Config, proxyName, testUR
 	}
 	client := &http.Client{Timeout: timeout + time.Second}
 	return measureProxyDelayWithClient(ctx, cfg, client, proxyName, testURL, timeout)
+}
+
+func MeasureProxyGroupDelay(ctx context.Context, cfg config.Config, groupName, testURL, expectedStatus string, timeout time.Duration) ([]ProxyDelayResult, error) {
+	if strings.TrimSpace(testURL) == "" {
+		testURL = DefaultProxyDelayTestURL
+	}
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	client := &http.Client{Timeout: timeout + time.Second}
+	return measureProxyGroupDelayWithClient(ctx, cfg, client, groupName, testURL, expectedStatus, timeout)
 }
 
 // WarmTailscale deliberately sends one best-effort request through the managed
@@ -345,10 +360,12 @@ func fetchProxyGroupsWithClient(ctx context.Context, cfg config.Config, client *
 			proxy.Name = name
 		}
 		groups = append(groups, ProxyGroup{
-			Name:     proxy.Name,
-			Type:     proxy.Type,
-			Selected: proxy.Now,
-			Options:  proxy.All,
+			Name:           proxy.Name,
+			Type:           proxy.Type,
+			Selected:       proxy.Now,
+			Options:        proxy.All,
+			TestURL:        proxy.TestURL,
+			ExpectedStatus: proxy.ExpectedStatus,
 		})
 	}
 	sort.Slice(groups, func(i, j int) bool {
@@ -532,6 +549,56 @@ func measureProxyDelayWithClient(ctx context.Context, cfg config.Config, client 
 	result.Status = "reachable"
 	result.DelayMS = body.Delay
 	return result
+}
+
+func measureProxyGroupDelayWithClient(ctx context.Context, cfg config.Config, client *http.Client, groupName, testURL, expectedStatus string, timeout time.Duration) ([]ProxyDelayResult, error) {
+	if strings.TrimSpace(groupName) == "" {
+		return nil, fmt.Errorf("policy group is required")
+	}
+	query := url.Values{}
+	query.Set("url", testURL)
+	query.Set("timeout", fmt.Sprintf("%d", timeout.Milliseconds()))
+	if expected := strings.TrimSpace(expectedStatus); expected != "" {
+		query.Set("expected", expected)
+	}
+	path := "/group/" + url.PathEscape(groupName) + "/delay?" + query.Encode()
+	req, err := newAPIRequest(ctx, cfg, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		message, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		if detail := strings.TrimSpace(string(message)); detail != "" {
+			return nil, fmt.Errorf("mihomo group delay probe returned %s: %s", resp.Status, detail)
+		}
+		return nil, fmt.Errorf("mihomo group delay probe returned %s", resp.Status)
+	}
+	var body map[string]int
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(body))
+	for name := range body {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	testedAt := time.Now().UTC().Format(time.RFC3339)
+	results := make([]ProxyDelayResult, 0, len(names))
+	for _, name := range names {
+		delay := body[name]
+		result := ProxyDelayResult{Name: name, Status: "unreachable", TestedAt: testedAt, TestURL: testURL}
+		if delay > 0 {
+			result.Status = "reachable"
+			result.DelayMS = delay
+		}
+		results = append(results, result)
+	}
+	return results, nil
 }
 
 func proxyIsProbeable(proxyType string) bool {
