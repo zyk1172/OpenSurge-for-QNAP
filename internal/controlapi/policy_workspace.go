@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"open-mihomo-gateway/internal/config"
 	"open-mihomo-gateway/internal/mihomo"
@@ -474,31 +475,54 @@ func runPolicyWorkspace(ctx context.Context, configPath string, input PolicyWork
 				available[proxy.Name] = proxy
 			}
 			names := uniqueProxyNames(input.Request.Names)
-			for _, name := range names {
-				proxy, ok := available[name]
-				if !ok || !proxy.Probeable {
-					return fmt.Errorf("node is unavailable or cannot be tested")
+			group, groupRequested := policyWorkspaceGroup(groups, input.Request.Group)
+			if input.Request.Group != "" && !groupRequested {
+				return fmt.Errorf("policy group is unavailable")
+			}
+			if groupRequested && policyGroupUsesNativeGroupProbe(group.Type) {
+				testURL := strings.TrimSpace(group.TestURL)
+				if testURL == "" {
+					testURL = health.TestURL
 				}
-			}
-			response.Results = make([]mihomo.ProxyDelayResult, len(names))
-			jobs := make(chan int)
-			var workers sync.WaitGroup
-			for range min(proxyHealthConcurrency, len(names)) {
-				workers.Add(1)
-				go func() {
-					defer workers.Done()
-					for index := range jobs {
-						name := names[index]
-						url, timeout := proxyHealthProbe(available[name], health.TestURL)
-						response.Results[index] = mihomo.MeasureProxyDelay(ctx, apiConfig, name, url, timeout)
+				response.Results, err = mihomo.MeasureProxyGroupDelay(ctx, apiConfig, group.Name, testURL, group.ExpectedStatus, 5*time.Second)
+				if err != nil {
+					return err
+				}
+			} else {
+				for _, name := range names {
+					proxy, ok := available[name]
+					if !ok || !proxy.Probeable {
+						return fmt.Errorf("node is unavailable or cannot be tested")
 					}
-				}()
+				}
+				response.Results = make([]mihomo.ProxyDelayResult, len(names))
+				jobs := make(chan int)
+				var workers sync.WaitGroup
+				for range min(proxyHealthConcurrency, len(names)) {
+					workers.Add(1)
+					go func() {
+						defer workers.Done()
+						for index := range jobs {
+							name := names[index]
+							url, timeout := proxyHealthProbe(available[name], health.TestURL)
+							response.Results[index] = mihomo.MeasureProxyDelay(ctx, apiConfig, name, url, timeout)
+						}
+					}()
+				}
+				for index := range names {
+					jobs <- index
+				}
+				close(jobs)
+				workers.Wait()
 			}
-			for index := range names {
-				jobs <- index
+			// Mihomo's native group delay endpoint clears a fixed URLTest/Fallback
+			// selection and recomputes `now`. Re-read groups after every test so
+			// the response cannot keep the pre-test selection in the UI.
+			groups, err = mihomo.FetchProxyGroups(ctx, apiConfig)
+			if err != nil {
+				return err
 			}
-			close(jobs)
-			workers.Wait()
+			groups = mihomo.VisibleProxyGroups(groups)
 			health, err = mihomo.FetchProxyHealth(ctx, apiConfig)
 			if err != nil {
 				return err
@@ -516,6 +540,29 @@ func runPolicyWorkspace(ctx context.Context, configPath string, input PolicyWork
 		return nil
 	})
 	return response, err
+}
+
+func policyWorkspaceGroup(groups []mihomo.ProxyGroup, name string) (mihomo.ProxyGroup, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return mihomo.ProxyGroup{}, false
+	}
+	for _, group := range groups {
+		if group.Name == name {
+			return group, true
+		}
+	}
+	return mihomo.ProxyGroup{}, false
+}
+
+func policyGroupUsesNativeGroupProbe(groupType string) bool {
+	normalized := strings.NewReplacer("-", "", "_", "", " ", "").Replace(strings.ToLower(strings.TrimSpace(groupType)))
+	switch normalized {
+	case "urltest", "fallback", "loadbalance":
+		return true
+	default:
+		return false
+	}
 }
 
 func requirePolicyWorkspaceSnapshotState(input PolicyWorkspaceInput, exists bool) error {
