@@ -83,11 +83,15 @@ func (s *Server) refreshSource(ctx context.Context, id string) (Source, error) {
 	if err != nil {
 		return Source{}, err
 	}
+	attemptedAt := time.Now().UTC()
 	fetchURL, credentialErr := s.credentials.Get(ctx, source.ID)
 	if credentialErr != nil || !strings.HasPrefix(fetchURL, "https://") {
+		source.LastRefreshAttemptAt = &attemptedAt
+		source.LastRefreshError = "saved HTTPS subscription credential is unavailable"
+		source.UpdateIntervalMinutes = normalizedSourceRefreshInterval(source.UpdateIntervalMinutes)
+		_ = s.saveSourceRecord(source)
 		return Source{}, fmt.Errorf("only HTTPS sources can be refreshed")
 	}
-	attemptedAt := time.Now().UTC()
 	refreshed, err := s.importURL(ctx, SourceImportRequest{Name: source.Name, Kind: source.Kind, URL: fetchURL})
 	if err != nil {
 		source.LastRefreshAttemptAt = &attemptedAt
