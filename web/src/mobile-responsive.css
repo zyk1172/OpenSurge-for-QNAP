@@ -820,7 +820,7 @@
   html[data-product-target="qnap"] .tutorial-actions .ui-button{width:100%!important}
 
   /* Modal surfaces become reachable bottom sheets on touch screens. */
-  html[data-product-target="qnap"] :where(dialog.reload-dialog,dialog.rebind-dialog,.profile-overlay-preview-dialog){
+  html[data-product-target="qnap"] :where(dialog.reload-dialog,dialog.rebind-dialog,dialog.outlet-dialog,.profile-overlay-preview-dialog){
     inset:auto 0 0 0!important;
     width:100%!important;
     max-width:none!important;
@@ -831,6 +831,30 @@
     border-width:1px 0 0!important;
     border-radius:22px 22px 0 0!important;
     box-sizing:border-box!important;
+  }
+
+  html[data-product-target="qnap"] .outlet-options{
+    grid-template-columns:1fr!important;
+    max-height:56dvh!important;
+    padding:12px 0!important;
+  }
+
+  html[data-product-target="qnap"] .remote-token-row{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:8px!important;
+    width:100%!important;
+  }
+  html[data-product-target="qnap"] .remote-token-row>button{
+    width:100%!important;
+    min-height:44px!important;
+  }
+
+  html[data-product-target="qnap"] :where(.device-traffic-grid,.device-traffic-list,.proxy-node-grid,.policy-group-nav-shell){
+    max-width:100%!important;
+    overflow-x:auto!important;
+    overscroll-behavior-x:contain!important;
+    -webkit-overflow-scrolling:touch!important;
   }
 
   html[data-product-target="qnap"] .command-palette-layer{
