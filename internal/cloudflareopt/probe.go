@@ -328,12 +328,12 @@ func probeTCP(ctx context.Context, ip string, options ScanOptions) (tcpCandidate
 }
 
 func requiredHTTPSCandidateCount(settings ScanSettings) int {
+	if settings.MinDownloadMbps > 0 {
+		return settings.HTTPSCandidateCount
+	}
 	required := settings.DownloadCandidateCount
 	if required < 3 {
 		required = 3
-	}
-	if settings.MinDownloadMbps > 0 {
-		required *= 2
 	}
 	if required > settings.HTTPSCandidateCount {
 		required = settings.HTTPSCandidateCount
@@ -645,52 +645,41 @@ func probeDownloadCandidates(ctx context.Context, targets []Target, perTarget ma
 	if maxUnique < settings.DownloadCandidateCount {
 		maxUnique = settings.DownloadCandidateCount
 	}
-	initial := initialDownloadIPs(targets, perTarget, settings.DownloadCandidateCount, maxUnique)
-	if len(initial) == 0 {
+
+	var ordered []string
+	minimumProbeCount := 0
+	if settings.MinDownloadMbps > 0 {
+		// A throughput floor is a global success condition, so rotate across
+		// domains by candidate rank. This prevents an early target from consuming
+		// the whole bounded queue before later targets receive a measurement.
+		ordered = orderedDownloadIPs(targets, perTarget, maxUnique)
+		minimumProbeCount = settings.DownloadCandidateCount
+		if minimumProbeCount > len(ordered) {
+			minimumProbeCount = len(ordered)
+		}
+	} else {
+		ordered = initialDownloadIPs(targets, perTarget, settings.DownloadCandidateCount, maxUnique)
+		minimumProbeCount = len(ordered)
+	}
+	if len(ordered) == 0 {
 		return speedByIP
 	}
 
-	ordered := initial
-	if settings.MinDownloadMbps > 0 {
-		ordered = orderedDownloadIPs(targets, perTarget, maxUnique)
-		// Preserve the old per-target first-N ordering at the front so existing
-		// selections remain stable where possible, then append fair round-robin
-		// candidates for threshold-driven refill.
-		seen := map[string]bool{}
-		merged := make([]string, 0, maxUnique)
-		for _, ip := range append(initial, ordered...) {
-			if seen[ip] {
-				continue
-			}
-			seen[ip] = true
-			merged = append(merged, ip)
-			if len(merged) >= maxUnique {
-				break
-			}
-		}
-		ordered = merged
-	}
-
-	total := len(initial)
-	if settings.MinDownloadMbps > 0 {
-		total = len(ordered)
-	}
 	if progress != nil {
-		progress(ScanProgress{Phase: "download", Total: total})
+		progress(ScanProgress{Phase: "download", Total: len(ordered)})
 	}
-
 	for index, ip := range ordered {
 		if ctx.Err() != nil {
 			break
 		}
 		speedByIP[ip] = probeDownload(ctx, ip, options)
 		if progress != nil {
-			progress(ScanProgress{Phase: "download", Completed: index + 1, Total: total})
+			progress(ScanProgress{Phase: "download", Completed: index + 1, Total: len(ordered)})
 		}
-		if settings.MinDownloadMbps <= 0 && index+1 >= len(initial) {
-			break
+		if settings.MinDownloadMbps <= 0 {
+			continue
 		}
-		if settings.MinDownloadMbps > 0 && index+1 >= len(initial) &&
+		if index+1 >= minimumProbeCount &&
 			allVerifiedTargetsMeetMinimumDownload(targets, perTarget, speedByIP, settings.MinDownloadMbps) {
 			break
 		}
