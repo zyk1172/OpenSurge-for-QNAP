@@ -277,6 +277,27 @@ describe('OpenSurge app shell', () => {
     expect(window.localStorage.getItem('opensurge-ui-language')).toBe('en')
   })
 
+  it('opens and closes the mobile navigation drawer without leaving the page scroll locked', async () => {
+    render(<App />)
+    await screen.findByRole('heading', { name: '全屋网关，一眼可见' })
+
+    const shell = document.querySelector('.app-shell')
+    const menu = screen.getByRole('button', { name: 'Open navigation' })
+    await userEvent.click(menu)
+
+    expect(shell?.classList.contains('mobile-nav-open')).toBe(true)
+    expect(document.body.style.overflow).toBe('hidden')
+    expect(document.documentElement.style.overflow).toBe('hidden')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Close sidebar navigation' }))
+
+    await waitFor(() => {
+      expect(shell?.classList.contains('mobile-nav-open')).toBe(false)
+      expect(document.body.style.overflow).toBe('')
+      expect(document.documentElement.style.overflow).toBe('')
+    })
+  })
+
   it('does not present a saved recovery card as an unfinished network recovery', async () => {
     render(<App />)
     const brandIcon = document.querySelector<HTMLImageElement>('img.brand-mark')

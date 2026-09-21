@@ -1,0 +1,1102 @@
+/*
+ * QNAP mobile responsive contract.
+ *
+ * This file MUST stay the final CSS import. The project still carries several
+ * legacy layout layers, so mobile geometry belongs here to prevent later
+ * desktop rules from re-expanding grids, controls, dialogs, and tables.
+ */
+
+.mobile-sidebar-close{display:none}
+
+@media (max-width:860px){
+  html[data-product-target="qnap"]{
+    --os-mobile-gutter:14px;
+    --os-mobile-touch:44px;
+    --os-mobile-toolbar:58px;
+  }
+
+  html[data-product-target="qnap"],
+  html[data-product-target="qnap"] body,
+  html[data-product-target="qnap"] #root{
+    width:100%;
+    min-width:0;
+    min-height:100%;
+    overflow-x:hidden;
+  }
+
+  html[data-product-target="qnap"] body{
+    min-height:100dvh;
+    overscroll-behavior-y:none;
+    -webkit-text-size-adjust:100%;
+    text-size-adjust:100%;
+  }
+
+  html[data-product-target="qnap"] .app-shell,
+  html[data-product-target="qnap"] .app-shell.sidebar-compact{
+    display:block!important;
+    width:100%!important;
+    min-width:0!important;
+    min-height:100dvh!important;
+    grid-template-columns:none!important;
+  }
+
+  html[data-product-target="qnap"] .workspace{
+    display:block!important;
+    grid-column:auto!important;
+    width:100%!important;
+    min-width:0!important;
+    min-height:100dvh!important;
+    margin:0!important;
+    padding:0!important;
+  }
+
+  html[data-product-target="qnap"] .workspace-toolbar{
+    position:sticky!important;
+    z-index:60!important;
+    top:0!important;
+    display:flex!important;
+    width:100%!important;
+    min-height:calc(var(--os-mobile-toolbar) + env(safe-area-inset-top))!important;
+    height:auto!important;
+    align-items:flex-end!important;
+    padding:max(8px,env(safe-area-inset-top)) max(var(--os-mobile-gutter),env(safe-area-inset-right)) 8px max(var(--os-mobile-gutter),env(safe-area-inset-left))!important;
+    border:0!important;
+    border-bottom:1px solid var(--ui-border)!important;
+    background:color-mix(in srgb,var(--ui-bg,#0b0c12) 88%,transparent)!important;
+    -webkit-backdrop-filter:blur(22px) saturate(140%)!important;
+    backdrop-filter:blur(22px) saturate(140%)!important;
+  }
+
+  html[data-product-target="qnap"] .workspace-toolbar-start{
+    display:flex!important;
+    width:100%!important;
+    min-width:0!important;
+    align-items:center!important;
+    gap:10px!important;
+  }
+
+  html[data-product-target="qnap"] .mobile-menu-button{
+    display:grid!important;
+    place-items:center!important;
+    width:var(--os-mobile-touch)!important;
+    min-width:var(--os-mobile-touch)!important;
+    height:var(--os-mobile-touch)!important;
+    min-height:var(--os-mobile-touch)!important;
+    flex:0 0 var(--os-mobile-touch)!important;
+    padding:0!important;
+    border:1px solid var(--ui-border)!important;
+    border-radius:12px!important;
+    background:var(--ui-neutral-control,var(--ui-surface))!important;
+    color:var(--ui-text)!important;
+  }
+
+  html[data-product-target="qnap"] .global-search-trigger{
+    display:none!important;
+  }
+
+  html[data-product-target="qnap"] .sidebar{
+    position:fixed!important;
+    z-index:80!important;
+    inset:0 auto 0 0!important;
+    display:flex!important;
+    width:min(88vw,340px)!important;
+    max-width:340px!important;
+    height:100dvh!important;
+    min-height:0!important;
+    flex-direction:column!important;
+    padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))!important;
+    border:0!important;
+    border-right:1px solid var(--ui-border)!important;
+    border-radius:0 22px 22px 0!important;
+    background:color-mix(in srgb,var(--ui-surface,#12131c) 96%,transparent)!important;
+    box-shadow:28px 0 72px rgba(0,0,0,.46)!important;
+    transform:translate3d(-104%,0,0)!important;
+    transition:transform .22s ease!important;
+    overflow:hidden!important;
+  }
+
+  html[data-product-target="qnap"] .mobile-nav-open .sidebar{
+    transform:translate3d(0,0,0)!important;
+  }
+
+  html[data-product-target="qnap"] .mobile-nav-backdrop{
+    position:fixed!important;
+    z-index:75!important;
+    inset:0!important;
+    display:block!important;
+    width:100%!important;
+    height:100%!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    background:rgba(2,3,8,.62)!important;
+    opacity:0!important;
+    pointer-events:none!important;
+    -webkit-backdrop-filter:blur(4px)!important;
+    backdrop-filter:blur(4px)!important;
+    transition:opacity .2s ease!important;
+  }
+
+  html[data-product-target="qnap"] .mobile-nav-open .mobile-nav-backdrop{
+    opacity:1!important;
+    pointer-events:auto!important;
+  }
+
+  html[data-product-target="qnap"] .sidebar-brand-row,
+  html[data-product-target="qnap"] .sidebar-compact .sidebar-brand-row{
+    display:flex!important;
+    width:100%!important;
+    height:auto!important;
+    min-height:54px!important;
+    align-items:center!important;
+    justify-content:space-between!important;
+    gap:8px!important;
+    padding:0 2px 10px!important;
+    border-bottom:1px solid var(--ui-border)!important;
+  }
+
+  html[data-product-target="qnap"] .sidebar .brand,
+  html[data-product-target="qnap"] .sidebar-compact .brand{
+    display:flex!important;
+    width:auto!important;
+    min-width:0!important;
+    flex:1 1 auto!important;
+    align-items:center!important;
+    justify-content:flex-start!important;
+    gap:10px!important;
+    padding:0 4px!important;
+  }
+
+  html[data-product-target="qnap"] .sidebar .brand>div,
+  html[data-product-target="qnap"] .sidebar .nav-label,
+  html[data-product-target="qnap"] .sidebar .nav-section-label{
+    display:block!important;
+  }
+
+  html[data-product-target="qnap"] .sidebar .brand-mark,
+  html[data-product-target="qnap"] .sidebar-compact .brand-mark{
+    width:36px!important;
+    height:36px!important;
+    flex:0 0 36px!important;
+  }
+
+  html[data-product-target="qnap"] .sidebar-collapse{
+    display:none!important;
+  }
+
+  html[data-product-target="qnap"] .mobile-sidebar-close{
+    display:grid!important;
+    place-items:center!important;
+    width:40px!important;
+    min-width:40px!important;
+    height:40px!important;
+    min-height:40px!important;
+    flex:0 0 40px!important;
+    padding:0!important;
+    border:1px solid var(--ui-border)!important;
+    border-radius:11px!important;
+    background:var(--ui-neutral-control,var(--ui-surface-2))!important;
+    color:var(--ui-text-secondary)!important;
+    font-size:24px!important;
+    font-weight:400!important;
+    line-height:1!important;
+  }
+
+  html[data-product-target="qnap"] .sidebar-nav-scroll{
+    min-height:0!important;
+    flex:1 1 auto!important;
+    margin:0 -2px!important;
+    padding:12px 2px!important;
+    overflow-y:auto!important;
+    overscroll-behavior:contain!important;
+    -webkit-overflow-scrolling:touch!important;
+    scrollbar-width:none!important;
+  }
+  html[data-product-target="qnap"] .sidebar-nav-scroll::-webkit-scrollbar{display:none}
+
+  html[data-product-target="qnap"] .sidebar nav{
+    display:grid!important;
+    gap:4px!important;
+  }
+
+  html[data-product-target="qnap"] .sidebar nav button,
+  html[data-product-target="qnap"] .sidebar-compact .sidebar nav button{
+    display:flex!important;
+    width:100%!important;
+    min-height:46px!important;
+    align-items:center!important;
+    justify-content:flex-start!important;
+    gap:12px!important;
+    padding:9px 11px!important;
+    border-radius:12px!important;
+    text-align:left!important;
+  }
+
+  html[data-product-target="qnap"] .sidebar nav button .nav-icon{
+    display:grid!important;
+    place-items:center!important;
+    width:24px!important;
+    min-width:24px!important;
+    height:24px!important;
+  }
+
+  html[data-product-target="qnap"] .sidebar nav button .nav-label{
+    width:auto!important;
+    min-width:0!important;
+    flex:1 1 auto!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+    white-space:nowrap!important;
+  }
+
+  html[data-product-target="qnap"] .sidebar-bottom-controls{
+    flex:0 0 auto!important;
+    grid-template-columns:repeat(3,44px)!important;
+    gap:12px!important;
+    padding:12px 6px 2px!important;
+    border-top:1px solid var(--ui-border)!important;
+  }
+
+  html[data-product-target="qnap"] .sidebar-round-control{
+    width:44px!important;
+    min-width:44px!important;
+    height:44px!important;
+    min-height:44px!important;
+  }
+
+  html[data-product-target="qnap"] .workspace-canvas{
+    display:block!important;
+    width:100%!important;
+    max-width:none!important;
+    min-width:0!important;
+    margin:0!important;
+    padding:14px max(var(--os-mobile-gutter),env(safe-area-inset-right)) calc(82px + env(safe-area-inset-bottom)) max(var(--os-mobile-gutter),env(safe-area-inset-left))!important;
+    overflow:visible!important;
+  }
+
+  html[data-product-target="qnap"] .workspace-canvas>*{
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    box-sizing:border-box!important;
+  }
+
+  html[data-product-target="qnap"] .page-header{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    gap:12px!important;
+    align-items:start!important;
+    min-height:0!important;
+    margin:0 0 12px!important;
+    padding:14px!important;
+  }
+
+  html[data-product-target="qnap"] .page-header>div:first-child{min-width:0!important}
+  html[data-product-target="qnap"] .page-header h1{
+    margin:5px 0 6px!important;
+    font-size:clamp(22px,6vw,26px)!important;
+    line-height:1.12!important;
+    overflow-wrap:anywhere!important;
+  }
+  html[data-product-target="qnap"] .page-header p{
+    display:block!important;
+    max-width:none!important;
+    margin:0!important;
+    overflow:visible!important;
+    color:var(--ui-text-secondary)!important;
+    font-size:12px!important;
+    line-height:1.55!important;
+    -webkit-line-clamp:unset!important;
+  }
+  html[data-product-target="qnap"] .page-header>button,
+  html[data-product-target="qnap"] .page-header>.ui-button,
+  html[data-product-target="qnap"] .page-header>.primary,
+  html[data-product-target="qnap"] .page-header>.danger{
+    width:100%!important;
+    min-height:44px!important;
+  }
+
+  html[data-product-target="qnap"] :where(.section,.ui-panel,.ui-card,.source-card,.source-import-card,.device-card,.diagnostic-summary-card,.connectivity-category,.traffic-v3-insight-panel,.tutorial-card){
+    min-width:0!important;
+    max-width:100%!important;
+    box-sizing:border-box!important;
+  }
+
+  html[data-product-target="qnap"] :where(.section,.ui-panel){
+    margin-top:12px!important;
+    padding:14px!important;
+  }
+
+  html[data-product-target="qnap"] :where(.ui-section-header,.section-title,.source-head,.diagnostic-doctor-head,.registration-picker-heading,.policy-group-head,.traffic-v3-section-head,.tutorial-ai-step){
+    min-width:0!important;
+  }
+
+  html[data-product-target="qnap"] :where(.ui-section-header,.section-title,.source-head,.diagnostic-doctor-head,.registration-picker-heading,.policy-group-head,.traffic-v3-section-head)>div{
+    min-width:0!important;
+  }
+
+  html[data-product-target="qnap"] :where(p,small,strong,h1,h2,h3,label,span){
+    max-width:100%;
+  }
+
+  html[data-product-target="qnap"] :where(code,pre,.source-origin,.source-location-copy,.device-meta-value,.evidence-note,.compact-note){
+    max-width:100%!important;
+    overflow-wrap:anywhere!important;
+    word-break:break-word!important;
+  }
+
+  html[data-product-target="qnap"] pre{
+    overflow:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+
+  html[data-product-target="qnap"] :where(input:not([type="checkbox"]):not([type="radio"]),select,textarea){
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    font-size:16px!important;
+    box-sizing:border-box!important;
+  }
+
+  html[data-product-target="qnap"] :where(input:not([type="checkbox"]):not([type="radio"]),select){
+    min-height:44px!important;
+    height:44px!important;
+  }
+
+  html[data-product-target="qnap"] textarea{
+    min-height:120px!important;
+    line-height:1.5!important;
+    resize:vertical!important;
+  }
+
+  html[data-product-target="qnap"] :where(.ui-button,.primary,.danger,.source-actions button,.actions button,.dialog-actions button,.editor-actions button,.rule-actions button,.traffic-v3-search-actions button,.policy-toolbar button){
+    min-height:44px!important;
+  }
+
+  /* Shared responsive grids */
+  html[data-product-target="qnap"] .ui-form-grid,
+  html[data-product-target="qnap"] .form-grid,
+  html[data-product-target="qnap"] .source-import-grid,
+  html[data-product-target="qnap"] .source-grid,
+  html[data-product-target="qnap"] .mode-grid,
+  html[data-product-target="qnap"] .hero-grid,
+  html[data-product-target="qnap"] .service-grid,
+  html[data-product-target="qnap"] .registration-body,
+  html[data-product-target="qnap"] .qnap-host-policy-grid,
+  html[data-product-target="qnap"] .host-sync-settings,
+  html[data-product-target="qnap"] .source-subscription-refresh-grid,
+  html[data-product-target="qnap"] .device-traffic-layout,
+  html[data-product-target="qnap"] .traffic-v3-insights-grid,
+  html[data-product-target="qnap"] .tutorial-ai-flow{
+    grid-template-columns:1fr!important;
+  }
+
+  html[data-product-target="qnap"] .inventory,
+  html[data-product-target="qnap"] .source-inventory,
+  html[data-product-target="qnap"] .provider-status-list,
+  html[data-product-target="qnap"] .overlay-summary,
+  html[data-product-target="qnap"] .qnap-host-status-panel,
+  html[data-product-target="qnap"] .qnap-runtime-grid,
+  html[data-product-target="qnap"] .ui-summary-grid,
+  html[data-product-target="qnap"] .diagnostic-summary-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  }
+
+  html[data-product-target="qnap"] .ui-summary-main{
+    grid-column:1/-1!important;
+  }
+
+  /* Tables remain semantically tables, but only their surface scrolls. */
+  html[data-product-target="qnap"] :where(.ui-table-wrap,.traffic-table-wrap){
+    display:block!important;
+    width:100%!important;
+    max-width:100%!important;
+    overflow-x:auto!important;
+    overflow-y:hidden!important;
+    overscroll-behavior-x:contain!important;
+    -webkit-overflow-scrolling:touch!important;
+    scrollbar-width:thin!important;
+  }
+
+  html[data-product-target="qnap"] :where(.ui-table,.ui-table-wrap table,.traffic-table){
+    width:max-content!important;
+    min-width:680px!important;
+    max-width:none!important;
+  }
+
+  html[data-product-target="qnap"] :where(.ui-table th,.ui-table td,.ui-table-wrap th,.ui-table-wrap td){
+    white-space:nowrap!important;
+  }
+
+  html[data-product-target="qnap"] :where(.source-actions,.actions,.dialog-actions,.editor-actions,.rule-actions,.device-card-actions,.traffic-analysis-toolbar,.traffic-v3-search-actions,.policy-toolbar,.cloudflare-monitor-actions){
+    display:flex!important;
+    flex-wrap:wrap!important;
+    gap:8px!important;
+    align-items:stretch!important;
+  }
+
+  html[data-product-target="qnap"] :where(.source-actions,.actions,.dialog-actions,.editor-actions,.rule-actions,.device-card-actions,.traffic-v3-search-actions)>*{
+    flex:1 1 150px!important;
+  }
+
+  /* Dashboard */
+  html[data-product-target="qnap"] :where(.dashboard-live-grid,.dashboard-monitor-grid){
+    grid-template-columns:1fr!important;
+    gap:10px!important;
+  }
+  html[data-product-target="qnap"] .dashboard-header-actions{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:8px!important;
+    width:100%!important;
+  }
+
+  /* QNAP network + sources */
+  html[data-product-target="qnap"] .qnap-host-policy-grid>.source-import-card,
+  html[data-product-target="qnap"] .qnap-runtime-grid>.qnap-runtime-card{
+    min-height:0!important;
+    height:auto!important;
+  }
+
+  html[data-product-target="qnap"] .source-location{
+    display:grid!important;
+    grid-template-columns:auto minmax(0,1fr)!important;
+    gap:10px!important;
+  }
+
+  html[data-product-target="qnap"] .source-location-actions{
+    grid-column:1/-1!important;
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:8px!important;
+    width:100%!important;
+  }
+
+  html[data-product-target="qnap"] .source-location-actions button{
+    width:100%!important;
+  }
+
+  html[data-product-target="qnap"] .source-subscription-update{
+    width:100%!important;
+    grid-column:auto!important;
+  }
+
+  /* Profile overlay */
+  html[data-product-target="qnap"] .profile-overlay-hero{
+    display:grid!important;
+    grid-template-columns:auto minmax(0,1fr)!important;
+    gap:10px!important;
+    align-items:start!important;
+  }
+  html[data-product-target="qnap"] .profile-overlay-controls{
+    grid-column:1/-1!important;
+    width:100%!important;
+    justify-content:space-between!important;
+  }
+  html[data-product-target="qnap"] .overlay-enable-row,
+  html[data-product-target="qnap"] .overlay-save-bar,
+  html[data-product-target="qnap"] .overlay-preview-row,
+  html[data-product-target="qnap"] .overlay-source-compatibility{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:10px!important;
+  }
+  html[data-product-target="qnap"] .overlay-enable-row .overlay-switch{
+    justify-self:start!important;
+  }
+  html[data-product-target="qnap"] .overlay-resource-form,
+  html[data-product-target="qnap"] .overlay-share-form{
+    grid-template-columns:1fr!important;
+  }
+
+  /* Devices: collapse all desktop editor/picker split panes. */
+  html[data-product-target="qnap"] :where(.registration,.device-route-editor,.rule-library,.library-editor,.ruleset-editor,.template-editor,.catalog-rule-preview,.device-route-picker,.device-route-library,.library-pane,.rule-library-panel){
+    min-width:0!important;
+    max-width:100%!important;
+  }
+
+  html[data-product-target="qnap"] :where(.registration-form,.registration-routing,.device-metadata,.route-options,.router-bypass,.router-bypass-settings-link,.candidate-picker,.candidate-add,.ruleset-primary-row,.ruleset-source-row,.template-rule-set-options){
+    grid-template-columns:1fr!important;
+  }
+
+  html[data-product-target="qnap"] :where(.rule-library,.library-editor,.device-route-editor){
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:12px!important;
+  }
+
+  html[data-product-target="qnap"] :where(.rule-library-tabs,.segmented){
+    display:flex!important;
+    max-width:100%!important;
+    overflow-x:auto!important;
+    overscroll-behavior-x:contain!important;
+    -webkit-overflow-scrolling:touch!important;
+    scrollbar-width:none!important;
+    white-space:nowrap!important;
+  }
+  html[data-product-target="qnap"] :where(.rule-library-tabs,.segmented)::-webkit-scrollbar{display:none}
+  html[data-product-target="qnap"] :where(.rule-library-tabs,.segmented)>button{
+    flex:0 0 auto!important;
+  }
+
+  html[data-product-target="qnap"] .sticky-save,
+  html[data-product-target="qnap"] .sticky-actions,
+  html[data-product-target="qnap"] .ui-action-bar{
+    position:sticky!important;
+    z-index:18!important;
+    bottom:max(8px,env(safe-area-inset-bottom))!important;
+    display:grid!important;
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+    gap:8px!important;
+    width:100%!important;
+    margin:14px 0 0!important;
+    padding:8px!important;
+    border:1px solid var(--ui-border)!important;
+    border-radius:14px!important;
+    background:color-mix(in srgb,var(--ui-surface,#12131c) 92%,transparent)!important;
+    box-shadow:0 12px 36px rgba(0,0,0,.30)!important;
+    -webkit-backdrop-filter:blur(18px)!important;
+    backdrop-filter:blur(18px)!important;
+  }
+  html[data-product-target="qnap"] :where(.sticky-save,.sticky-actions,.ui-action-bar)>span{
+    grid-column:1/-1!important;
+    margin:0!important;
+    text-align:center!important;
+  }
+  html[data-product-target="qnap"] :where(.sticky-save,.sticky-actions,.ui-action-bar)>button{
+    width:100%!important;
+    min-width:0!important;
+  }
+
+  /* Policies */
+  html[data-product-target="qnap"] .policy-controls-sticky{
+    position:sticky!important;
+    z-index:20!important;
+    top:calc(var(--os-mobile-toolbar) + env(safe-area-inset-top))!important;
+    margin-inline:0!important;
+    padding:10px!important;
+    border-radius:14px!important;
+  }
+  html[data-product-target="qnap"] .policy-toolbar{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    width:100%!important;
+  }
+  html[data-product-target="qnap"] .policy-search{
+    width:100%!important;
+    min-width:0!important;
+  }
+  html[data-product-target="qnap"] .policy-health-overview{
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+    gap:8px!important;
+  }
+  html[data-product-target="qnap"] .policy-health-overview>.health-legend{
+    grid-column:1/-1!important;
+    min-width:0!important;
+    overflow-x:auto!important;
+    white-space:nowrap!important;
+  }
+  html[data-product-target="qnap"] .policy-local-mac{
+    grid-template-columns:1fr!important;
+  }
+
+  /* Connectivity */
+  html[data-product-target="qnap"] .connectivity-overview{
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .connectivity-score{
+    display:grid!important;
+    grid-template-columns:auto minmax(0,1fr)!important;
+    gap:12px!important;
+    padding:14px!important;
+  }
+  html[data-product-target="qnap"] .connectivity-metrics{
+    grid-column:1/-1!important;
+    grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  }
+  html[data-product-target="qnap"] .probe-scope{
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .baseline-control{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:8px!important;
+  }
+
+  /* Diagnostics */
+  html[data-product-target="qnap"] .diagnostic-doctor-head{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .diagnostic-doctor-head>button{
+    width:100%!important;
+  }
+  html[data-product-target="qnap"] .provider-status-list{
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .provider-status-list>.row{
+    width:100%!important;
+    min-width:0!important;
+    height:auto!important;
+    min-height:72px!important;
+  }
+  html[data-product-target="qnap"] .diagnostic-connection-list{
+    width:100%!important;
+    max-width:100%!important;
+    overflow-x:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+  html[data-product-target="qnap"] .diagnostic-connection-row{
+    min-width:600px!important;
+  }
+
+  /* Cloudflare */
+  html[data-product-target="qnap"] .cloudflare-page .cloudflare-monitor-grid{
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .cloudflare-page .cloudflare-monitor-actions{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .cloudflare-page .cloudflare-check-button{
+    width:100%!important;
+  }
+  html[data-product-target="qnap"] .cloudflare-target-textarea{
+    min-height:180px!important;
+  }
+
+  /* Traffic analysis becomes card-native instead of a desktop table viewport. */
+  html[data-product-target="qnap"] .traffic-v3-summary{
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+    gap:8px!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-section-head{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) auto!important;
+    gap:8px!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-filterbar{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:10px!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-tabs{
+    display:flex!important;
+    width:100%!important;
+    max-width:100%!important;
+    overflow-x:auto!important;
+    overscroll-behavior-x:contain!important;
+    -webkit-overflow-scrolling:touch!important;
+    scrollbar-width:none!important;
+    white-space:nowrap!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-tabs::-webkit-scrollbar{display:none}
+  html[data-product-target="qnap"] .traffic-v3-tabs>button{
+    flex:0 0 auto!important;
+    min-height:40px!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-search-actions{
+    display:grid!important;
+    grid-template-columns:1fr 1fr!important;
+    gap:8px!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-search-actions>input{
+    grid-column:1/-1!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-connection-list{
+    display:grid!important;
+    gap:9px!important;
+    width:100%!important;
+    overflow:visible!important;
+    border:0!important;
+    background:transparent!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-connection-head{display:none!important}
+  html[data-product-target="qnap"] .traffic-v3-connection-row{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) auto!important;
+    grid-template-areas:
+      "target bytes"
+      "source source"
+      "path path"!important;
+    gap:10px 12px!important;
+    width:100%!important;
+    min-width:0!important;
+    min-height:0!important;
+    padding:13px!important;
+    border:1px solid var(--ui-border)!important;
+    border-radius:13px!important;
+    background:var(--ui-neutral-card-soft,var(--ui-surface))!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-connection-row.has-issue::before{
+    top:12px!important;
+    bottom:12px!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-target{grid-area:target!important}
+  html[data-product-target="qnap"] .traffic-v3-source{
+    grid-area:source!important;
+    padding-top:8px!important;
+    border-top:1px solid var(--ui-border)!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-path{
+    grid-area:path!important;
+    padding-top:8px!important;
+    border-top:1px solid var(--ui-border)!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-bytes{
+    grid-area:bytes!important;
+    min-width:70px!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-target>strong,
+  html[data-product-target="qnap"] .traffic-v3-source strong,
+  html[data-product-target="qnap"] .traffic-v3-path strong,
+  html[data-product-target="qnap"] .traffic-v3-path small{
+    white-space:normal!important;
+    overflow-wrap:anywhere!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-issue{
+    grid-template-columns:auto minmax(0,1fr)!important;
+    gap:10px!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-issue>button{
+    grid-column:1/-1!important;
+    width:100%!important;
+    min-height:42px!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-targets>button{
+    grid-template-columns:minmax(0,1fr) auto!important;
+    gap:8px!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-targets>button>span:nth-child(2){
+    display:none!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-log-row{
+    grid-template-columns:1fr!important;
+    gap:4px!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-inspector-backdrop{
+    z-index:120!important;
+    align-items:flex-end!important;
+    justify-content:stretch!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-inspector{
+    width:100%!important;
+    max-width:none!important;
+    height:min(92dvh,900px)!important;
+    padding:0 var(--os-mobile-gutter) calc(18px + env(safe-area-inset-bottom))!important;
+    border:1px solid var(--ui-border)!important;
+    border-width:1px 0 0!important;
+    border-radius:22px 22px 0 0!important;
+    box-shadow:0 -28px 80px rgba(0,0,0,.45)!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-inspector-head{
+    margin:0 calc(var(--os-mobile-gutter) * -1)!important;
+    padding:16px var(--os-mobile-gutter)!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-inspector-head h2{
+    white-space:normal!important;
+    overflow-wrap:anywhere!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-rule-form{
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-inspector-actions{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-inspector-actions button{
+    width:100%!important;
+    min-height:44px!important;
+  }
+
+  /* Tutorial */
+  html[data-product-target="qnap"] .tutorial-grid{
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .tutorial-actions{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .tutorial-actions .ui-button{width:100%!important}
+
+  /* Modal surfaces become reachable bottom sheets on touch screens. */
+  html[data-product-target="qnap"] :where(dialog.reload-dialog,dialog.rebind-dialog,dialog.outlet-dialog,.profile-overlay-preview-dialog){
+    inset:auto 0 0 0!important;
+    width:100%!important;
+    max-width:none!important;
+    max-height:90dvh!important;
+    margin:0!important;
+    padding:16px var(--os-mobile-gutter) calc(16px + env(safe-area-inset-bottom))!important;
+    overflow:auto!important;
+    border-width:1px 0 0!important;
+    border-radius:22px 22px 0 0!important;
+    box-sizing:border-box!important;
+  }
+
+  html[data-product-target="qnap"] .outlet-options{
+    grid-template-columns:1fr!important;
+    max-height:56dvh!important;
+    padding:12px 0!important;
+  }
+
+  html[data-product-target="qnap"] .remote-token-row{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:8px!important;
+    width:100%!important;
+  }
+  html[data-product-target="qnap"] .remote-token-row>button{
+    width:100%!important;
+    min-height:44px!important;
+  }
+
+  html[data-product-target="qnap"] :where(.device-traffic-grid,.device-traffic-list,.proxy-node-grid,.policy-group-nav-shell){
+    max-width:100%!important;
+    overflow-x:auto!important;
+    overscroll-behavior-x:contain!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+
+  html[data-product-target="qnap"] .command-palette-layer{
+    align-items:flex-end!important;
+    padding:max(12px,env(safe-area-inset-top)) 0 0!important;
+  }
+  html[data-product-target="qnap"] .command-palette{
+    width:100%!important;
+    max-width:none!important;
+    max-height:88dvh!important;
+    margin:0!important;
+    border-width:1px 0 0!important;
+    border-radius:22px 22px 0 0!important;
+    padding-bottom:env(safe-area-inset-bottom)!important;
+  }
+  html[data-product-target="qnap"] .command-palette-search{
+    min-height:58px!important;
+  }
+  html[data-product-target="qnap"] .command-palette-search input{
+    font-size:16px!important;
+  }
+  html[data-product-target="qnap"] .command-palette-results{
+    max-height:calc(88dvh - 126px)!important;
+    overscroll-behavior:contain!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+
+  html[data-product-target="qnap"] .operation-notifications{
+    z-index:140!important;
+    top:calc(10px + env(safe-area-inset-top))!important;
+    right:max(10px,env(safe-area-inset-right))!important;
+    left:max(10px,env(safe-area-inset-left))!important;
+    bottom:auto!important;
+    width:auto!important;
+    max-width:none!important;
+  }
+
+  html[data-product-target="qnap"] .operation-notification{
+    width:100%!important;
+    min-width:0!important;
+  }
+
+  html[data-product-target="qnap"] .operation-progress{
+    z-index:110!important;
+    right:max(10px,env(safe-area-inset-right))!important;
+    bottom:calc(10px + env(safe-area-inset-bottom))!important;
+    left:max(10px,env(safe-area-inset-left))!important;
+    width:auto!important;
+    max-width:none!important;
+    max-height:min(62dvh,520px)!important;
+    padding:14px!important;
+    overflow:auto!important;
+    border-radius:16px!important;
+  }
+  html[data-product-target="qnap"] .operation-progress-status strong{
+    align-items:flex-start!important;
+    flex-direction:column!important;
+    gap:3px!important;
+  }
+  html[data-product-target="qnap"] .operation-progress-status strong>span{
+    white-space:normal!important;
+  }
+  html[data-product-target="qnap"] .operation-progress-actions{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:7px!important;
+  }
+  html[data-product-target="qnap"] .operation-progress-actions button{
+    width:100%!important;
+    min-height:40px!important;
+    padding:6px 10px!important;
+    border:1px solid var(--ui-border)!important;
+    border-radius:10px!important;
+  }
+
+  html[data-product-target="qnap"] .error-banner,
+  html[data-product-target="qnap"] .recovery-banner{
+    grid-template-columns:auto minmax(0,1fr)!important;
+    gap:10px!important;
+  }
+  html[data-product-target="qnap"] .error-banner>button,
+  html[data-product-target="qnap"] .recovery-banner>button{
+    grid-column:1/-1!important;
+    width:100%!important;
+    min-height:42px!important;
+  }
+}
+
+@media (max-width:600px){
+  html[data-product-target="qnap"]{
+    --os-mobile-gutter:11px;
+    --os-mobile-toolbar:56px;
+  }
+
+  html[data-product-target="qnap"] .workspace-canvas{
+    padding-top:11px!important;
+    padding-bottom:calc(74px + env(safe-area-inset-bottom))!important;
+  }
+
+  html[data-product-target="qnap"] :where(.section,.ui-panel){
+    padding:12px!important;
+    border-radius:14px!important;
+  }
+
+  html[data-product-target="qnap"] .page-header{
+    padding:12px!important;
+    border-radius:14px!important;
+  }
+
+  html[data-product-target="qnap"] .page-header h1{font-size:22px!important}
+
+  html[data-product-target="qnap"] .inventory,
+  html[data-product-target="qnap"] .source-inventory,
+  html[data-product-target="qnap"] .provider-status-list,
+  html[data-product-target="qnap"] .overlay-summary,
+  html[data-product-target="qnap"] .qnap-host-status-panel,
+  html[data-product-target="qnap"] .qnap-runtime-grid,
+  html[data-product-target="qnap"] .ui-summary-grid,
+  html[data-product-target="qnap"] .diagnostic-summary-grid,
+  html[data-product-target="qnap"] .policy-health-overview{
+    grid-template-columns:1fr!important;
+  }
+
+  html[data-product-target="qnap"] .ui-summary-main{grid-column:auto!important}
+
+  html[data-product-target="qnap"] :where(.source-actions,.actions,.dialog-actions,.editor-actions,.rule-actions,.device-card-actions){
+    display:grid!important;
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] :where(.source-actions,.actions,.dialog-actions,.editor-actions,.rule-actions,.device-card-actions)>*{
+    width:100%!important;
+    min-width:0!important;
+  }
+
+  html[data-product-target="qnap"] .sticky-save,
+  html[data-product-target="qnap"] .sticky-actions,
+  html[data-product-target="qnap"] .ui-action-bar{
+    grid-template-columns:1fr!important;
+  }
+
+  html[data-product-target="qnap"] .connectivity-score{
+    grid-template-columns:auto minmax(0,1fr)!important;
+  }
+  html[data-product-target="qnap"] .connectivity-metrics{
+    grid-template-columns:1fr!important;
+  }
+
+  html[data-product-target="qnap"] .traffic-v3-summary{
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-section-head{
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-live-state{
+    justify-self:start!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-search-actions{
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-search-actions>input{grid-column:auto!important}
+  html[data-product-target="qnap"] .traffic-v3-connection-row{
+    grid-template-columns:1fr!important;
+    grid-template-areas:
+      "target"
+      "bytes"
+      "source"
+      "path"!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-bytes{text-align:left!important}
+  html[data-product-target="qnap"] .traffic-v3-issue{
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-issue-icon{display:none!important}
+  html[data-product-target="qnap"] .traffic-v3-targets>button{
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-targets>button>span:last-child{text-align:left!important}
+
+  html[data-product-target="qnap"] .operation-progress-meta{
+    align-items:flex-start!important;
+    flex-direction:column!important;
+    gap:4px!important;
+  }
+
+  html[data-product-target="qnap"] .command-palette-heading small{
+    display:none!important;
+  }
+  html[data-product-target="qnap"] .command-current-badge{
+    display:none!important;
+  }
+
+  html[data-product-target="qnap"] .source-location{
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .source-location-icon{display:none!important}
+}
+
+@media (max-width:390px){
+  html[data-product-target="qnap"]{
+    --os-mobile-gutter:9px;
+  }
+
+  html[data-product-target="qnap"] .sidebar{
+    width:92vw!important;
+  }
+
+  html[data-product-target="qnap"] .page-header h1{font-size:21px!important}
+
+  html[data-product-target="qnap"] .traffic-v3-tabs>button{
+    padding-inline:9px!important;
+  }
+
+  html[data-product-target="qnap"] .connectivity-score{
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .score-orb{justify-self:start!important}
+}
+
+@media (max-width:860px) and (orientation:landscape) and (max-height:560px){
+  html[data-product-target="qnap"] .sidebar{
+    width:min(58vw,320px)!important;
+    padding-top:max(8px,env(safe-area-inset-top))!important;
+  }
+  html[data-product-target="qnap"] .workspace-toolbar{
+    min-height:calc(50px + env(safe-area-inset-top))!important;
+    padding-top:max(5px,env(safe-area-inset-top))!important;
+    padding-bottom:5px!important;
+  }
+  html[data-product-target="qnap"] .workspace-canvas{
+    padding-top:9px!important;
+  }
+  html[data-product-target="qnap"] .command-palette{
+    max-height:94dvh!important;
+  }
+  html[data-product-target="qnap"] .traffic-v3-inspector{
+    height:96dvh!important;
+  }
+}
+
+@media (max-width:860px) and (prefers-reduced-motion:reduce){
+  html[data-product-target="qnap"] .sidebar,
+  html[data-product-target="qnap"] .mobile-nav-backdrop{
+    transition:none!important;
+  }
+}

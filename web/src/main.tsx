@@ -29,6 +29,7 @@ import './moviepilot-ui-v5.css'
 import './moviepilot-ui-v5-fixes.css'
 import './legacy-design-bridge.css'
 import './design-system.css'
+import './mobile-responsive.css'
 
 const productTarget = (import.meta.env.VITE_OPENSURGE_TARGET ?? 'mac').trim().toLowerCase()
 document.documentElement.dataset.productTarget = productTarget
