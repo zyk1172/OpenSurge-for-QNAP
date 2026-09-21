@@ -23,7 +23,7 @@ func TestHostHostsSyncPersistsManagedLayerAndAppliesEffectiveProfile(t *testing.
 
 	document := mihomo.DefaultProfileOverlayDocument()
 	document.Enabled = false
-	document.DNS.Merge["hosts-file"] = "1.1.1.1 manual.local"
+	document.DNS.Merge["hosts-file"] = "1.1.1.1 manual.local\n\n" + hostHostsBegin + "\n192.0.2.99 legacy.local\n" + hostHostsEnd
 	data, err := mihomo.RenderProfileOverlay(document)
 	if err != nil {
 		t.Fatal(err)
@@ -69,8 +69,8 @@ func TestHostHostsSyncPersistsManagedLayerAndAppliesEffectiveProfile(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "manual.local") || strings.Contains(string(raw), hostHostsBegin) || strings.Contains(string(raw), "nas.local") {
-		t.Fatalf("managed QNAP hosts must stay independent from the manual overlay:\n%s", raw)
+	if !strings.Contains(string(raw), "manual.local") || strings.Contains(string(raw), hostHostsBegin) || strings.Contains(string(raw), "legacy.local") || strings.Contains(string(raw), "nas.local") {
+		t.Fatalf("managed QNAP hosts must stay independent from the manual overlay and migrate legacy blocks:\n%s", raw)
 	}
 }
 

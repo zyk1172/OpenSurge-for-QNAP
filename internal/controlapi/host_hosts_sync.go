@@ -142,8 +142,14 @@ func (s *Server) handleHostHostsSync(w http.ResponseWriter, r *http.Request) {
 			if value.Enabled {
 				value, err = s.syncHostHosts(r.Context(), value, true)
 			} else {
-				err = s.reconcileHostHostsProfile(r.Context())
+				var migration hostHostsOverlayMigration
+				migration, err = s.migrateLegacyHostHostsOverlay()
 				if err == nil {
+					err = s.reconcileHostHostsProfile(r.Context())
+				}
+				if err != nil {
+					_ = s.restoreLegacyHostHostsOverlay(migration)
+				} else {
 					value.LastError = ""
 					err = s.store.SaveHostHostsSyncSettings(value)
 				}
@@ -198,15 +204,24 @@ func (s *Server) syncHostHosts(ctx context.Context, value hostHostsSyncSettings,
 	sum := sha256.Sum256([]byte(normalizedHosts))
 	digest := hex.EncodeToString(sum[:])
 
+	migration, err := s.migrateLegacyHostHostsOverlay()
+	if err != nil {
+		value.LastError = err.Error()
+		_ = s.store.SaveHostHostsSyncSettings(value)
+		return value, err
+	}
+
 	previous, previousErr := s.store.HostHostsManaged()
 	hadPrevious := previousErr == nil
 	if previousErr != nil && !errors.Is(previousErr, os.ErrNotExist) {
+		_ = s.restoreLegacyHostHostsOverlay(migration)
 		value.LastError = previousErr.Error()
 		_ = s.store.SaveHostHostsSyncSettings(value)
 		return value, previousErr
 	}
 	if !hadPrevious || string(previous) != normalizedHosts {
 		if err := s.store.SaveHostHostsManaged([]byte(normalizedHosts)); err != nil {
+			_ = s.restoreLegacyHostHostsOverlay(migration)
 			value.LastError = err.Error()
 			_ = s.store.SaveHostHostsSyncSettings(value)
 			return value, err
@@ -223,6 +238,7 @@ func (s *Server) syncHostHosts(ctx context.Context, value hostHostsSyncSettings,
 		} else {
 			_ = s.store.RemoveHostHostsManaged()
 		}
+		_ = s.restoreLegacyHostHostsOverlay(migration)
 		value.LastError = err.Error()
 		_ = s.store.SaveHostHostsSyncSettings(value)
 		return value, err
@@ -236,6 +252,47 @@ func (s *Server) syncHostHosts(ctx context.Context, value hostHostsSyncSettings,
 		return value, err
 	}
 	return value, nil
+}
+
+type hostHostsOverlayMigration struct {
+	Previous []byte
+	Changed  bool
+}
+
+func (s *Server) migrateLegacyHostHostsOverlay() (hostHostsOverlayMigration, error) {
+	data, err := s.store.ProfileOverlay()
+	if errors.Is(err, os.ErrNotExist) {
+		return hostHostsOverlayMigration{}, nil
+	}
+	if err != nil {
+		return hostHostsOverlayMigration{}, err
+	}
+	document, err := mihomo.ParseProfileOverlay(data)
+	if err != nil {
+		return hostHostsOverlayMigration{}, err
+	}
+	raw, _ := document.DNS.Merge["hosts-file"].(string)
+	if !strings.Contains(raw, hostHostsBegin) && !strings.Contains(raw, hostHostsEnd) {
+		return hostHostsOverlayMigration{}, nil
+	}
+	if _, err := detachLegacyHostHostsFromOverlay(&document); err != nil {
+		return hostHostsOverlayMigration{}, err
+	}
+	rendered, err := mihomo.RenderProfileOverlay(document)
+	if err != nil {
+		return hostHostsOverlayMigration{}, err
+	}
+	if err := s.store.SaveProfileOverlay(rendered); err != nil {
+		return hostHostsOverlayMigration{}, err
+	}
+	return hostHostsOverlayMigration{Previous: append([]byte(nil), data...), Changed: true}, nil
+}
+
+func (s *Server) restoreLegacyHostHostsOverlay(migration hostHostsOverlayMigration) error {
+	if !migration.Changed {
+		return nil
+	}
+	return s.store.SaveProfileOverlay(migration.Previous)
 }
 
 func (s *Server) reconcileHostHostsProfile(ctx context.Context) error {
