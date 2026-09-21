@@ -104,6 +104,17 @@ html,body,button,input,select,textarea{
 }
 .workspace-canvas small{font-size:var(--ui-font-caption);line-height:1.4}
 
+/* The page-name chip and gateway live dot duplicated information already
+ * available in navigation/status surfaces. Collapse that desktop chrome so
+ * every page starts higher. Mobile keeps the toolbar for its menu button. */
+.workspace-toolbar{
+  display:none!important;
+  min-height:0!important;
+  height:0!important;
+  padding:0!important;
+  border:0!important;
+}
+
 /* Stable application chrome -------------------------------------------- */
 .sidebar-brand-row{
   height:54px!important;
@@ -330,6 +341,11 @@ html,body,button,input,select,textarea{
 }
 :where(input:not([type="checkbox"]):not([type="radio"]),select){
   min-height:var(--ui-control-height)!important;
+}
+:where(input:not([type="checkbox"]):not([type="radio"])){
+  box-sizing:border-box!important;
+  padding:0 12px!important;
+  line-height:calc(var(--ui-control-height) - 2px)!important;
 }
 :where(input:not([type="checkbox"]):not([type="radio"]),select,textarea):focus{
   border-color:color-mix(in srgb,var(--ui-accent) 58%,transparent)!important;
@@ -853,6 +869,13 @@ dialog.reload-dialog>.dialog-actions{
 }
 
 @media(max-width:860px){
+  .workspace-toolbar{
+    display:flex!important;
+    min-height:54px!important;
+    height:auto!important;
+    padding:8px 14px 4px!important;
+    border:0!important;
+  }
   :root{--ui-control-height:44px;--ui-font-page:23px}
   .workspace-canvas{padding:10px 14px calc(76px + env(safe-area-inset-bottom))!important}
   .page-header{align-items:flex-start!important;padding:14px!important}
@@ -1452,7 +1475,7 @@ html[data-product-target="qnap"] .workspace-canvas .host-sync-status{
   padding:7px 0 2px!important;
   color:var(--ui-text-muted)!important;
   font-size:var(--ui-font-caption)!important;
-  text-align:right!important;
+  text-align:left!important;
   cursor:pointer!important;
 }
 .workspace-canvas .connectivity-target .target-evidence{

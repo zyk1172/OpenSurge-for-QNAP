@@ -316,10 +316,6 @@ export function App() {
             <kbd>⌘ K</kbd>
           </button>
         </div>
-        <div className="workspace-toolbar-end">
-          <span className="toolbar-page-label">{t(activeItem.label)}</span>
-          <div className="toolbar-gateway-status" title={gatewayStatus} aria-label={gatewayStatus}><StatusDot status={overview?.status.gateway ?? 'unreachable'} /></div>
-        </div>
       </header>
       <div className="workspace-canvas">
         {authenticationRequired ? <section className="session-expired" role="alert"><span aria-hidden="true">!</span><div><h1>{t('Web GUI 与 OpenSurge 的安全连接已过期')}</h1>{qnapBuild ? <p><a href="/auth/">重新登录</a></p> : <p>{t('请点击 macOS 菜单栏中的 OpenSurge 图标，然后选择“打开 OpenSurge 面板”。')}</p>}</div></section> : <>

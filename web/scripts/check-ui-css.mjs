@@ -26,4 +26,15 @@ const searchActions = ruleBody(traffic, '.traffic-v3-search-actions button')
 if (!searchActions.includes('min-height:var(--ui-control-height,40px)')) throw new Error('Traffic search buttons must use shared control height')
 if (!searchActions.includes('font-size:var(--ui-font-control,13px)')) throw new Error('Traffic search buttons must use shared control font size')
 
+
+const toolbar = ruleBody(design, '.workspace-toolbar')
+if (!toolbar.includes('display:none!important')) throw new Error('Desktop workspace toolbar must collapse after page/live badges are removed')
+if (!toolbar.includes('height:0!important')) throw new Error('Collapsed desktop workspace toolbar must not reserve vertical space')
+
+const textInput = ruleBody(design, ':where(input:not([type="checkbox"]):not([type="radio"]))')
+if (!textInput.includes('padding:0 12px!important')) throw new Error('Text/number inputs must align with shared control horizontal padding')
+
+const connectivityEvidence = ruleBody(design, '.workspace-canvas .connectivity-target .target-details>summary')
+if (!connectivityEvidence.includes('text-align:left!important')) throw new Error('Connectivity evidence disclosure must align with the expected-route column')
+
 console.log('UI CSS contracts OK')
