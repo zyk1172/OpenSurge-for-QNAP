@@ -130,11 +130,8 @@ func RunScan(ctx context.Context, targets []Target, options ScanOptions, progres
 		}
 		return coarse[i].Latency < coarse[j].Latency
 	})
-	if len(coarse) > settings.HTTPSCandidateCount {
-		coarse = coarse[:settings.HTTPSCandidateCount]
-	}
-
 	perTarget := make(map[string][]httpCandidate, len(enabledTargets))
+	requiredHTTPS := requiredHTTPSCandidateCount(settings)
 	for index, target := range enabledTargets {
 		if budgetCtx.Err() != nil {
 			break
@@ -142,55 +139,17 @@ func RunScan(ctx context.Context, targets []Target, options ScanOptions, progres
 		if progress != nil {
 			progress(ScanProgress{Phase: "https", Completed: index, Total: len(enabledTargets)})
 		}
-		verified := probeHTTPSBatch(budgetCtx, target, coarse, options)
+		verified := probeHTTPSCandidates(budgetCtx, target, coarse, options, requiredHTTPS, settings.HTTPSCandidateCount)
 		if len(verified) == 0 {
 			continue
 		}
-		sort.Slice(verified, func(i, j int) bool {
-			if verified[i].LossRate != verified[j].LossRate {
-				return verified[i].LossRate < verified[j].LossRate
-			}
-			if verified[i].TTFB != verified[j].TTFB {
-				return verified[i].TTFB < verified[j].TTFB
-			}
-			return verified[i].Latency < verified[j].Latency
-		})
 		perTarget[target.Domain] = verified
 	}
 	if len(perTarget) == 0 {
 		return ScanOutput{}, fmt.Errorf("no target domain completed Cloudflare HTTPS/SNI validation")
 	}
 
-	speedByIP := map[string]float64{}
-	if settings.DownloadCandidateCount > 0 && ctx.Err() == nil {
-		unique := make([]string, 0)
-		seen := map[string]bool{}
-		for _, target := range enabledTargets {
-			verified := perTarget[target.Domain]
-			limit := settings.DownloadCandidateCount
-			if len(verified) < limit {
-				limit = len(verified)
-			}
-			for _, candidate := range verified[:limit] {
-				if !seen[candidate.IP] {
-					seen[candidate.IP] = true
-					unique = append(unique, candidate.IP)
-				}
-			}
-		}
-		if progress != nil {
-			progress(ScanProgress{Phase: "download", Total: len(unique)})
-		}
-		for index, ip := range unique {
-			if ctx.Err() != nil {
-				break
-			}
-			speedByIP[ip] = probeDownload(ctx, ip, options)
-			if progress != nil {
-				progress(ScanProgress{Phase: "download", Completed: index + 1, Total: len(unique)})
-			}
-		}
-	}
+	speedByIP := probeDownloadCandidates(ctx, enabledTargets, perTarget, options, progress)
 
 	results := make([]TargetResult, 0, len(enabledTargets))
 	rejectedDomains := make([]string, 0)
@@ -368,7 +327,60 @@ func probeTCP(ctx context.Context, ip string, options ScanOptions) (tcpCandidate
 	return tcpCandidate{IP: ip, Latency: total / time.Duration(received), LossRate: float64(attempts-received) / float64(attempts)}, true
 }
 
+func requiredHTTPSCandidateCount(settings ScanSettings) int {
+	required := settings.DownloadCandidateCount
+	if required < 3 {
+		required = 3
+	}
+	if settings.MinDownloadMbps > 0 {
+		required *= 2
+	}
+	if required > settings.HTTPSCandidateCount {
+		required = settings.HTTPSCandidateCount
+	}
+	if required < 1 {
+		required = 1
+	}
+	return required
+}
+
+// probeHTTPSCandidates keeps the normal first window fast, but unlike a fixed
+// top-N cut it advances through the latency-sorted pool when that window does
+// not yield enough SNI-valid edges. The scan context remains the hard bound.
+func probeHTTPSCandidates(ctx context.Context, target Target, candidates []tcpCandidate, options ScanOptions, required, windowSize int) []httpCandidate {
+	if len(candidates) == 0 || required <= 0 {
+		return nil
+	}
+	if windowSize <= 0 {
+		windowSize = required
+	}
+	verified := make([]httpCandidate, 0, windowSize)
+	for start := 0; start < len(candidates) && len(verified) < required && ctx.Err() == nil; start += windowSize {
+		end := start + windowSize
+		if end > len(candidates) {
+			end = len(candidates)
+		}
+		verified = append(verified, probeHTTPSBatch(ctx, target, candidates[start:end], options)...)
+	}
+	sort.Slice(verified, func(i, j int) bool {
+		if verified[i].LossRate != verified[j].LossRate {
+			return verified[i].LossRate < verified[j].LossRate
+		}
+		if verified[i].TTFB != verified[j].TTFB {
+			return verified[i].TTFB < verified[j].TTFB
+		}
+		return verified[i].Latency < verified[j].Latency
+	})
+	if len(verified) > windowSize {
+		verified = verified[:windowSize]
+	}
+	return verified
+}
+
 func probeHTTPSBatch(ctx context.Context, target Target, candidates []tcpCandidate, options ScanOptions) []httpCandidate {
+	if len(candidates) == 0 {
+		return nil
+	}
 	workers := 5
 	if workers > len(candidates) {
 		workers = len(candidates)
@@ -444,10 +456,16 @@ func probeHTTPS(ctx context.Context, target Target, candidate tcpCandidate, opti
 	// the status code itself as an unusable-IP verdict.
 	if validation.StatusCode == http.StatusForbidden || validation.StatusCode == http.StatusMethodNotAllowed {
 		if fallback, fallbackErr := performHTTPSValidationRequest(ctx, client, http.MethodGet, requestURL); fallbackErr == nil {
-			if !validHTTPSValidationResponse(fallback.StatusCode, fallback.Header, fallback.BodyPreview) {
+			if hasExplicitCloudflareEdgeIPError(fallback.Header, fallback.BodyPreview) {
 				return httpCandidate{}, false
 			}
-			validation = fallback
+			// The GET is a second opinion used mainly to expose Cloudflare edge-IP
+			// errors that HEAD cannot carry in a body. If WAF/rate limiting changes
+			// the GET status, keep the already-valid HEAD result rather than turning
+			// a usable edge into a false negative.
+			if validHTTPSValidationResponse(fallback.StatusCode, fallback.Header, fallback.BodyPreview) {
+				validation = fallback
+			}
 		}
 	}
 
@@ -497,10 +515,11 @@ func validHTTPSValidationResponse(status int, header http.Header, bodyPreview []
 	if hasExplicitCloudflareEdgeIPError(header, bodyPreview) {
 		return false
 	}
-	if status >= http.StatusOK && status < http.StatusBadRequest {
-		return true
-	}
-	return status == http.StatusForbidden || status == http.StatusMethodNotAllowed
+	// For arbitrary user domains, a Cloudflare-backed 4xx still proves that the
+	// candidate reached the intended edge/SNI. Treat edge-authenticated 2xx-4xx
+	// responses as valid and reserve rejection for transport/TLS failures,
+	// explicit edge-IP errors, and 5xx responses.
+	return status >= http.StatusOK && status < http.StatusInternalServerError
 }
 
 func hasCloudflareEdgeEvidence(header http.Header) bool {
@@ -526,6 +545,157 @@ func hasExplicitCloudflareEdgeIPError(header http.Header, bodyPreview []byte) bo
 		}
 	}
 	return false
+}
+
+func initialDownloadIPs(targets []Target, perTarget map[string][]httpCandidate, perTargetLimit, maxUnique int) []string {
+	if perTargetLimit <= 0 || maxUnique <= 0 {
+		return nil
+	}
+	out := make([]string, 0, maxUnique)
+	seen := map[string]bool{}
+	for _, target := range targets {
+		verified := perTarget[target.Domain]
+		limit := perTargetLimit
+		if len(verified) < limit {
+			limit = len(verified)
+		}
+		for _, candidate := range verified[:limit] {
+			if seen[candidate.IP] {
+				continue
+			}
+			seen[candidate.IP] = true
+			out = append(out, candidate.IP)
+			if len(out) >= maxUnique {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func orderedDownloadIPs(targets []Target, perTarget map[string][]httpCandidate, maxUnique int) []string {
+	if maxUnique <= 0 {
+		return nil
+	}
+	maxCandidates := 0
+	for _, target := range targets {
+		if count := len(perTarget[target.Domain]); count > maxCandidates {
+			maxCandidates = count
+		}
+	}
+	out := make([]string, 0, maxUnique)
+	seen := map[string]bool{}
+	for rank := 0; rank < maxCandidates; rank++ {
+		for _, target := range targets {
+			verified := perTarget[target.Domain]
+			if rank >= len(verified) {
+				continue
+			}
+			ip := verified[rank].IP
+			if seen[ip] {
+				continue
+			}
+			seen[ip] = true
+			out = append(out, ip)
+			if len(out) >= maxUnique {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func allVerifiedTargetsMeetMinimumDownload(targets []Target, perTarget map[string][]httpCandidate, speedByIP map[string]float64, minimumMbps float64) bool {
+	if minimumMbps <= 0 {
+		return true
+	}
+	checkedTarget := false
+	for _, target := range targets {
+		verified := perTarget[target.Domain]
+		if len(verified) == 0 {
+			continue
+		}
+		checkedTarget = true
+		matched := false
+		for _, candidate := range verified {
+			if speed, measured := speedByIP[candidate.IP]; measured && speed >= minimumMbps {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return checkedTarget
+}
+
+// probeDownloadCandidates mirrors CloudflareSpeedTest's useful -sl behaviour:
+// run the normal bounded first set, then keep walking later verified candidates
+// only when a minimum throughput was requested and some domain still has no
+// passing IP. HTTPSCandidateCount remains the cap on unique download probes.
+func probeDownloadCandidates(ctx context.Context, targets []Target, perTarget map[string][]httpCandidate, options ScanOptions, progress func(ScanProgress)) map[string]float64 {
+	settings := options.Settings
+	speedByIP := map[string]float64{}
+	if settings.DownloadCandidateCount <= 0 || ctx.Err() != nil {
+		return speedByIP
+	}
+
+	maxUnique := settings.HTTPSCandidateCount
+	if maxUnique < settings.DownloadCandidateCount {
+		maxUnique = settings.DownloadCandidateCount
+	}
+	initial := initialDownloadIPs(targets, perTarget, settings.DownloadCandidateCount, maxUnique)
+	if len(initial) == 0 {
+		return speedByIP
+	}
+
+	ordered := initial
+	if settings.MinDownloadMbps > 0 {
+		ordered = orderedDownloadIPs(targets, perTarget, maxUnique)
+		// Preserve the old per-target first-N ordering at the front so existing
+		// selections remain stable where possible, then append fair round-robin
+		// candidates for threshold-driven refill.
+		seen := map[string]bool{}
+		merged := make([]string, 0, maxUnique)
+		for _, ip := range append(initial, ordered...) {
+			if seen[ip] {
+				continue
+			}
+			seen[ip] = true
+			merged = append(merged, ip)
+			if len(merged) >= maxUnique {
+				break
+			}
+		}
+		ordered = merged
+	}
+
+	total := len(initial)
+	if settings.MinDownloadMbps > 0 {
+		total = len(ordered)
+	}
+	if progress != nil {
+		progress(ScanProgress{Phase: "download", Total: total})
+	}
+
+	for index, ip := range ordered {
+		if ctx.Err() != nil {
+			break
+		}
+		speedByIP[ip] = probeDownload(ctx, ip, options)
+		if progress != nil {
+			progress(ScanProgress{Phase: "download", Completed: index + 1, Total: total})
+		}
+		if settings.MinDownloadMbps <= 0 && index+1 >= len(initial) {
+			break
+		}
+		if settings.MinDownloadMbps > 0 && index+1 >= len(initial) &&
+			allVerifiedTargetsMeetMinimumDownload(targets, perTarget, speedByIP, settings.MinDownloadMbps) {
+			break
+		}
+	}
+	return speedByIP
 }
 
 func probeDownload(ctx context.Context, ip string, options ScanOptions) float64 {
