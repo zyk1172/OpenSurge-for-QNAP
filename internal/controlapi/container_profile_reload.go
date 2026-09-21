@@ -120,8 +120,11 @@ func detachLegacyHostHostsFromOverlay(document *mihomo.ProfileOverlayDocument) (
 	}
 	start := strings.Index(standard, hostHostsBegin)
 	end := strings.Index(standard, hostHostsEnd)
-	if start < 0 || end < start {
+	if start < 0 && end < 0 {
 		return "", nil
+	}
+	if start < 0 || end < 0 || end < start {
+		return "", fmt.Errorf("legacy QNAP host Hosts block markers are incomplete")
 	}
 	managed := strings.TrimSpace(standard[start+len(hostHostsBegin) : end])
 	standard = strings.TrimSpace(standard[:start] + standard[end+len(hostHostsEnd):])
