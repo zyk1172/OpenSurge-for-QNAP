@@ -46,6 +46,14 @@ func prepareContainerProfileReconcile(configPath, storeDir string) (*containerPr
 	if err != nil {
 		return nil, err
 	}
+	legacyManagedHosts, err := detachLegacyHostHostsFromOverlay(&document)
+	if err != nil {
+		return nil, err
+	}
+	hostHostsEnabled, managedHostHosts, err := loadManagedHostHostsLayer(store, legacyManagedHosts)
+	if err != nil {
+		return nil, err
+	}
 	effectiveOverlayRevision := ""
 	if document.Enabled {
 		effectiveOverlayRevision = overlayRevision
@@ -57,7 +65,7 @@ func prepareContainerProfileReconcile(configPath, storeDir string) (*containerPr
 
 	// A managed profile with no enabled overlay or optimizer result is already
 	// authoritative and does not need conversion into an imported profile.
-	if cfg.Mihomo.ProfileMode == config.MihomoProfileModeManaged && !document.Enabled && len(optimizerResults) == 0 {
+	if cfg.Mihomo.ProfileMode == config.MihomoProfileModeManaged && !document.Enabled && !hostHostsEnabled && len(optimizerResults) == 0 {
 		return nil, nil
 	}
 
@@ -70,6 +78,12 @@ func prepareContainerProfileReconcile(configPath, storeDir string) (*containerPr
 		return nil, fmt.Errorf("compose latest global profile overlay: %w", err)
 	}
 	payload := []byte(composition.ProfileYAML)
+	if hostHostsEnabled {
+		payload, err = mihomo.ApplyTraditionalHostsToProfile(payload, managedHostHosts)
+		if err != nil {
+			return nil, fmt.Errorf("apply QNAP host Hosts to effective profile: %w", err)
+		}
+	}
 	payload, err = cloudflareopt.ApplyResultsToProfile(payload, optimizerResults)
 	if err != nil {
 		return nil, fmt.Errorf("apply Cloudflare optimizer to effective profile: %w", err)
@@ -96,6 +110,65 @@ func prepareContainerProfileReconcile(configPath, storeDir string) (*containerPr
 		OverlayDigest: effectiveOverlayRevision,
 		Revision:      fileDigest(configPath),
 	}, nil
+}
+
+func detachLegacyHostHostsFromOverlay(document *mihomo.ProfileOverlayDocument) (string, error) {
+	raw, _ := document.DNS.Merge["hosts-file"].(string)
+	standard, native, err := mihomo.SplitProfileHostsInputs(raw)
+	if err != nil {
+		return "", fmt.Errorf("split persisted profile hosts: %w", err)
+	}
+	start := strings.Index(standard, hostHostsBegin)
+	end := strings.Index(standard, hostHostsEnd)
+	if start < 0 || end < start {
+		return "", nil
+	}
+	managed := strings.TrimSpace(standard[start+len(hostHostsBegin) : end])
+	standard = strings.TrimSpace(standard[:start] + standard[end+len(hostHostsEnd):])
+	combined := mihomo.JoinProfileHostsInputs(standard, native)
+	if strings.TrimSpace(combined) == "" {
+		delete(document.DNS.Merge, "hosts-file")
+	} else {
+		document.DNS.Merge["hosts-file"] = combined
+	}
+	return managed, nil
+}
+
+func loadManagedHostHostsLayer(store *Store, legacy string) (bool, string, error) {
+	settings, err := store.HostHostsSyncSettings()
+	if err != nil {
+		return false, "", fmt.Errorf("load QNAP host Hosts sync settings: %w", err)
+	}
+	if !settings.Enabled {
+		return false, "", nil
+	}
+	data, err := store.HostHostsManaged()
+	if err == nil {
+		content := normalizeManagedHostHosts(string(data))
+		if _, parseErr := mihomo.ParseTraditionalHostsFile(content); parseErr != nil {
+			return false, "", fmt.Errorf("parse persisted QNAP host Hosts: %w", parseErr)
+		}
+		return true, content, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return false, "", fmt.Errorf("read persisted QNAP host Hosts: %w", err)
+	}
+	if strings.TrimSpace(legacy) != "" {
+		content := normalizeManagedHostHosts(legacy)
+		if _, parseErr := mihomo.ParseTraditionalHostsFile(content); parseErr != nil {
+			return false, "", fmt.Errorf("parse legacy QNAP host Hosts: %w", parseErr)
+		}
+		return true, content, nil
+	}
+	data, err = os.ReadFile(settings.Path)
+	if err != nil {
+		return false, "", fmt.Errorf("QNAP host Hosts is enabled but no persisted or mapped snapshot is available: %w", err)
+	}
+	content := normalizeManagedHostHosts(string(data))
+	if _, parseErr := mihomo.ParseTraditionalHostsFile(content); parseErr != nil {
+		return false, "", fmt.Errorf("parse mapped QNAP host Hosts: %w", parseErr)
+	}
+	return true, content, nil
 }
 
 func loadPersistedProfileOverlay(store *Store) ([]byte, mihomo.ProfileOverlayDocument, string, error) {

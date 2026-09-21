@@ -314,6 +314,28 @@ func (s *Store) SaveProfileOverlay(data []byte) error {
 	return writeAtomic(filepath.Join(s.dir, "global-profile-overlay.yaml"), data, 0o600)
 }
 
+func (s *Store) HostHostsManaged() ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return os.ReadFile(filepath.Join(s.dir, "host-hosts-managed.txt"))
+}
+
+func (s *Store) SaveHostHostsManaged(data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return writeAtomic(filepath.Join(s.dir, "host-hosts-managed.txt"), data, 0o600)
+}
+
+func (s *Store) RemoveHostHostsManaged() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err := os.Remove(filepath.Join(s.dir, "host-hosts-managed.txt"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 func readJSON(path string, value any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {

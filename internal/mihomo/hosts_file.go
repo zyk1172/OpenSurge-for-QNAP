@@ -297,4 +297,62 @@ func loadProfileHostsYAML(path string) (string, error) {
 	return encodeYAMLNode(hosts)
 }
 
+// ApplyTraditionalHostsToProfile merges a conventional /etc/hosts snapshot into
+// an already-composed Mihomo profile. The managed hosts layer wins over source
+// and manual-overlay hosts. Later generated layers (for example Cloudflare
+// optimizer results) can still override it by applying after this function.
+func ApplyTraditionalHostsToProfile(profile []byte, content string) ([]byte, error) {
+	managed, err := parseTraditionalHostsFileContent(content)
+	if err != nil {
+		return nil, err
+	}
+	if len(managed.Content) == 0 {
+		return profile, nil
+	}
+	root, err := decodeSingleYAMLMapping(profile)
+	if err != nil {
+		return nil, fmt.Errorf("parse effective profile for managed hosts: %w", err)
+	}
+
+	var current *yaml.Node
+	if index := mappingValueIndex(root, "hosts"); index >= 0 {
+		current = resolveAlias(root.Content[index])
+		if current == nil || current.Kind != yaml.MappingNode {
+			return nil, fmt.Errorf("hosts must be a mapping")
+		}
+		if err := validateNodeAliases(current); err != nil {
+			return nil, fmt.Errorf("hosts: %w", err)
+		}
+	}
+	merged := mergeProfileHosts(current, managed)
+	if index := mappingValueIndex(root, "hosts"); index >= 0 {
+		root.Content[index] = merged
+	} else {
+		root.Content = append(root.Content, stringNode("hosts"), merged)
+	}
+
+	var dns *yaml.Node
+	if index := mappingValueIndex(root, "dns"); index >= 0 {
+		dns = resolveAlias(root.Content[index])
+		if dns == nil || dns.Kind != yaml.MappingNode {
+			return nil, fmt.Errorf("dns must be a mapping")
+		}
+	} else {
+		dns = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		root.Content = append(root.Content, stringNode("dns"), dns)
+	}
+	useHosts := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"}
+	if index := mappingValueIndex(dns, "use-hosts"); index >= 0 {
+		dns.Content[index] = useHosts
+	} else {
+		dns.Content = append(dns.Content, stringNode("use-hosts"), useHosts)
+	}
+
+	rendered, err := encodeYAMLNode(root)
+	if err != nil {
+		return nil, fmt.Errorf("render effective profile with managed hosts: %w", err)
+	}
+	return []byte(rendered), nil
+}
+
 func ParseTraditionalHostsFile(content string) (*yaml.Node, error) { return parseTraditionalHostsFileContent(content) }
