@@ -106,6 +106,18 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    if (!sidebarOpen && !commandOpen) return
+    const previousOverflow = document.body.style.overflow
+    const previousTouchAction = document.body.style.touchAction
+    document.body.style.overflow = 'hidden'
+    document.body.style.touchAction = 'none'
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.body.style.touchAction = previousTouchAction
+    }
+  }, [sidebarOpen, commandOpen])
+
+  useEffect(() => {
     window.localStorage.setItem('opensurge-sidebar', sidebarCompact ? 'compact' : 'expanded')
   }, [sidebarCompact])
 
@@ -281,6 +293,7 @@ export function App() {
       <div className="sidebar-brand-row">
         <div className="brand"><img className="brand-mark" src="/opensurge-icon.png" alt="" aria-hidden="true" /><div><strong>OpenSurge</strong><small>{qnapBuild ? 'for QNAP' : 'for Mac'}</small></div></div>
         <button type="button" className="sidebar-collapse" aria-label="Toggle compact navigation" aria-pressed={sidebarCompact} onClick={() => setSidebarCompact(current => !current)}><ShellIcon name="collapse" /></button>
+        <button type="button" className="mobile-sidebar-close" aria-label="Close navigation" onClick={() => setSidebarOpen(false)}>×</button>
       </div>
       <div className="sidebar-nav-scroll">
         <small className="nav-section-label">CONTROL</small>
