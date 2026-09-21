@@ -100,3 +100,98 @@ func TestFilterByMinimumDownloadDisabledPreservesFallback(t *testing.T) {
 		t.Fatalf("disabled minimum throughput filter removed candidates: %#v", got)
 	}
 }
+
+
+func TestHTTPSValidationAcceptsCloudflare429(t *testing.T) {
+	header := http.Header{}
+	header.Set("CF-Ray", "abc-SIN")
+	if !validHTTPSValidationResponse(http.StatusTooManyRequests, header, nil) {
+		t.Fatal("Cloudflare 429 should prove that the candidate reached the intended edge")
+	}
+}
+
+func TestRequiredHTTPSCandidateCountExpandsForThroughputFloor(t *testing.T) {
+	settings := DefaultConfig().Scan
+	if got := requiredHTTPSCandidateCount(settings); got != settings.DownloadCandidateCount {
+		t.Fatalf("required HTTPS candidates without floor = %d, want %d", got, settings.DownloadCandidateCount)
+	}
+	settings.MinDownloadMbps = 20
+	if got := requiredHTTPSCandidateCount(settings); got != settings.DownloadCandidateCount*2 {
+		t.Fatalf("required HTTPS candidates with floor = %d, want %d", got, settings.DownloadCandidateCount*2)
+	}
+	settings.DownloadCandidateCount = 0
+	settings.MinDownloadMbps = 0
+	if got := requiredHTTPSCandidateCount(settings); got != 3 {
+		t.Fatalf("required HTTPS fallback candidates = %d, want 3", got)
+	}
+}
+
+func TestDownloadCandidateOrderingPreservesInitialAndAddsRoundRobinFallback(t *testing.T) {
+	targets := []Target{
+		{Domain: "a.example", Enabled: true},
+		{Domain: "b.example", Enabled: true},
+	}
+	perTarget := map[string][]httpCandidate{
+		"a.example": {
+			{tcpCandidate: tcpCandidate{IP: "104.18.0.1"}},
+			{tcpCandidate: tcpCandidate{IP: "104.18.0.2"}},
+			{tcpCandidate: tcpCandidate{IP: "104.18.0.3"}},
+		},
+		"b.example": {
+			{tcpCandidate: tcpCandidate{IP: "104.18.0.1"}},
+			{tcpCandidate: tcpCandidate{IP: "104.18.0.4"}},
+			{tcpCandidate: tcpCandidate{IP: "104.18.0.5"}},
+		},
+	}
+	initial := initialDownloadIPs(targets, perTarget, 2, 5)
+	wantInitial := []string{"104.18.0.1", "104.18.0.2", "104.18.0.4"}
+	if len(initial) != len(wantInitial) {
+		t.Fatalf("initial download IPs = %#v", initial)
+	}
+	for i := range wantInitial {
+		if initial[i] != wantInitial[i] {
+			t.Fatalf("initial download IPs = %#v, want %#v", initial, wantInitial)
+		}
+	}
+
+	ordered := orderedDownloadIPs(targets, perTarget, 5)
+	wantOrdered := []string{"104.18.0.1", "104.18.0.2", "104.18.0.4", "104.18.0.3", "104.18.0.5"}
+	if len(ordered) != len(wantOrdered) {
+		t.Fatalf("ordered download IPs = %#v", ordered)
+	}
+	for i := range wantOrdered {
+		if ordered[i] != wantOrdered[i] {
+			t.Fatalf("ordered download IPs = %#v, want %#v", ordered, wantOrdered)
+		}
+	}
+}
+
+func TestAllVerifiedTargetsMeetMinimumDownloadNeedsPassingIPPerDomain(t *testing.T) {
+	targets := []Target{
+		{Domain: "a.example", Enabled: true},
+		{Domain: "b.example", Enabled: true},
+	}
+	perTarget := map[string][]httpCandidate{
+		"a.example": {
+			{tcpCandidate: tcpCandidate{IP: "104.18.0.1"}},
+			{tcpCandidate: tcpCandidate{IP: "104.18.0.2"}},
+			{tcpCandidate: tcpCandidate{IP: "104.18.0.3"}},
+		},
+		"b.example": {
+			{tcpCandidate: tcpCandidate{IP: "104.18.0.1"}},
+			{tcpCandidate: tcpCandidate{IP: "104.18.0.4"}},
+		},
+	}
+	speeds := map[string]float64{
+		"104.18.0.1": 10,
+		"104.18.0.2": 20,
+		"104.18.0.4": 30,
+	}
+	if allVerifiedTargetsMeetMinimumDownload(targets, perTarget, speeds, 25) {
+		t.Fatal("domain a has no passing measured IP yet")
+	}
+	speeds["104.18.0.3"] = 40
+	if !allVerifiedTargetsMeetMinimumDownload(targets, perTarget, speeds, 25) {
+		t.Fatal("both domains now have a passing measured IP")
+	}
+}
