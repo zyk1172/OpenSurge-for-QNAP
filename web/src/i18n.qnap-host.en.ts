@@ -1,6 +1,12 @@
 import { registerEnglishMessages } from './i18n'
 
 export const qnapHostEnglishMessages: Record<string, string> = {
+  'NAS 宿主机 Hosts 已同步并应用到最终配置。': 'NAS host Hosts were synchronized and applied to the final profile.',
+  '尚未应用': 'Not applied yet',
+  '上次应用': 'Last applied',
+  '内容变化时自动校验并应用；网关运行中会安全重载': 'Validate and apply changes automatically; a running gateway is reloaded transactionally',
+  '控制宿主 Hosts 是否参与最终 Mihomo 配置': 'Control whether host Hosts participate in the final Mihomo profile',
+  '从只读映射的 QNAP /etc/hosts 导入；独立于手工附加配置，并在成功校验后进入最终 Mihomo 配置。': 'Import from the read-only QNAP /etc/hosts mapping; this layer is independent of the manual overlay and enters the final Mihomo profile only after successful validation.',
   '严格接管 TUN 路由': 'Enforce strict TUN routing',
   'QTS 路由保持不变': 'QTS routing unchanged',
   '等待网关就绪': 'Waiting for gateway readiness',
