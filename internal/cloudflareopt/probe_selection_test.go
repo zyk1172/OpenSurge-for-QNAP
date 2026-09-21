@@ -116,8 +116,8 @@ func TestRequiredHTTPSCandidateCountExpandsForThroughputFloor(t *testing.T) {
 		t.Fatalf("required HTTPS candidates without floor = %d, want %d", got, settings.DownloadCandidateCount)
 	}
 	settings.MinDownloadMbps = 20
-	if got := requiredHTTPSCandidateCount(settings); got != settings.DownloadCandidateCount*2 {
-		t.Fatalf("required HTTPS candidates with floor = %d, want %d", got, settings.DownloadCandidateCount*2)
+	if got := requiredHTTPSCandidateCount(settings); got != settings.HTTPSCandidateCount {
+		t.Fatalf("required HTTPS candidates with floor = %d, want %d", got, settings.HTTPSCandidateCount)
 	}
 	settings.DownloadCandidateCount = 0
 	settings.MinDownloadMbps = 0
