@@ -130,21 +130,8 @@ func RunScan(ctx context.Context, targets []Target, options ScanOptions, progres
 		}
 		return coarse[i].Latency < coarse[j].Latency
 	})
-	perTarget := make(map[string][]httpCandidate, len(enabledTargets))
 	requiredHTTPS := requiredHTTPSCandidateCount(settings)
-	for index, target := range enabledTargets {
-		if budgetCtx.Err() != nil {
-			break
-		}
-		if progress != nil {
-			progress(ScanProgress{Phase: "https", Completed: index, Total: len(enabledTargets)})
-		}
-		verified := probeHTTPSCandidates(budgetCtx, target, coarse, options, requiredHTTPS, settings.HTTPSCandidateCount)
-		if len(verified) == 0 {
-			continue
-		}
-		perTarget[target.Domain] = verified
-	}
+	perTarget := probeHTTPSForTargets(budgetCtx, enabledTargets, coarse, options, requiredHTTPS, settings.HTTPSCandidateCount, progress)
 	if len(perTarget) == 0 {
 		return ScanOutput{}, fmt.Errorf("no target domain completed Cloudflare HTTPS/SNI validation")
 	}
@@ -344,37 +331,65 @@ func requiredHTTPSCandidateCount(settings ScanSettings) int {
 	return required
 }
 
-// probeHTTPSCandidates keeps the normal first window fast, but unlike a fixed
-// top-N cut it advances through the latency-sorted pool when that window does
-// not yield enough SNI-valid edges. The scan context remains the hard bound.
-func probeHTTPSCandidates(ctx context.Context, target Target, candidates []tcpCandidate, options ScanOptions, required, windowSize int) []httpCandidate {
-	if len(candidates) == 0 || required <= 0 {
-		return nil
+// probeHTTPSForTargets keeps the normal first window fast, then advances through
+// later latency-sorted windows only for targets that still lack enough SNI-valid
+// edges. Windows are rotated across targets so one difficult hostname cannot
+// consume the whole scan budget before the others get a chance.
+func probeHTTPSForTargets(ctx context.Context, targets []Target, candidates []tcpCandidate, options ScanOptions, required, windowSize int, progress func(ScanProgress)) map[string][]httpCandidate {
+	perTarget := make(map[string][]httpCandidate, len(targets))
+	if len(candidates) == 0 || len(targets) == 0 || required <= 0 {
+		return perTarget
 	}
 	if windowSize <= 0 {
 		windowSize = required
 	}
-	verified := make([]httpCandidate, 0, windowSize)
-	for start := 0; start < len(candidates) && len(verified) < required && ctx.Err() == nil; start += windowSize {
+
+	for start := 0; start < len(candidates) && ctx.Err() == nil; start += windowSize {
 		end := start + windowSize
 		if end > len(candidates) {
 			end = len(candidates)
 		}
-		verified = append(verified, probeHTTPSBatch(ctx, target, candidates[start:end], options)...)
-	}
-	sort.Slice(verified, func(i, j int) bool {
-		if verified[i].LossRate != verified[j].LossRate {
-			return verified[i].LossRate < verified[j].LossRate
+		needsAnotherWindow := false
+		for index, target := range targets {
+			verified := perTarget[target.Domain]
+			if len(verified) >= required {
+				continue
+			}
+			needsAnotherWindow = true
+			if ctx.Err() != nil {
+				break
+			}
+			if progress != nil && start == 0 {
+				progress(ScanProgress{Phase: "https", Completed: index, Total: len(targets)})
+			}
+			perTarget[target.Domain] = append(verified, probeHTTPSBatch(ctx, target, candidates[start:end], options)...)
 		}
-		if verified[i].TTFB != verified[j].TTFB {
-			return verified[i].TTFB < verified[j].TTFB
+		if !needsAnotherWindow {
+			break
 		}
-		return verified[i].Latency < verified[j].Latency
-	})
-	if len(verified) > windowSize {
-		verified = verified[:windowSize]
 	}
-	return verified
+
+	for _, target := range targets {
+		verified := perTarget[target.Domain]
+		if len(verified) == 0 {
+			delete(perTarget, target.Domain)
+			continue
+		}
+		sort.Slice(verified, func(i, j int) bool {
+			if verified[i].LossRate != verified[j].LossRate {
+				return verified[i].LossRate < verified[j].LossRate
+			}
+			if verified[i].TTFB != verified[j].TTFB {
+				return verified[i].TTFB < verified[j].TTFB
+			}
+			return verified[i].Latency < verified[j].Latency
+		})
+		if len(verified) > windowSize {
+			verified = verified[:windowSize]
+		}
+		perTarget[target.Domain] = verified
+	}
+	return perTarget
 }
 
 func probeHTTPSBatch(ctx context.Context, target Target, candidates []tcpCandidate, options ScanOptions) []httpCandidate {
