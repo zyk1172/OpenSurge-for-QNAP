@@ -1,6 +1,7 @@
 package controlapi
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,7 +13,9 @@ import (
 	"strings"
 	"time"
 
+	"open-mihomo-gateway/internal/config"
 	"open-mihomo-gateway/internal/mihomo"
+	"open-mihomo-gateway/internal/runtime"
 )
 
 const (
@@ -108,6 +111,7 @@ func (s *Server) handleHostHostsSync(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, hostHostsSyncStatus(value))
 
 	case http.MethodPut:
+		previous := value
 		var request struct {
 			Enabled         *bool `json:"enabled"`
 			AutoUpdate      *bool `json:"auto_update"`
@@ -134,13 +138,33 @@ func (s *Server) handleHostHostsSync(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "host_hosts_sync_failed", err.Error())
 			return
 		}
-		if value.Enabled {
-			value, _ = s.syncHostHosts(value, false)
+		if value.Enabled != previous.Enabled {
+			if value.Enabled {
+				value, err = s.syncHostHosts(r.Context(), value, true)
+			} else {
+				var migration hostHostsOverlayMigration
+				migration, err = s.migrateLegacyHostHostsOverlay()
+				if err == nil {
+					err = s.reconcileHostHostsProfile(r.Context())
+				}
+				if err != nil {
+					_ = s.restoreLegacyHostHostsOverlay(migration)
+				} else {
+					value.LastError = ""
+					err = s.store.SaveHostHostsSyncSettings(value)
+				}
+			}
+			if err != nil {
+				previous.LastError = err.Error()
+				_ = s.store.SaveHostHostsSyncSettings(previous)
+				writeError(w, http.StatusConflict, "host_hosts_sync_apply_failed", err.Error())
+				return
+			}
 		}
 		writeJSON(w, http.StatusOK, hostHostsSyncStatus(value))
 
 	case http.MethodPost:
-		value, err = s.syncHostHosts(value, true)
+		value, err = s.syncHostHosts(r.Context(), value, true)
 		if err != nil {
 			writeError(w, http.StatusUnprocessableEntity, "host_hosts_sync_failed", err.Error())
 			return
@@ -153,8 +177,14 @@ func (s *Server) handleHostHostsSync(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) syncHostHosts(value hostHostsSyncSettings, force bool) (hostHostsSyncSettings, error) {
-	if !value.Enabled && !force {
+func (s *Server) syncHostHosts(ctx context.Context, value hostHostsSyncSettings, force bool) (hostHostsSyncSettings, error) {
+	if !value.Enabled {
+		if force {
+			err := errors.New("host Hosts sync is disabled")
+			value.LastError = err.Error()
+			_ = s.store.SaveHostHostsSyncSettings(value)
+			return value, err
+		}
 		return value, nil
 	}
 
@@ -164,42 +194,53 @@ func (s *Server) syncHostHosts(value hostHostsSyncSettings, force bool) (hostHos
 		_ = s.store.SaveHostHostsSyncSettings(value)
 		return value, errors.New(value.LastError)
 	}
-
 	if _, err := mihomo.ParseTraditionalHostsFile(string(data)); err != nil {
 		value.LastError = err.Error()
 		_ = s.store.SaveHostHostsSyncSettings(value)
 		return value, err
 	}
+
 	normalizedHosts := normalizeManagedHostHosts(string(data))
 	sum := sha256.Sum256([]byte(normalizedHosts))
 	digest := hex.EncodeToString(sum[:])
-	if !force && digest == value.LastDigest {
-		return value, nil
+
+	migration, err := s.migrateLegacyHostHostsOverlay()
+	if err != nil {
+		value.LastError = err.Error()
+		_ = s.store.SaveHostHostsSyncSettings(value)
+		return value, err
 	}
 
-	_, document, _, err := s.loadProfileOverlay()
-	if err != nil {
-		return value, err
+	previous, previousErr := s.store.HostHostsManaged()
+	hadPrevious := previousErr == nil
+	if previousErr != nil && !errors.Is(previousErr, os.ErrNotExist) {
+		_ = s.restoreLegacyHostHostsOverlay(migration)
+		value.LastError = previousErr.Error()
+		_ = s.store.SaveHostHostsSyncSettings(value)
+		return value, previousErr
 	}
-	raw, _ := document.DNS.Merge["hosts-file"].(string)
-	standard, native, err := mihomo.SplitProfileHostsInputs(raw)
-	if err != nil {
-		return value, err
+	if !hadPrevious || string(previous) != normalizedHosts {
+		if err := s.store.SaveHostHostsManaged([]byte(normalizedHosts)); err != nil {
+			_ = s.restoreLegacyHostHostsOverlay(migration)
+			value.LastError = err.Error()
+			_ = s.store.SaveHostHostsSyncSettings(value)
+			return value, err
+		}
 	}
-	standard = replaceManagedHostHosts(standard, normalizedHosts)
-	combined := mihomo.JoinProfileHostsInputs(standard, native)
-	if strings.TrimSpace(combined) == "" {
-		delete(document.DNS.Merge, "hosts-file")
-	} else {
-		document.DNS.Merge["hosts-file"] = combined
-	}
-	document.DNS.Merge["use-hosts"] = true
 
-	rendered, err := mihomo.RenderProfileOverlay(document)
-	if err != nil {
-		return value, err
-	}
-	if err := s.store.SaveProfileOverlay(rendered); err != nil {
+	// Do not trust LastDigest alone. Older builds recorded a successful sync
+	// before the effective Mihomo profile was actually reloaded. Reconcile the
+	// desired profile on every due check; when it already matches, this is a
+	// cheap no-op and does not restart the gateway.
+	if err := s.reconcileHostHostsProfile(ctx); err != nil {
+		if hadPrevious {
+			_ = s.store.SaveHostHostsManaged(previous)
+		} else {
+			_ = s.store.RemoveHostHostsManaged()
+		}
+		_ = s.restoreLegacyHostHostsOverlay(migration)
+		value.LastError = err.Error()
+		_ = s.store.SaveHostHostsSyncSettings(value)
 		return value, err
 	}
 
@@ -211,6 +252,79 @@ func (s *Server) syncHostHosts(value hostHostsSyncSettings, force bool) (hostHos
 		return value, err
 	}
 	return value, nil
+}
+
+type hostHostsOverlayMigration struct {
+	Previous []byte
+	Changed  bool
+}
+
+func (s *Server) migrateLegacyHostHostsOverlay() (hostHostsOverlayMigration, error) {
+	data, err := s.store.ProfileOverlay()
+	if errors.Is(err, os.ErrNotExist) {
+		return hostHostsOverlayMigration{}, nil
+	}
+	if err != nil {
+		return hostHostsOverlayMigration{}, err
+	}
+	document, err := mihomo.ParseProfileOverlay(data)
+	if err != nil {
+		return hostHostsOverlayMigration{}, err
+	}
+	raw, _ := document.DNS.Merge["hosts-file"].(string)
+	if !strings.Contains(raw, hostHostsBegin) && !strings.Contains(raw, hostHostsEnd) {
+		return hostHostsOverlayMigration{}, nil
+	}
+	if _, err := detachLegacyHostHostsFromOverlay(&document); err != nil {
+		return hostHostsOverlayMigration{}, err
+	}
+	rendered, err := mihomo.RenderProfileOverlay(document)
+	if err != nil {
+		return hostHostsOverlayMigration{}, err
+	}
+	if err := s.store.SaveProfileOverlay(rendered); err != nil {
+		return hostHostsOverlayMigration{}, err
+	}
+	return hostHostsOverlayMigration{Previous: append([]byte(nil), data...), Changed: true}, nil
+}
+
+func (s *Server) restoreLegacyHostHostsOverlay(migration hostHostsOverlayMigration) error {
+	if !migration.Changed {
+		return nil
+	}
+	return s.store.SaveProfileOverlay(migration.Previous)
+}
+
+func (s *Server) reconcileHostHostsProfile(ctx context.Context) error {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+
+	candidate, err := prepareContainerProfileReconcile(s.configPath, s.store.Dir())
+	if err != nil {
+		return err
+	}
+	if candidate == nil {
+		return nil
+	}
+	if s.configRunner == nil {
+		return fmt.Errorf("configuration runner is unavailable")
+	}
+	cfg, err := config.Load(s.configPath)
+	if err != nil {
+		return err
+	}
+	_, running, err := runtime.LoadState(runtime.NewPaths(cfg).StateFile)
+	if err != nil {
+		return err
+	}
+	result, err := s.configRunner.ApplyProfile(ctx, s.configPath, candidate.Revision, candidate.Payload, candidate.SourceDigest, candidate.OverlayDigest)
+	if err != nil {
+		return err
+	}
+	if running && !result.Reloaded {
+		return fmt.Errorf("QNAP host Hosts changed but the running gateway did not reload the effective profile")
+	}
+	return nil
 }
 
 func normalizeManagedHostHosts(content string) string {
@@ -286,6 +400,8 @@ func (s *Server) runHostHostsSyncLoop() {
 		if !last.IsZero() && time.Since(last) < time.Duration(value.IntervalMinutes)*time.Minute {
 			continue
 		}
-		_, _ = s.syncHostHosts(value, false)
+		ctx, cancel := context.WithTimeout(context.Background(), gatewayOperationTimeout)
+		_, _ = s.syncHostHosts(ctx, value, false)
+		cancel()
 	}
 }

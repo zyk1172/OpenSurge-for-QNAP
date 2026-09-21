@@ -242,3 +242,53 @@ func writeContainerProfileReloadFixture(t *testing.T) (configPath, storeDir, sou
 	}
 	return configPath, storeDir, sourceDigest
 }
+
+
+func TestPrepareContainerProfileReconcileAppliesHostHostsOutsideDisabledOverlay(t *testing.T) {
+	configPath, storeDir, _ := writeContainerProfileReloadFixture(t)
+	store := NewStore(storeDir)
+
+	document := mihomo.DefaultProfileOverlayDocument()
+	document.Enabled = false
+	document.DNS.Merge["hosts-file"] = "1.1.1.1 manual-only.example\n\n" + hostHostsBegin + "\n192.0.2.9 stale-host.example\n" + hostHostsEnd
+	overlay, err := mihomo.RenderProfileOverlay(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveProfileOverlay(overlay); err != nil {
+		t.Fatal(err)
+	}
+
+	settings := defaultHostHostsSyncSettings()
+	settings.Enabled = true
+	settings.Path = filepath.Join(t.TempDir(), "mapped-hosts")
+	if err := store.SaveHostHostsSyncSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveHostHostsManaged([]byte("192.0.2.20 nas-host.example\n192.0.2.30 cf-host.example")); err != nil {
+		t.Fatal(err)
+	}
+	state := []byte(`{"schema_version":1,"results":[{"domain":"cf-host.example","selected":{"ip":"104.18.1.2"}}]}`)
+	if err := os.WriteFile(filepath.Join(storeDir, "cloudflare-optimizer-state.json"), state, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	candidate, err := prepareContainerProfileReconcile(configPath, storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate == nil {
+		t.Fatal("enabled QNAP host Hosts must produce a reconciliation candidate even when the manual overlay is disabled")
+	}
+	text := string(candidate.Payload)
+	for _, want := range []string{"nas-host.example", "192.0.2.20", "cf-host.example", "104.18.1.2", "use-hosts: true"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("final profile missing %q:\n%s", want, text)
+		}
+	}
+	for _, stale := range []string{"manual-only.example", "stale-host.example", "192.0.2.30"} {
+		if strings.Contains(text, stale) {
+			t.Fatalf("final profile retained lower-priority/stale host %q:\n%s", stale, text)
+		}
+	}
+}

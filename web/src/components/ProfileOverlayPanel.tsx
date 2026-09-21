@@ -153,17 +153,17 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
           <section className="overlay-editor-section open host-hosts-sync">
             <header>
               <span>04</span>
-              <div><strong>{t('NAS 宿主机 Hosts 同步')}</strong><small>{t('从只读映射的 QNAP /etc/hosts 导入；自动区与手工 Hosts 相互隔离。')}</small></div>
+              <div><strong>{t('NAS 宿主机 Hosts 同步')}</strong><small>{t('从只读映射的 QNAP /etc/hosts 导入；独立于手工附加配置，并在成功校验后进入最终 Mihomo 配置。')}</small></div>
             </header>
             <div className="overlay-section-body">
               {hostSync ? <>
                 <div className="host-sync-settings">
                   <article className="host-sync-setting-card">
-                    <span><strong>{t('启用宿主 Hosts')}</strong><small>{t('控制宿主 Hosts 是否参与附加配置')}</small></span>
+                    <span><strong>{t('启用宿主 Hosts')}</strong><small>{t('控制宿主 Hosts 是否参与最终 Mihomo 配置')}</small></span>
                     <button className={`overlay-switch ${hostSync.enabled ? 'on' : ''}`} type="button" role="switch" aria-label={t('启用宿主 Hosts')} aria-checked={hostSync.enabled} disabled={hostSyncBusy} onClick={() => void saveHostSyncPatch({ enabled: !hostSync.enabled })}><i aria-hidden="true" /><span>{t(hostSync.enabled ? '已启用' : '已停用')}</span></button>
                   </article>
                   <article className="host-sync-setting-card">
-                    <span><strong>{t('定时更新')}</strong><small>{t('内容变化时才写入配置')}</small></span>
+                    <span><strong>{t('定时更新')}</strong><small>{t('内容变化时自动校验并应用；网关运行中会安全重载')}</small></span>
                     <button className={`overlay-switch ${hostSync.auto_update ? 'on' : ''}`} type="button" role="switch" aria-label={t('定时更新')} aria-checked={hostSync.auto_update} disabled={hostSyncBusy} onClick={() => void saveHostSyncPatch({ auto_update: !hostSync.auto_update })}><i aria-hidden="true" /><span>{t(hostSync.auto_update ? '已启用' : '已停用')}</span></button>
                   </article>
                   <article className="host-sync-setting-card host-sync-interval">
@@ -177,8 +177,8 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
                 </div>
                 <div className="host-sync-status">
                   <span><small>{t('已同步条目')}</small><strong>{hostSync.last_entries}</strong></span>
-                  <span><small>{t('上次同步')}</small><strong>{hostSync.last_sync_at ? new Date(hostSync.last_sync_at).toLocaleString() : t('尚未同步')}</strong></span>
-                  <button type="button" className="primary" disabled={hostSyncBusy || !hostSync.mapped} onClick={async () => { setHostSyncBusy(true); setError(''); try { const next = await api.syncHostHostsNow(); setHostSync(next); setMessage(t('NAS 宿主机 Hosts 已同步到附加配置。')) } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setHostSyncBusy(false) } }}>{t(hostSyncBusy ? '正在同步…' : '立即同步')}</button>
+                  <span><small>{t('上次应用')}</small><strong>{hostSync.last_sync_at ? new Date(hostSync.last_sync_at).toLocaleString() : t('尚未应用')}</strong></span>
+                  <button type="button" className="primary" disabled={hostSyncBusy || !hostSync.mapped || !hostSync.enabled} onClick={async () => { setHostSyncBusy(true); setError(''); try { const next = await api.syncHostHostsNow(); setHostSync(next); setMessage(t('NAS 宿主机 Hosts 已同步并应用到最终配置。')) } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setHostSyncBusy(false) } }}>{t(hostSyncBusy ? '正在同步…' : '立即同步')}</button>
                 </div>
                 {hostSync.last_error && <div className="notice warn"><strong>{t('宿主 Hosts 读取失败')}</strong><p>{hostSync.last_error}</p><p>{t('挂载要求与重建容器步骤请查看教程中的“NAS Hosts 只读挂载”。')}</p></div>}
               </> : <div className="empty">{t('正在读取宿主 Hosts 同步状态…')}</div>}

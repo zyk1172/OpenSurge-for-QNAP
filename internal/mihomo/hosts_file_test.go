@@ -113,3 +113,21 @@ func TestProfileHostsRoundTripInjection(t *testing.T) {
 		t.Fatalf("overlay host did not replace imported host:\n%s", text)
 	}
 }
+
+
+func TestApplyTraditionalHostsToProfileOverridesExistingAndEnablesUseHosts(t *testing.T) {
+	profile := []byte("dns:\n  use-hosts: false\nhosts:\n  keep.example: 1.1.1.1\n  override.example: 1.1.1.2\nrules:\n  - MATCH,DIRECT\n")
+	got, err := ApplyTraditionalHostsToProfile(profile, "192.0.2.10 override.example\n192.0.2.20 nas.example alias.example\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(got)
+	for _, want := range []string{"keep.example", "1.1.1.1", "override.example", "192.0.2.10", "nas.example", "alias.example", "192.0.2.20", "use-hosts: true"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("managed hosts profile missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "1.1.1.2") {
+		t.Fatalf("managed host did not override existing mapping:\n%s", text)
+	}
+}

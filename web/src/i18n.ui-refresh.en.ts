@@ -1,6 +1,12 @@
 import { registerEnglishMessages } from './i18n'
 
 export const uiRefreshEnglishMessages: Record<string, string> = {
+  'NAS 宿主机 Hosts 已同步并应用到最终配置。': 'QNAP host Hosts were synchronized and applied to the final profile.',
+  '尚未应用': 'Not applied yet',
+  '上次应用': 'Last applied',
+  '内容变化时自动校验并应用；网关运行中会安全重载': 'Validate and apply changes automatically; a running gateway is reloaded transactionally',
+  '控制宿主 Hosts 是否参与最终 Mihomo 配置': 'Control whether QNAP host Hosts participate in the final Mihomo profile',
+  '从只读映射的 QNAP /etc/hosts 导入；独立于手工附加配置，并在成功校验后进入最终 Mihomo 配置。': 'Import from the read-only QNAP /etc/hosts mapping; this layer is independent of the manual overlay and enters the final Mihomo profile only after successful validation.',
   '先导入一个 HTTPS 订阅后即可在这里更新和设置周期。': 'Import an HTTPS subscription first, then update it or configure its refresh schedule here.',
   '上次更新失败：{{error}}': 'Last refresh failed: {{error}}',
   '定时更新会下载并校验新的完整配置快照；为避免机场变更导致网关自动断网，新版本仍需确认“应用并重载”。': 'Scheduled refresh downloads and validates a new complete profile snapshot. To avoid an upstream change automatically breaking gateway connectivity, the new version still requires Apply and reload confirmation.',
