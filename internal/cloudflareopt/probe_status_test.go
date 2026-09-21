@@ -17,12 +17,12 @@ func TestValidHTTPSValidationResponseStatusMatrix(t *testing.T) {
 		{204, true},
 		{301, true},
 		{308, true},
-		{400, false},
-		{401, false},
+		{400, true},
+		{401, true},
 		{403, true},
-		{404, false},
+		{404, true},
 		{405, true},
-		{429, false},
+		{429, true},
 		{500, false},
 		{503, false},
 	}
@@ -34,7 +34,7 @@ func TestValidHTTPSValidationResponseStatusMatrix(t *testing.T) {
 }
 
 func TestValidHTTPSValidationResponseRequiresCloudflareEdgeEvidence(t *testing.T) {
-	for _, status := range []int{http.StatusOK, http.StatusFound, http.StatusForbidden, http.StatusMethodNotAllowed} {
+	for _, status := range []int{http.StatusOK, http.StatusFound, http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusTooManyRequests} {
 		if validHTTPSValidationResponse(status, http.Header{}, nil) {
 			t.Fatalf("status %d must not pass without Cloudflare edge evidence", status)
 		}
