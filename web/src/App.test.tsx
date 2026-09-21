@@ -289,7 +289,7 @@ describe('OpenSurge app shell', () => {
     expect(document.body.style.overflow).toBe('hidden')
     expect(document.documentElement.style.overflow).toBe('hidden')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Close navigation' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Close sidebar navigation' }))
 
     await waitFor(() => {
       expect(shell?.classList.contains('mobile-nav-open')).toBe(false)
