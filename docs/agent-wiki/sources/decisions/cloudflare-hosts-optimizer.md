@@ -36,16 +36,21 @@ Full optimization still supports two schedule forms:
 
 Existing user-selected schedules are preserved during migration.
 
-## Scan budget
+## Scan defaults and budget
 
-Full optimization uses bounded presets instead of an unbounded attempt-to-fill loop:
+The default full optimization now mirrors XIU2/CloudflareSpeedTest's default selection behavior where it maps cleanly to OpenSurge:
 
-- fast: 30 seconds / 256 candidates;
-- standard: 75 seconds / 1024 candidates;
-- full: 120 seconds / 1536 candidates;
-- deep: 180 seconds / 2048 candidates.
+- sample one random IPv4 from every Cloudflare /24 represented by the official ranges (`candidate_limit = 0` means no truncation of that sampled pool);
+- 200 concurrent TCP/443 workers;
+- four TCP attempts per candidate with a 1 second connection timeout;
+- 9999 ms latency ceiling and 100% loss ceiling, so reachable candidates are not normally hard-filtered by either metric;
+- sort the coarse pool by loss first and latency second;
+- download-test 10 leading candidates for up to 10 seconds each, with no minimum-throughput floor by default;
+- rank measured candidates by download speed.
 
-Candidates first pass TCP/443 sampling, then hard latency/loss filters, target-domain TLS SNI / HTTP Host validation, and finally bounded download testing. The standard preset uses 128 TCP workers, zero-loss filtering and a 30-candidate HTTPS working window. That window is no longer a one-shot top-N cut: when too few candidates validate for a target, the optimizer continues through later latency-sorted candidates in additional bounded windows until it has enough validated edges, the coarse pool is exhausted, or the scan budget expires. The scan latency ceiling is user-selectable in the UI (100–1000 ms).
+OpenSurge still adds controls that CFST does not need: a 180 second TCP/HTTPS phase budget, target-domain TLS SNI / HTTP Host validation, physical-interface binding, the official Cloudflare download endpoint, persistence, and transactional Mihomo reconciliation. The HTTPS validation working set defaults to 10 candidates and can refill from later latency-ranked candidates when a target rejects an earlier edge.
+
+Faster and deeper bounded presets remain available in the UI, and changing an individual latency/loss/throughput parameter is treated as a custom scan configuration. Exact persisted copies of the previous OpenSurge built-in standard presets are migrated to the CFST-compatible default; user-customized scan settings are preserved.
 
 An optional minimum download-throughput threshold can be set in Mbps. With `0`, the normal bounded first set is measured and HTTPS-verified candidates remain a fallback when download measurement is unavailable. With a value above `0`, OpenSurge follows the useful `-sl` behavior from XIU2/CloudflareSpeedTest: it keeps walking later HTTPS-verified candidates instead of failing after a fixed first set. Multi-domain probing rotates by candidate rank so one target cannot consume the whole queue. The search stops once every target with verified candidates has a measured IP at or above the floor, the HTTPS candidate cap is exhausted, or the outer context expires. The throughput floor remains strict: a domain with no qualifying measured candidate is rejected and does not retain a stale optimizer result from a previous run.
 
