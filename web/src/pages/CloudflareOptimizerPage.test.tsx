@@ -22,17 +22,17 @@ const response = {
       loss_rate_threshold: 0,
     },
     scan: {
-      budget_seconds: 75,
-      candidate_limit: 1024,
-      tcp_concurrency: 128,
-      tcp_attempts: 3,
-      tcp_timeout_ms: 800,
-      max_latency_ms: 100,
-      max_loss_rate: 0,
-      https_candidate_count: 30,
+      budget_seconds: 180,
+      candidate_limit: 0,
+      tcp_concurrency: 200,
+      tcp_attempts: 4,
+      tcp_timeout_ms: 1000,
+      max_latency_ms: 9999,
+      max_loss_rate: 1,
+      https_candidate_count: 10,
       http_timeout_ms: 2500,
-      download_candidate_count: 8,
-      download_seconds: 4,
+      download_candidate_count: 10,
+      download_seconds: 10,
       download_max_bytes: 200_000_000,
       min_download_mbps: 0,
     },
@@ -94,7 +94,9 @@ describe('CloudflareOptimizerPage', () => {
     expect(screen.getByLabelText('强制重新优选')).toBeTruthy()
     expect(screen.getByLabelText('测速模式')).toBeTruthy()
     expect(screen.getByLabelText('优选延迟上限')).toBeTruthy()
+    expect(screen.getByLabelText('优选丢包上限')).toBeTruthy()
     expect(screen.getByLabelText('最低下载速度（Mbps）')).toBeTruthy()
+    expect((screen.getByLabelText('测速模式') as HTMLSelectElement).value).toBe('cfst')
 
     expect(screen.queryByText('测试路径')).toBeNull()
     expect(screen.queryByText('Cron 表达式')).toBeNull()
@@ -183,21 +185,24 @@ describe('CloudflareOptimizerPage', () => {
     expect(screen.getByText('Healthy')).toBeTruthy()
     await waitFor(() => expect(request).toHaveBeenCalledWith('/api/v1/cloudflare-opt', undefined))
   })
-  it('preserves custom quality filters when scan intensity changes', async () => {
+  it('treats edited filters as custom and applies presets atomically', async () => {
     render(<CloudflareOptimizerPage />)
     await screen.findByText('完整优选策略')
 
     await userEvent.selectOptions(screen.getByLabelText('优选延迟上限'), '300')
     await userEvent.clear(screen.getByLabelText('最低下载速度（Mbps）'))
     await userEvent.type(screen.getByLabelText('最低下载速度（Mbps）'), '25')
+    expect((screen.getByLabelText('测速模式') as HTMLSelectElement).value).toBe('custom')
+
     await userEvent.selectOptions(screen.getByLabelText('测速模式'), 'deep')
     await userEvent.click(screen.getByRole('button', { name: '保存设置' }))
 
     await waitFor(() => {
       const put = vi.mocked(request).mock.calls.find(([, init]) => init?.method === 'PUT')
       const payload = JSON.parse(String(put?.[1]?.body))
-      expect(payload.scan.max_latency_ms).toBe(300)
-      expect(payload.scan.min_download_mbps).toBe(25)
+      expect(payload.scan.max_latency_ms).toBe(100)
+      expect(payload.scan.max_loss_rate).toBe(0)
+      expect(payload.scan.min_download_mbps).toBe(0)
       expect(payload.scan.budget_seconds).toBe(180)
       expect(payload.scan.candidate_limit).toBe(2048)
     })
