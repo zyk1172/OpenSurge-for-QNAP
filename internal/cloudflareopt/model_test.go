@@ -10,14 +10,24 @@ func TestDefaultConfigValid(t *testing.T) {
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("default config invalid: %v", err)
 	}
-	if !cfg.Enabled || cfg.Schedule.EveryDays != 1 || cfg.Scan.BudgetSeconds != 75 {
+	if !cfg.Enabled || cfg.Schedule.EveryDays != 1 || cfg.Scan.BudgetSeconds != 180 {
 		t.Fatalf("unexpected defaults: %#v", cfg)
 	}
 	if !cfg.Health.Enabled || cfg.Health.CheckIntervalMinutes != 30 || cfg.Health.LatencyThresholdMS != 100 {
 		t.Fatalf("unexpected health defaults: %#v", cfg.Health)
 	}
-	if cfg.Scan.CandidateLimit != 1024 || cfg.Scan.TCPConcurrency != 128 || cfg.Scan.MaxLatencyMS != 100 || cfg.Scan.MaxLossRate != 0 || cfg.Scan.MinDownloadMbps != 0 || cfg.Scan.DownloadMaxBytes != DefaultDownloadRequestBytes {
-		t.Fatalf("unexpected scan defaults: %#v", cfg.Scan)
+	if cfg.Scan.CandidateLimit != 0 ||
+		cfg.Scan.TCPConcurrency != 200 ||
+		cfg.Scan.TCPAttempts != 4 ||
+		cfg.Scan.TCPTimeoutMS != 1000 ||
+		cfg.Scan.MaxLatencyMS != 9999 ||
+		cfg.Scan.MaxLossRate != 1 ||
+		cfg.Scan.HTTPSCandidateCount != 10 ||
+		cfg.Scan.DownloadCandidateCount != 10 ||
+		cfg.Scan.DownloadSeconds != 10 ||
+		cfg.Scan.MinDownloadMbps != 0 ||
+		cfg.Scan.DownloadMaxBytes != DefaultDownloadRequestBytes {
+		t.Fatalf("unexpected CFST-compatible scan defaults: %#v", cfg.Scan)
 	}
 }
 
@@ -124,11 +134,36 @@ func TestNormalizeMigratesLegacyContinuousHealthAndStandardScan(t *testing.T) {
 	if !got.Health.Enabled || got.Health.CheckIntervalMinutes != 30 || got.Health.LatencyThresholdMS != 100 {
 		t.Fatalf("legacy health migration = %#v", got.Health)
 	}
-	if got.Scan.CandidateLimit != 1024 || got.Scan.TCPConcurrency != 128 || got.Scan.DownloadCandidateCount != 8 || got.Scan.DownloadMaxBytes != DefaultDownloadRequestBytes {
-		t.Fatalf("legacy scan migration = %#v", got.Scan)
+	if got.Scan != DefaultScanSettings() {
+		t.Fatalf("legacy scan migration = %#v, want %#v", got.Scan, DefaultScanSettings())
 	}
 	if got.Schedule.EveryDays != 7 {
 		t.Fatalf("explicit legacy schedule should be preserved: %#v", got.Schedule)
+	}
+}
+
+func TestNormalizeMigratesPreviousBoundedDefaultToCFSTDefault(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Scan = legacyBoundedStandardScanSettings()
+
+	got := Normalize(cfg)
+	if got.Scan != DefaultScanSettings() {
+		t.Fatalf("previous default migration = %#v, want %#v", got.Scan, DefaultScanSettings())
+	}
+}
+
+func TestValidateAcceptsCFSTAllCIDRsAndLatencyCeiling(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Scan.CandidateLimit = 0
+	cfg.Scan.MaxLatencyMS = 9999
+	cfg.Scan.MaxLossRate = 1
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("CFST-compatible scan limits rejected: %v", err)
+	}
+
+	cfg.Scan.CandidateLimit = -1
+	if err := Validate(cfg); err == nil {
+		t.Fatal("negative candidate limit should be rejected")
 	}
 }
 
