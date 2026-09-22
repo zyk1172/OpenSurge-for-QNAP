@@ -99,12 +99,15 @@
     z-index:80!important;
     inset:0 auto 0 0!important;
     display:flex!important;
-    width:min(88vw,340px)!important;
-    max-width:340px!important;
+    width:min(82vw,312px)!important;
+    max-width:312px!important;
     height:100dvh!important;
     min-height:0!important;
     flex-direction:column!important;
-    padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))!important;
+    align-items:stretch!important;
+    gap:0!important;
+    box-sizing:border-box!important;
+    padding:max(10px,env(safe-area-inset-top)) 10px max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left))!important;
     border:0!important;
     border-right:1px solid var(--ui-border)!important;
     border-radius:0 22px 22px 0!important;
@@ -147,11 +150,12 @@
     display:flex!important;
     width:100%!important;
     height:auto!important;
-    min-height:54px!important;
+    min-height:50px!important;
+    flex:0 0 auto!important;
     align-items:center!important;
     justify-content:space-between!important;
     gap:8px!important;
-    padding:0 2px 10px!important;
+    padding:0 2px 8px!important;
     border-bottom:1px solid var(--ui-border)!important;
   }
 
@@ -175,9 +179,9 @@
 
   html[data-product-target="qnap"] .sidebar .brand-mark,
   html[data-product-target="qnap"] .sidebar-compact .brand-mark{
-    width:36px!important;
-    height:36px!important;
-    flex:0 0 36px!important;
+    width:34px!important;
+    height:34px!important;
+    flex:0 0 34px!important;
   }
 
   html[data-product-target="qnap"] .sidebar-collapse{
@@ -187,11 +191,11 @@
   html[data-product-target="qnap"] .mobile-sidebar-close{
     display:grid!important;
     place-items:center!important;
-    width:40px!important;
-    min-width:40px!important;
-    height:40px!important;
-    min-height:40px!important;
-    flex:0 0 40px!important;
+    width:38px!important;
+    min-width:38px!important;
+    height:38px!important;
+    min-height:38px!important;
+    flex:0 0 38px!important;
     padding:0!important;
     border:1px solid var(--ui-border)!important;
     border-radius:11px!important;
@@ -203,41 +207,85 @@
   }
 
   html[data-product-target="qnap"] .sidebar-nav-scroll{
+    width:100%!important;
+    min-width:0!important;
     min-height:0!important;
     flex:1 1 auto!important;
-    margin:0 -2px!important;
-    padding:12px 2px!important;
+    align-self:stretch!important;
+    box-sizing:border-box!important;
+    margin:0!important;
+    padding:7px 0 6px!important;
     overflow-y:auto!important;
+    overflow-x:hidden!important;
     overscroll-behavior:contain!important;
     -webkit-overflow-scrolling:touch!important;
     scrollbar-width:none!important;
   }
   html[data-product-target="qnap"] .sidebar-nav-scroll::-webkit-scrollbar{display:none}
 
+  html[data-product-target="qnap"] .sidebar .nav-section-label{
+    display:block!important;
+    width:auto!important;
+    margin:5px 10px 4px!important;
+    padding:0!important;
+    color:var(--ui-text-muted)!important;
+    font-size:9px!important;
+    line-height:1.25!important;
+    font-weight:800!important;
+    letter-spacing:.14em!important;
+  }
+  html[data-product-target="qnap"] .sidebar .nav-section-label.secondary{
+    margin-top:9px!important;
+  }
+
   html[data-product-target="qnap"] .sidebar nav{
     display:grid!important;
-    gap:4px!important;
+    width:100%!important;
+    min-width:0!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    justify-items:stretch!important;
+    gap:2px!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:visible!important;
   }
+  html[data-product-target="qnap"] .sidebar nav+nav{margin-top:0!important}
 
   html[data-product-target="qnap"] .sidebar nav button,
   html[data-product-target="qnap"] .sidebar-compact .sidebar nav button{
     display:flex!important;
     width:100%!important;
-    min-height:46px!important;
+    max-width:none!important;
+    min-width:0!important;
+    min-height:40px!important;
+    flex:1 1 auto!important;
+    align-self:stretch!important;
+    justify-self:stretch!important;
     align-items:center!important;
     justify-content:flex-start!important;
-    gap:12px!important;
-    padding:9px 11px!important;
-    border-radius:12px!important;
+    gap:10px!important;
+    padding:6px 10px!important;
+    border-radius:10px!important;
     text-align:left!important;
   }
+
+  html[data-product-target="qnap"] .sidebar nav button.active{
+    background:linear-gradient(90deg,rgba(124,77,240,.32),rgba(151,71,232,.20))!important;
+    box-shadow:inset 3px 0 rgba(177,145,255,.95),0 5px 16px rgba(61,35,127,.16)!important;
+  }
+  html[data-product-target="qnap"] .sidebar nav button.active::after{display:none!important}
 
   html[data-product-target="qnap"] .sidebar nav button .nav-icon{
     display:grid!important;
     place-items:center!important;
-    width:24px!important;
-    min-width:24px!important;
-    height:24px!important;
+    width:21px!important;
+    min-width:21px!important;
+    height:21px!important;
+    flex:0 0 21px!important;
+  }
+  html[data-product-target="qnap"] .sidebar nav button .nav-icon svg{
+    width:19px!important;
+    height:19px!important;
   }
 
   html[data-product-target="qnap"] .sidebar nav button .nav-label{
@@ -247,21 +295,27 @@
     overflow:hidden!important;
     text-overflow:ellipsis!important;
     white-space:nowrap!important;
+    font-size:13px!important;
+    line-height:1.2!important;
   }
 
   html[data-product-target="qnap"] .sidebar-bottom-controls{
+    width:100%!important;
     flex:0 0 auto!important;
-    grid-template-columns:repeat(3,44px)!important;
-    gap:12px!important;
-    padding:12px 6px 2px!important;
+    align-self:stretch!important;
+    grid-template-columns:repeat(3,40px)!important;
+    justify-content:center!important;
+    gap:10px!important;
+    padding:8px 4px 0!important;
     border-top:1px solid var(--ui-border)!important;
+    box-sizing:border-box!important;
   }
 
   html[data-product-target="qnap"] .sidebar-round-control{
-    width:44px!important;
-    min-width:44px!important;
-    height:44px!important;
-    min-height:44px!important;
+    width:40px!important;
+    min-width:40px!important;
+    height:40px!important;
+    min-height:40px!important;
   }
 
   html[data-product-target="qnap"] .workspace-canvas{
@@ -1058,7 +1112,8 @@
   }
 
   html[data-product-target="qnap"] .sidebar{
-    width:92vw!important;
+    width:min(84vw,296px)!important;
+    max-width:296px!important;
   }
 
   html[data-product-target="qnap"] .page-header h1{font-size:21px!important}
