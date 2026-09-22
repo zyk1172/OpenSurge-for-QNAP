@@ -36,6 +36,7 @@ const releaseTag = import.meta.env.VITE_OPENSURGE_RELEASE_TAG
 const nav: readonly NavItem[] = [
   { id: 'dashboard', label: '总览', group: 'control' },
   { id: 'network', label: '网络设置', group: 'control' },
+  { id: 'cloudflare', label: 'Cloudflare 优选', group: 'control', qnapOnly: true },
   { id: 'sources', label: '代理与规则源', group: 'control' },
   { id: 'devices', label: '设备', group: 'control' },
   { id: 'policies', label: '策略', group: 'control' },
@@ -44,7 +45,6 @@ const nav: readonly NavItem[] = [
   { id: 'traffic', label: '流量分析', group: 'observe' },
   { id: 'management', label: '管理', group: 'observe', qnapOnly: true },
   { id: 'tutorial', label: '教程', group: 'observe', qnapOnly: true },
-  { id: 'cloudflare', label: 'Cloudflare 优选', group: 'observe', qnapOnly: true },
 ]
 
 const availableNav = nav.filter(item => !item.qnapOnly || qnapBuild)
@@ -296,11 +296,11 @@ export function App() {
         <button type="button" className="mobile-sidebar-close" aria-label="Close sidebar navigation" onClick={() => setSidebarOpen(false)}>×</button>
       </div>
       <div className="sidebar-nav-scroll">
-        <small className="nav-section-label">CONTROL</small>
+        <small className="nav-section-label">{t('控制')}</small>
         <nav aria-label="OpenSurge sections">
           {controlNav.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} title={t(item.label)} onClick={() => go(item.id)}><span className="nav-icon"><ShellIcon name={item.id} /></span><span className="nav-label">{t(item.label)}</span></button>)}
         </nav>
-        <small className="nav-section-label secondary">OBSERVE</small>
+        <small className="nav-section-label secondary">{t('观察')}</small>
         <nav aria-label="OpenSurge observability">
           {observeNav.map(item => <button key={item.id} className={page === item.id ? 'active' : ''} aria-current={page === item.id ? 'page' : undefined} title={t(item.label)} onClick={() => go(item.id)}><span className="nav-icon"><ShellIcon name={item.id} /></span><span className="nav-label">{t(item.label)}</span></button>)}
         </nav>

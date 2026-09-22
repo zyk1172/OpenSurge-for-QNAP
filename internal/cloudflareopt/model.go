@@ -109,6 +109,66 @@ type Response struct {
 	State  State  `json:"state"`
 }
 
+func DefaultScanSettings() ScanSettings {
+	// Mirror XIU2/CloudflareSpeedTest's default selection pipeline: sample one
+	// address from every /24, TCP/443 with 200 workers and four attempts, do not
+	// hard-filter reachable candidates by latency/loss, then download-test the
+	// first ten latency-ranked candidates for up to ten seconds each. OpenSurge
+	// keeps its target-domain HTTPS/SNI validation and official Cloudflare
+	// download stream around that CFST-compatible core.
+	return ScanSettings{
+		BudgetSeconds:          180,
+		CandidateLimit:         0, // 0 = every sampled /24
+		TCPConcurrency:         200,
+		TCPAttempts:            4,
+		TCPTimeoutMS:           1000,
+		MaxLatencyMS:           9999,
+		MaxLossRate:            1,
+		HTTPSCandidateCount:    10,
+		HTTPTimeoutMS:          2500,
+		DownloadCandidateCount: 10,
+		DownloadSeconds:        10,
+		DownloadMaxBytes:       DefaultDownloadRequestBytes,
+		MinDownloadMbps:        0,
+	}
+}
+
+func legacyBoundedStandardScanSettings() ScanSettings {
+	return ScanSettings{
+		BudgetSeconds:          75,
+		CandidateLimit:         1024,
+		TCPConcurrency:         128,
+		TCPAttempts:            3,
+		TCPTimeoutMS:           800,
+		MaxLatencyMS:           100,
+		MaxLossRate:            0,
+		HTTPSCandidateCount:    30,
+		HTTPTimeoutMS:          2500,
+		DownloadCandidateCount: 8,
+		DownloadSeconds:        4,
+		DownloadMaxBytes:       DefaultDownloadRequestBytes,
+		MinDownloadMbps:        0,
+	}
+}
+
+func legacyInitialStandardScanSettings() ScanSettings {
+	return ScanSettings{
+		BudgetSeconds:          60,
+		CandidateLimit:         256,
+		TCPConcurrency:         64,
+		TCPAttempts:            2,
+		TCPTimeoutMS:           800,
+		MaxLatencyMS:           0,
+		MaxLossRate:            0,
+		HTTPSCandidateCount:    15,
+		HTTPTimeoutMS:          2000,
+		DownloadCandidateCount: 3,
+		DownloadSeconds:        2,
+		DownloadMaxBytes:       4 << 20,
+		MinDownloadMbps:        0,
+	}
+}
+
 func DefaultConfig() Config {
 	return Config{
 		SchemaVersion: SchemaVersion,
@@ -124,21 +184,7 @@ func DefaultConfig() Config {
 			LatencyThresholdMS:   100,
 			LossRateThreshold:    0,
 		},
-		Scan: ScanSettings{
-			BudgetSeconds:          75,
-			CandidateLimit:         1024,
-			TCPConcurrency:         128,
-			TCPAttempts:            3,
-			TCPTimeoutMS:           800,
-			MaxLatencyMS:           100,
-			MaxLossRate:            0,
-			HTTPSCandidateCount:    30,
-			HTTPTimeoutMS:          2500,
-			DownloadCandidateCount: 8,
-			DownloadSeconds:        4,
-			DownloadMaxBytes:       DefaultDownloadRequestBytes,
-			MinDownloadMbps:        0,
-		},
+		Scan:    DefaultScanSettings(),
 		Targets: []Target{},
 	}
 }
@@ -163,37 +209,15 @@ func Normalize(cfg Config) Config {
 	if cfg.Health.LatencyThresholdMS == 0 {
 		cfg.Health.LatencyThresholdMS = 100
 	}
-	// Migrate the exact legacy standard preset to the stronger bounded preset.
-	// Custom scan settings are intentionally preserved.
-	if cfg.Scan.BudgetSeconds == 60 &&
-		cfg.Scan.CandidateLimit == 256 &&
-		cfg.Scan.TCPConcurrency == 64 &&
-		cfg.Scan.TCPAttempts == 2 &&
-		cfg.Scan.TCPTimeoutMS == 800 &&
-		cfg.Scan.HTTPSCandidateCount == 15 &&
-		cfg.Scan.HTTPTimeoutMS == 2000 &&
-		cfg.Scan.DownloadCandidateCount == 3 &&
-		cfg.Scan.DownloadSeconds == 2 &&
-		cfg.Scan.DownloadMaxBytes == 4<<20 &&
-		cfg.Scan.MaxLatencyMS == 0 {
-		cfg.Scan = ScanSettings{
-			BudgetSeconds:          75,
-			CandidateLimit:         1024,
-			TCPConcurrency:         128,
-			TCPAttempts:            3,
-			TCPTimeoutMS:           800,
-			MaxLatencyMS:           100,
-			MaxLossRate:            0,
-			HTTPSCandidateCount:    30,
-			HTTPTimeoutMS:          2500,
-			DownloadCandidateCount: 8,
-			DownloadSeconds:        4,
-			DownloadMaxBytes:       DefaultDownloadRequestBytes,
-			MinDownloadMbps:        0,
-		}
+	// Only exact historical built-in presets are migrated. User-customized scan
+	// settings remain untouched. This also upgrades installations that persisted
+	// the previous OpenSurge standard preset before CFST defaults became the
+	// product default.
+	if cfg.Scan == legacyInitialStandardScanSettings() || cfg.Scan == legacyBoundedStandardScanSettings() {
+		cfg.Scan = DefaultScanSettings()
 	}
 	if cfg.Scan.MaxLatencyMS == 0 {
-		cfg.Scan.MaxLatencyMS = 100
+		cfg.Scan.MaxLatencyMS = DefaultScanSettings().MaxLatencyMS
 	}
 	// Older presets requested only 4–16 MiB, which let fast links finish in a
 	// fraction of a second and made TLS/TTFB dominate the reported Mbps. The
@@ -264,8 +288,8 @@ func validateScan(scan ScanSettings) error {
 	if scan.BudgetSeconds < 15 || scan.BudgetSeconds > 180 {
 		return fmt.Errorf("scan budget_seconds must be between 15 and 180")
 	}
-	if scan.CandidateLimit < 32 || scan.CandidateLimit > 2048 {
-		return fmt.Errorf("scan candidate_limit must be between 32 and 2048")
+	if scan.CandidateLimit != 0 && (scan.CandidateLimit < 32 || scan.CandidateLimit > 8192) {
+		return fmt.Errorf("scan candidate_limit must be 0 (all sampled /24s) or between 32 and 8192")
 	}
 	if scan.TCPConcurrency < 1 || scan.TCPConcurrency > 256 {
 		return fmt.Errorf("scan tcp_concurrency must be between 1 and 256")
@@ -276,8 +300,8 @@ func validateScan(scan ScanSettings) error {
 	if scan.TCPTimeoutMS < 200 || scan.TCPTimeoutMS > 5000 {
 		return fmt.Errorf("scan tcp_timeout_ms must be between 200 and 5000")
 	}
-	if scan.MaxLatencyMS < 20 || scan.MaxLatencyMS > 5000 {
-		return fmt.Errorf("scan max_latency_ms must be between 20 and 5000")
+	if scan.MaxLatencyMS < 20 || scan.MaxLatencyMS > 9999 {
+		return fmt.Errorf("scan max_latency_ms must be between 20 and 9999")
 	}
 	if scan.MaxLossRate < 0 || scan.MaxLossRate > 1 {
 		return fmt.Errorf("scan max_loss_rate must be between 0 and 1")

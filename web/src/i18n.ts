@@ -48,6 +48,8 @@ const english: Record<string, string> = {
   '代理与规则源': 'Sources',
   '设备': 'Devices',
   '策略': 'Policies',
+  '控制': 'CONTROL',
+  '观察': 'OBSERVE',
   '连通性': 'Connectivity',
   '诊断': 'Diagnostics',
   '设备页还有尚未保存的修改，确定离开并放弃这些修改吗？': 'The Devices page has unsaved changes. Leave and discard them?',

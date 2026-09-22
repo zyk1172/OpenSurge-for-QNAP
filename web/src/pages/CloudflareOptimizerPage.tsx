@@ -43,13 +43,29 @@ type OptimizerState = {
   results: Result[]
 }
 type OptimizerResponse = { config: OptimizerConfig; state: OptimizerState }
-type ScanMode = 'fast' | 'standard' | 'full' | 'deep'
+type ScanMode = 'cfst' | 'fast' | 'full' | 'deep' | 'custom'
+type ScanPresetMode = Exclude<ScanMode, 'custom'>
 type ScheduleChoice = 'off' | '1' | '3' | '7' | '14' | '30' | 'custom'
 
 const optimizerRequest = (path: string, init?: RequestInit) => request<OptimizerResponse>(path, init)
 const intervalChoices = new Set([1, 3, 7, 14, 30])
 
-const scanPresets: Record<ScanMode, ScanSettings> = {
+const scanPresets: Record<ScanPresetMode, ScanSettings> = {
+  cfst: {
+    budget_seconds: 180,
+    candidate_limit: 0,
+    tcp_concurrency: 200,
+    tcp_attempts: 4,
+    tcp_timeout_ms: 1000,
+    max_latency_ms: 9999,
+    max_loss_rate: 1,
+    https_candidate_count: 10,
+    http_timeout_ms: 2500,
+    download_candidate_count: 10,
+    download_seconds: 10,
+    download_max_bytes: 200_000_000,
+    min_download_mbps: 0,
+  },
   fast: {
     budget_seconds: 30,
     candidate_limit: 256,
@@ -62,21 +78,6 @@ const scanPresets: Record<ScanMode, ScanSettings> = {
     http_timeout_ms: 1800,
     download_candidate_count: 3,
     download_seconds: 2,
-    download_max_bytes: 200_000_000,
-    min_download_mbps: 0,
-  },
-  standard: {
-    budget_seconds: 75,
-    candidate_limit: 1024,
-    tcp_concurrency: 128,
-    tcp_attempts: 3,
-    tcp_timeout_ms: 800,
-    max_latency_ms: 100,
-    max_loss_rate: 0,
-    https_candidate_count: 30,
-    http_timeout_ms: 2500,
-    download_candidate_count: 8,
-    download_seconds: 4,
     download_max_bytes: 200_000_000,
     min_download_mbps: 0,
   },
@@ -137,7 +138,7 @@ export function CloudflareOptimizerPage() {
 
   const simpleDraft = useMemo(() => draft ? simplifyTargets(draft) : null, [draft])
   const dirty = useMemo(() => data && simpleDraft ? JSON.stringify(data.config) !== JSON.stringify(simpleDraft) : false, [data, simpleDraft])
-  const scanMode = useMemo(() => draft ? detectScanMode(draft.scan) : 'standard', [draft])
+  const scanMode = useMemo<ScanMode>(() => draft ? detectScanMode(draft.scan) : 'cfst', [draft])
   const scheduleChoice = useMemo<ScheduleChoice>(() => {
     if (!draft?.enabled) return 'off'
     if (draft.schedule.mode === 'interval' && intervalChoices.has(draft.schedule.every_days ?? 0)) return String(draft.schedule.every_days) as ScheduleChoice
@@ -175,16 +176,8 @@ export function CloudflareOptimizerPage() {
   } : current)
 
   const updateScanMode = (mode: ScanMode) => setDraft(current => {
-    if (!current) return current
-    return {
-      ...current,
-      scan: {
-        ...scanPresets[mode],
-        max_latency_ms: current.scan.max_latency_ms,
-        max_loss_rate: current.scan.max_loss_rate,
-        min_download_mbps: current.scan.min_download_mbps,
-      },
-    }
+    if (!current || mode === 'custom') return current
+    return { ...current, scan: { ...scanPresets[mode] } }
   })
 
   const save = async (): Promise<boolean> => {
@@ -344,14 +337,15 @@ export function CloudflareOptimizerPage() {
     </Panel>
 
     <Panel>
-      <SectionHeader eyebrow="SCAN STRATEGY" title="完整优选策略" subtitle="先并发 TCP 443 粗筛，再按延迟/丢包过滤并执行目标域名 HTTPS 验证；前一批候选不足时会继续向后补位，而不是直接判定无可用节点。下载测速使用 Cloudflare 官方 200MB 响应分段，只累计正文传输时间。最低下载速度为 0 时保留 HTTPS 兜底；设置大于 0 的门槛后会继续轮转测试后续候选，直到各域名找到达标 IP、候选耗尽或达到任务上限。" />
+      <SectionHeader eyebrow="SCAN STRATEGY" title="完整优选策略" subtitle="默认按 CFST 流程：每个 /24 随机取一个 IP，200 并发执行 4 次 TCP 443 测试，默认不以延迟或丢包硬过滤，再对延迟靠前的 10 个候选执行下载测速并按速度排序。OpenSurge 额外保留目标域名 HTTPS/SNI 验证、物理出口绑定和 Cloudflare 官方测速流。" />
       <div className="ui-form-grid">
         <FormField label="测速模式">
           <select value={scanMode} onChange={event => updateScanMode(event.target.value as ScanMode)}>
+            <option value="cfst">{t('CFST 默认 · 全部 /24（推荐）')}</option>
             <option value="fast">{t('快速 · 约 30 秒')}</option>
-            <option value="standard">{t('标准 · 约 75 秒（推荐）')}</option>
             <option value="full">{t('完整 · 约 120 秒')}</option>
             <option value="deep">{t('深入 · 最多 180 秒')}</option>
+            {scanMode === 'custom' && <option value="custom">{t('自定义（保留当前参数）')}</option>}
           </select>
         </FormField>
         <FormField label="优选延迟上限" hint="超过这个 TCP 延迟的候选会在 HTTPS 和下载测速前直接剔除。">
@@ -363,6 +357,15 @@ export function CloudflareOptimizerPage() {
             <option value={500}>500 ms</option>
             <option value={800}>800 ms</option>
             <option value={1000}>1000 ms</option>
+            <option value={9999}>{t('不限制（CFST 默认）')}</option>
+          </select>
+        </FormField>
+        <FormField label="优选丢包上限" hint="CFST 默认 100%，即只淘汰完全不可达的 IP；需要更严格时可手动降低。">
+          <select aria-label={t('优选丢包上限')} value={draft.scan.max_loss_rate} onChange={event => updateScan({ max_loss_rate: Number(event.target.value) })}>
+            <option value={0}>0%</option>
+            <option value={0.25}>25%</option>
+            <option value={0.5}>50%</option>
+            <option value={1}>{t('100%（CFST 默认）')}</option>
           </select>
         </FormField>
         <FormField label="最低下载速度（Mbps）" hint="0 表示关闭速度硬筛选；大于 0 时，未测出速度或低于该值的候选都会剔除。">
@@ -381,7 +384,7 @@ export function CloudflareOptimizerPage() {
       <TableSurface>
         <table className="ui-table">
           <thead><tr><th>{t('候选 IP')}</th><th>{t('TCP 并发')}</th><th>{t('TCP 采样')}</th><th>{t('延迟上限')}</th><th>{t('丢包上限')}</th><th>{t('HTTPS 候选')}</th><th>{t('下载候选')}</th></tr></thead>
-          <tbody><tr><td>{draft.scan.candidate_limit}</td><td>{draft.scan.tcp_concurrency}</td><td>{draft.scan.tcp_attempts}</td><td>{draft.scan.max_latency_ms} ms</td><td>{Math.round(draft.scan.max_loss_rate * 100)}%</td><td>{draft.scan.https_candidate_count}</td><td>{draft.scan.download_candidate_count}</td></tr></tbody>
+          <tbody><tr><td>{draft.scan.candidate_limit === 0 ? t('全部 /24') : draft.scan.candidate_limit}</td><td>{draft.scan.tcp_concurrency}</td><td>{draft.scan.tcp_attempts}</td><td>{draft.scan.max_latency_ms} ms</td><td>{Math.round(draft.scan.max_loss_rate * 100)}%</td><td>{draft.scan.https_candidate_count}</td><td>{draft.scan.download_candidate_count}</td></tr></tbody>
         </table>
       </TableSurface>
     </Panel>
@@ -429,12 +432,8 @@ function simplifyTargets(config: OptimizerConfig): OptimizerConfig {
 }
 
 function detectScanMode(scan: ScanSettings): ScanMode {
-  const exact = (Object.entries(scanPresets) as [ScanMode, ScanSettings][]).find(([, preset]) => JSON.stringify(scan) === JSON.stringify(preset))
-  if (exact) return exact[0]
-  if (scan.budget_seconds <= 30) return 'fast'
-  if (scan.budget_seconds <= 90) return 'standard'
-  if (scan.budget_seconds <= 130) return 'full'
-  return 'deep'
+  const exact = (Object.entries(scanPresets) as [ScanPresetMode, ScanSettings][]).find(([, preset]) => JSON.stringify(scan) === JSON.stringify(preset))
+  return exact?.[0] ?? 'custom'
 }
 
 
