@@ -1020,6 +1020,20 @@
 
   html[data-product-target="qnap"] .page-header h1{font-size:22px!important}
 
+  html[data-product-target="qnap"] .qnap-host-policy-card{
+    grid-template-columns:1fr!important;
+    min-height:94px!important;
+    height:auto!important;
+    gap:10px!important;
+  }
+  html[data-product-target="qnap"] .qnap-host-policy-select{
+    width:100%!important;
+    min-width:0!important;
+  }
+  html[data-product-target="qnap"] .qnap-host-tailscale-card>.overlay-switch{
+    justify-self:start!important;
+  }
+
   html[data-product-target="qnap"] .inventory,
   html[data-product-target="qnap"] .source-inventory,
   html[data-product-target="qnap"] .provider-status-list,
