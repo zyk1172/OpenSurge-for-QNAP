@@ -131,6 +131,12 @@ func main() {
 }
 
 func newControl(configPath, storeDir, controlAddr string) (*controlapi.Server, *qnaphost.Manager, error) {
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cleanupCancel()
+	if err := qnaphost.CleanupLegacyTrafficScopes(cleanupCtx, storeDir); err != nil {
+		return nil, nil, fmt.Errorf("clean up removed container traffic takeover: %w", err)
+	}
+
 	controlToken, err := controlapi.NewStore(storeDir).Token()
 	if err != nil {
 		return nil, nil, fmt.Errorf("load internal control token: %w", err)
