@@ -108,6 +108,21 @@ let trafficScopes: TrafficScopeFixture = {
   checked_at: '2026-09-23T00:00:00Z',
 }
 
+const trafficDiscovery = {
+  schema_version: 1,
+  gateway_interface: 'br0',
+  candidates: [{
+    selector_id: 'auto-lxcbr0-10-0-3-6',
+    source_ipv4: '10.0.3.6',
+    ingress_interface: 'lxcbr0',
+    mac: '02:42:0a:00:03:06',
+    neighbor_state: 'REACHABLE',
+    bridge_cidr: '10.0.3.0/24',
+    bridge_ipv4: '10.0.3.1',
+  }],
+  checked_at: '2026-09-23T00:00:00Z',
+}
+
 let hostRouting: HostRoutingFixture = {
   schema_version: 2,
   supported: true,
@@ -151,6 +166,7 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     }
     vi.mocked(api.saveConfig).mockResolvedValue(config)
     vi.mocked(request).mockImplementation(async (path, init) => {
+      if (path === '/api/v1/qnap-traffic-scopes/discovery') return trafficDiscovery
       if (path === '/api/v1/qnap-traffic-scopes') {
         if (init?.method === 'PUT') {
           const body = JSON.parse(String(init.body)) as { selectors: TrafficScopeFixture['selectors'] }
@@ -224,17 +240,14 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     expect(onNotify).toHaveBeenCalledWith(expect.objectContaining({ tone: 'success', title: 'NAS 接管策略已保存' }))
   })
 
-  it('saves a Docker bridge selector without touching host-network processes', async () => {
+  it('auto-discovers a private bridge endpoint and saves it without manual network fields', async () => {
     render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={() => {}} />)
 
     await screen.findByRole('heading', { name: '容器流量接管' })
-    await userEvent.click(screen.getByRole('button', { name: '添加 bridge 容器' }))
-    await userEvent.type(screen.getByRole('textbox', { name: '容器名称' }), 'OpenList')
-    await userEvent.type(screen.getByRole('textbox', { name: '容器 IPv4' }), '10.0.3.6')
-    const ingress = screen.getByRole('textbox', { name: '入接口' })
-    await userEvent.clear(ingress)
-    await userEvent.type(ingress, 'lxcbr0')
-    await userEvent.click(screen.getByRole('checkbox', { name: /通过 OpenSurge/ }))
+    expect(screen.getByText('10.0.3.6')).toBeTruthy()
+    expect(screen.getByText(/lxcbr0 · 10.0.3.0\/24/)).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: '容器 IPv4' })).toBeNull()
+    await userEvent.click(screen.getByRole('checkbox', { name: '通过 OpenSurge：10.0.3.6' }))
     await userEvent.click(screen.getByRole('button', { name: '保存容器接管' }))
 
     await waitFor(() => expect(request).toHaveBeenCalledWith('/api/v1/qnap-traffic-scopes', expect.objectContaining({
@@ -243,8 +256,7 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     })))
     const put = vi.mocked(request).mock.calls.find(([path, init]) => path === '/api/v1/qnap-traffic-scopes' && init?.method === 'PUT')
     expect(String(put?.[1]?.body)).toContain('"ingress_interface":"lxcbr0"')
-    expect(String(put?.[1]?.body)).not.toContain('transmission')
-    expect(String(put?.[1]?.body)).not.toContain('qbittorrent')
+    expect(String(put?.[1]?.body)).not.toContain('"ingress_interface":"br0"')
   })
 
   it('persists the dedicated LAN SOCKS5 port through the runtime config', async () => {
