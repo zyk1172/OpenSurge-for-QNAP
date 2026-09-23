@@ -14,7 +14,6 @@ import (
 	"open-mihomo-gateway/internal/gateway"
 	"open-mihomo-gateway/internal/linuxnetwork"
 	"open-mihomo-gateway/internal/qnaphost"
-	"open-mihomo-gateway/internal/trafficscope"
 	"open-mihomo-gateway/internal/webgateway"
 	"open-mihomo-gateway/internal/webui"
 )
@@ -70,16 +69,14 @@ func main() {
 		}
 		fmt.Printf("gateway ready: desired_running=%t gateway=%s runtime_state=%s\n", readiness.DesiredRunning, readiness.Gateway, readiness.RuntimeState)
 	case "control":
-		control, hostManager, trafficManager, err := newControl(*configPath, *storeDir, *controlAddr)
+		control, hostManager, err := newControl(*configPath, *storeDir, *controlAddr)
 		if err != nil {
 			fatal(err)
 		}
 		go hostManager.Run(ctx)
-		go trafficManager.Run(ctx)
 		fmt.Printf("OpenSurge privileged control: http://%s (loopback only)\n", *controlAddr)
 		serveErr := control.Serve(ctx)
 		cancel()
-		releaseTrafficScopes(trafficManager)
 		releaseHostRouting(hostManager)
 		if serveErr != nil {
 			fatal(serveErr)
@@ -97,7 +94,7 @@ func main() {
 			fatal(err)
 		}
 	case "all":
-		control, hostManager, trafficManager, err := newControl(*configPath, *storeDir, *controlAddr)
+		control, hostManager, err := newControl(*configPath, *storeDir, *controlAddr)
 		if err != nil {
 			fatal(err)
 		}
@@ -114,7 +111,6 @@ func main() {
 		}
 		errCh := make(chan error, 2)
 		go hostManager.Run(ctx)
-		go trafficManager.Run(ctx)
 		go func() { errCh <- control.Serve(ctx) }()
 		go func() { errCh <- gateway.Serve(ctx) }()
 		fmt.Printf("OpenSurge privileged control: http://%s (loopback only)\n", *controlAddr)
@@ -125,7 +121,6 @@ func main() {
 		case serveErr = <-errCh:
 			cancel()
 		}
-		releaseTrafficScopes(trafficManager)
 		releaseHostRouting(hostManager)
 		if serveErr != nil {
 			fatal(serveErr)
@@ -135,16 +130,14 @@ func main() {
 	}
 }
 
-func newControl(configPath, storeDir, controlAddr string) (*controlapi.Server, *qnaphost.Manager, *trafficscope.Manager, error) {
+func newControl(configPath, storeDir, controlAddr string) (*controlapi.Server, *qnaphost.Manager, error) {
 	controlToken, err := controlapi.NewStore(storeDir).Token()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("load internal control token: %w", err)
+		return nil, nil, fmt.Errorf("load internal control token: %w", err)
 	}
 	hostManager := qnaphost.New(configPath, storeDir)
-	trafficManager := trafficscope.New(configPath, storeDir)
 	runner := controlapi.ContainerRunner{StoreDir: storeDir}
 	static := hostManager.Handler(controlToken, webui.Handler())
-	static = trafficManager.Handler(controlToken, static)
 	static = controlapi.WrapCloudflareOptimizer(static, configPath, storeDir, runner)
 	static = controlapi.WrapQNAPSourceDelete(static, configPath, storeDir, controlToken)
 	control, err := controlapi.New(controlapi.Options{
@@ -161,9 +154,9 @@ func newControl(configPath, storeDir, controlAddr string) (*controlapi.Server, *
 		Static:            static,
 	})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	return control, hostManager, trafficManager, nil
+	return control, hostManager, nil
 }
 
 func newWeb(webAddr, controlAddr, token, authDir, allowedHosts string, requireBootstrapToken, secureCookies, qnapOnly bool) (*webgateway.Server, error) {
@@ -184,14 +177,6 @@ func releaseHostRouting(manager *qnaphost.Manager) {
 	defer cancel()
 	if err := manager.Release(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "release NAS host routing: %v\n", err)
-	}
-}
-
-func releaseTrafficScopes(manager *trafficscope.Manager) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := manager.Release(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "release QNAP traffic scopes: %v\n", err)
 	}
 }
 
