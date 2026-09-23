@@ -27,6 +27,7 @@ const config: ControlConfig = {
   mihomo: { store_fake_ip: true },
   transparent: { mode: 'tun', strict_route: false, tun_ipv6: 'off' },
   local_system_proxy: { enabled: false },
+  lan_proxy: { enabled: false, socks_port: 7891 },
   device_policy: { enabled: true, protected_ipv4: [] },
 }
 
@@ -77,6 +78,36 @@ type HostRoutingFixture = {
   checked_at: string
 }
 
+type TrafficScopeFixture = {
+  schema_version: number
+  supported: boolean
+  gateway_ready: boolean
+  gateway_ipv4: string
+  gateway_interface: string
+  selectors: Array<{
+    id: string
+    label?: string
+    enabled: boolean
+    type: 'source_ingress'
+    source_ipv4: string
+    ingress_interface: string
+    main_priority?: number
+    proxy_priority?: number
+    active?: boolean
+  }>
+  checked_at: string
+}
+
+let trafficScopes: TrafficScopeFixture = {
+  schema_version: 1,
+  supported: true,
+  gateway_ready: false,
+  gateway_ipv4: '192.168.2.241',
+  gateway_interface: 'br0',
+  selectors: [],
+  checked_at: '2026-09-23T00:00:00Z',
+}
+
 let hostRouting: HostRoutingFixture = {
   schema_version: 2,
   supported: true,
@@ -113,21 +144,39 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     vi.mocked(api.config).mockResolvedValue(config)
     vi.mocked(api.networkDefaults).mockResolvedValue(networkDefaults)
     vi.mocked(api.gateway).mockImplementation(async action => ({ id: action, kind: action, state: 'running' }))
+    trafficScopes = {
+      ...trafficScopes,
+      gateway_ready: false,
+      selectors: [],
+    }
     vi.mocked(api.saveConfig).mockResolvedValue(config)
-    vi.mocked(request).mockImplementation(async (_path, init) => {
-      if (init?.method === 'PUT') {
-        const body = JSON.parse(String(init.body)) as { enabled: boolean; dns_mode: 'auto' | 'opensurge' | 'host'; protect_tailscale: boolean }
-        hostRouting = {
-          ...hostRouting,
-          desired: body.enabled,
-          enabled: body.enabled,
-          gateway_ready: body.enabled,
-          dns_mode: body.dns_mode,
-          protect_tailscale: body.protect_tailscale,
-          dns_redirect: body.enabled && body.dns_mode !== 'host',
+    vi.mocked(request).mockImplementation(async (path, init) => {
+      if (path === '/api/v1/qnap-traffic-scopes') {
+        if (init?.method === 'PUT') {
+          const body = JSON.parse(String(init.body)) as { selectors: TrafficScopeFixture['selectors'] }
+          trafficScopes = {
+            ...trafficScopes,
+            selectors: body.selectors.map(selector => ({ ...selector, active: false })),
+          }
         }
+        return trafficScopes
       }
-      return hostRouting
+      if (path === '/api/v1/qnap-host-routing') {
+        if (init?.method === 'PUT') {
+          const body = JSON.parse(String(init.body)) as { enabled: boolean; dns_mode: 'auto' | 'opensurge' | 'host'; protect_tailscale: boolean }
+          hostRouting = {
+            ...hostRouting,
+            desired: body.enabled,
+            enabled: body.enabled,
+            gateway_ready: body.enabled,
+            dns_mode: body.dns_mode,
+            protect_tailscale: body.protect_tailscale,
+            dns_redirect: body.enabled && body.dns_mode !== 'host',
+          }
+        }
+        return hostRouting
+      }
+      throw new Error(`unexpected request path ${path}`)
     })
     vi.mocked(waitForOperation).mockResolvedValue({ id: 'operation', kind: 'start', state: 'succeeded' })
   })
@@ -173,6 +222,44 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
       body: JSON.stringify({ enabled: false, dns_mode: 'host', protect_tailscale: false }),
     })))
     expect(onNotify).toHaveBeenCalledWith(expect.objectContaining({ tone: 'success', title: 'NAS 接管策略已保存' }))
+  })
+
+  it('saves a Docker bridge selector without touching host-network processes', async () => {
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={() => {}} />)
+
+    await screen.findByRole('heading', { name: '容器流量接管' })
+    await userEvent.click(screen.getByRole('button', { name: '添加 bridge 容器' }))
+    await userEvent.type(screen.getByRole('textbox', { name: '容器名称' }), 'OpenList')
+    await userEvent.type(screen.getByRole('textbox', { name: '容器 IPv4' }), '10.0.3.6')
+    const ingress = screen.getByRole('textbox', { name: '入接口' })
+    await userEvent.clear(ingress)
+    await userEvent.type(ingress, 'lxcbr0')
+    await userEvent.click(screen.getByRole('checkbox', { name: /通过 OpenSurge/ }))
+    await userEvent.click(screen.getByRole('button', { name: '保存容器接管' }))
+
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/api/v1/qnap-traffic-scopes', expect.objectContaining({
+      method: 'PUT',
+      body: expect.stringContaining('"source_ipv4":"10.0.3.6"'),
+    })))
+    const put = vi.mocked(request).mock.calls.find(([path, init]) => path === '/api/v1/qnap-traffic-scopes' && init?.method === 'PUT')
+    expect(String(put?.[1]?.body)).toContain('"ingress_interface":"lxcbr0"')
+    expect(String(put?.[1]?.body)).not.toContain('transmission')
+    expect(String(put?.[1]?.body)).not.toContain('qbittorrent')
+  })
+
+  it('persists the dedicated LAN SOCKS5 port through the runtime config', async () => {
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={() => {}} />)
+
+    const toggle = await screen.findByRole('switch', { name: 'LAN SOCKS5 / SOCKS5H' })
+    await userEvent.click(toggle)
+    const port = screen.getByRole('spinbutton', { name: 'LAN SOCKS 端口' })
+    await userEvent.clear(port)
+    await userEvent.type(port, '17891')
+    await userEvent.click(screen.getByRole('button', { name: '保存运行参数' }))
+
+    await waitFor(() => expect(api.saveConfig).toHaveBeenCalledWith(expect.objectContaining({
+      lan_proxy: { enabled: true, socks_port: 17891 },
+    })))
   })
 
   it('keeps advanced proxy and deployment shortcuts off the network page', async () => {
