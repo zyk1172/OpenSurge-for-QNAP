@@ -21,6 +21,21 @@ func TestValidateRejectsMihomoRedirPort(t *testing.T) {
 	}
 }
 
+
+func TestValidateLANProxyPortAndIsolation(t *testing.T) {
+	cfg := Default()
+	cfg.LANProxy.Enabled = true
+	cfg.LANProxy.SOCKSPort = cfg.Mihomo.MixedPort
+	if err := Validate(cfg); err == nil || !strings.Contains(err.Error(), "must differ from mihomo.mixed_port") {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	cfg.LANProxy.SOCKSPort = 17891
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("Validate() with dedicated LAN SOCKS port error = %v", err)
+	}
+}
+
 func TestValidateAcceptsTUNTransparentMode(t *testing.T) {
 	cfg := Default()
 	cfg.Transparent.Mode = TransparentModeTUN
