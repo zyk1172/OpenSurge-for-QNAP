@@ -21,6 +21,8 @@ func TestRenderRoundTrip(t *testing.T) {
 	cfg.DHCP.BypassDNS = []string{"192.168.1.1", "1.1.1.1"}
 	cfg.Transparent.Mode = TransparentModeTUN
 	cfg.LocalSystemProxy.Enabled = true
+	cfg.LANProxy.Enabled = true
+	cfg.LANProxy.SOCKSPort = 17891
 	cfg.Mihomo.StoreFakeIP = false
 	cfg.Mihomo.ProfileMode = MihomoProfileModeImported
 	cfg.Mihomo.Profile = filepath.Join(dir, "profile.yaml")
@@ -43,7 +45,7 @@ func TestRenderRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(Render()) error = %v", err)
 	}
-	if loaded.Gateway.Mode != cfg.Gateway.Mode || loaded.Gateway.UpstreamGateway != cfg.Gateway.UpstreamGateway || loaded.DHCP.RangeStart != cfg.DHCP.RangeStart || loaded.DHCP.BypassGateway != cfg.DHCP.BypassGateway || len(loaded.DHCP.BypassDNS) != 2 || !loaded.LocalSystemProxy.Enabled || loaded.Mihomo.StoreFakeIP || loaded.Mihomo.ProfileSourceDigest != cfg.Mihomo.ProfileSourceDigest || loaded.Mihomo.ProfileOverlayDigest != cfg.Mihomo.ProfileOverlayDigest {
+	if loaded.Gateway.Mode != cfg.Gateway.Mode || loaded.Gateway.UpstreamGateway != cfg.Gateway.UpstreamGateway || loaded.DHCP.RangeStart != cfg.DHCP.RangeStart || loaded.DHCP.BypassGateway != cfg.DHCP.BypassGateway || len(loaded.DHCP.BypassDNS) != 2 || !loaded.LocalSystemProxy.Enabled || !loaded.LANProxy.Enabled || loaded.LANProxy.SOCKSPort != 17891 || loaded.Mihomo.StoreFakeIP || loaded.Mihomo.ProfileSourceDigest != cfg.Mihomo.ProfileSourceDigest || loaded.Mihomo.ProfileOverlayDigest != cfg.Mihomo.ProfileOverlayDigest {
 		t.Fatalf("round trip mismatch: %#v", loaded)
 	}
 }
