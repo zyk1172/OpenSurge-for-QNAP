@@ -211,6 +211,22 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     expect(onNotify).toHaveBeenCalledWith(expect.objectContaining({ tone: 'success', title: 'NAS 接管策略已保存' }))
   })
 
+  it('keeps runtime cards in title -> switch -> note hierarchy and preserves SOCKS inset class', async () => {
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={() => {}} />)
+
+    const storeSwitch = await screen.findByRole('switch', { name: 'Store fake-ip' })
+    const storeCard = storeSwitch.closest('article') as HTMLElement
+    expect(storeCard.querySelector(':scope > .qnap-runtime-title')?.textContent).toBe('Store fake-ip')
+    expect(storeCard.children[1]).toBe(storeSwitch)
+    expect(storeCard.querySelector(':scope > .qnap-runtime-note')?.textContent).toBe('持久化 fake-ip 映射')
+
+    const socksSwitch = screen.getByRole('switch', { name: 'LAN SOCKS5 / SOCKS5H' })
+    const socksCard = socksSwitch.closest('article') as HTMLElement
+    expect(socksCard.classList.contains('qnap-runtime-socks-card')).toBe(true)
+    expect(socksCard.querySelector(':scope > .qnap-runtime-title')?.textContent).toBe('LAN SOCKS5 / SOCKS5H')
+    expect(socksCard.querySelector(':scope > .qnap-runtime-note')?.textContent).toBe('仅开放独立 SOCKS listener，不暴露内部 mixed-port')
+  })
+
   it('persists the dedicated LAN SOCKS5 port through the runtime config', async () => {
     render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={() => {}} />)
 
