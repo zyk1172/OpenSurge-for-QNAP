@@ -19,8 +19,13 @@ const traffic = read('../src/pages/TrafficAnalysisPage.css')
 
 const runtime = ruleBody(design, 'html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runtime-card')
 if (!runtime.includes('min-height:94px!important')) throw new Error('QNAP runtime card minimum height contract changed')
-if (!runtime.includes('height:auto!important')) throw new Error('QNAP runtime card must be allowed to grow')
-if (/(?:^|[;\\s])height:94px!important/.test(runtime)) throw new Error('QNAP runtime card must not be fixed to 94px')
+if (!runtime.includes('height:94px!important')) throw new Error('Desktop QNAP runtime cards must stay aligned to the host-status card height')
+
+const runtimeWide = ruleBody(design, 'html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runtime-card-wide')
+if (!runtimeWide.includes('grid-column:span 2!important')) throw new Error('Wide QNAP runtime card must span two card columns')
+
+const runtimeSocks = ruleBody(design, 'html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card')
+if (!runtimeSocks.includes('grid-template-areas:')) throw new Error('LAN SOCKS runtime card must use the compact horizontal layout')
 
 const searchActions = ruleBody(traffic, '.traffic-v3-search-actions button')
 if (!searchActions.includes('min-height:var(--ui-control-height,40px)')) throw new Error('Traffic search buttons must use shared control height')
