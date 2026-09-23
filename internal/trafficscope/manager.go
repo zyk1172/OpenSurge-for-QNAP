@@ -436,15 +436,41 @@ func (m *Manager) disableLocked(ctx context.Context, selectors []Selector) error
 	if _, err := os.Stat(m.netNSPath); err != nil {
 		return nil
 	}
+	hadAppliedSelector := false
 	for _, selector := range selectors {
 		if selector.MainPriority > 0 {
+			hadAppliedSelector = true
 			_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", strconv.Itoa(selector.MainPriority), "from", selector.SourceIPv4+"/32", "iif", selector.IngressInterface, "table", "main", "suppress_prefixlength", "0")
 		}
 		if selector.ProxyPriority > 0 {
+			hadAppliedSelector = true
 			_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", strconv.Itoa(selector.ProxyPriority), "from", selector.SourceIPv4+"/32", "iif", selector.IngressInterface, "table", routeTableID)
 		}
 	}
-	_, _ = m.runHost(ctx, nil, "ip", "-4", "route", "flush", "table", routeTableID, "proto", routeProtocol)
+	// The persisted priority pair is the ownership journal. A fresh install with
+	// no cleanup coordinates must never touch an existing table 20244. When we
+	// do have proof of ownership, delete only the exact OpenSurge default route
+	// instead of flushing by table or protocol.
+	if hadAppliedSelector {
+		if cfg, err := config.Load(m.configPath); err == nil {
+			if gatewayInterface, _, routeErr := m.detectHostPathLocked(ctx, cfg.Gateway.LANIP); routeErr == nil {
+				_, _ = m.runHost(ctx, nil, "ip", "-4", "route", "del", "default", "via", cfg.Gateway.LANIP, "dev", gatewayInterface, "table", routeTableID, "proto", routeProtocol)
+			}
+		}
+	}
+
+	rules, err := m.runHost(ctx, nil, "ip", "-4", "rule", "show")
+	if err != nil {
+		return fmt.Errorf("verify traffic-scope cleanup: %w", err)
+	}
+	for _, selector := range selectors {
+		if selector.MainPriority > 0 && ruleLineContains(rules, strconv.Itoa(selector.MainPriority), "from "+selector.SourceIPv4, "iif "+selector.IngressInterface) {
+			return fmt.Errorf("traffic selector %q main-rule cleanup did not converge", selector.ID)
+		}
+		if selector.ProxyPriority > 0 && ruleLineContains(rules, strconv.Itoa(selector.ProxyPriority), "from "+selector.SourceIPv4, "iif "+selector.IngressInterface) {
+			return fmt.Errorf("traffic selector %q proxy-rule cleanup did not converge", selector.ID)
+		}
+	}
 	return nil
 }
 
