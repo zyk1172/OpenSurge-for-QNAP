@@ -2,6 +2,7 @@ package trafficscope
 
 import (
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,5 +120,54 @@ func TestStatePersistsCleanupCoordinates(t *testing.T) {
 	}
 	if len(got.Selectors) != 1 || got.Selectors[0].MainPriority != want.MainPriority || got.Selectors[0].ProxyPriority != want.ProxyPriority {
 		t.Fatalf("persisted selector = %+v", got.Selectors)
+	}
+}
+
+
+func TestDiscoverPrivateBridgeRoutesSeparatesQNETVirtualSwitch(t *testing.T) {
+	routes := []byte(strings.Join([]string{
+		"192.168.2.0/24 dev br0 proto kernel scope link src 192.168.2.240",
+		"10.0.3.0/24 dev lxcbr0 proto kernel scope link src 10.0.3.1",
+		"10.0.5.0/24 dev docker0 proto kernel scope link src 10.0.5.1",
+		"172.29.8.0/24 dev br-1cbbf626b32b proto kernel scope link src 172.29.8.1",
+		"192.168.50.0/24 dev br1 proto kernel scope link src 192.168.50.2",
+	}, "\n"))
+
+	got := discoverPrivateBridgeRoutes(routes, "br0")
+	if len(got) != 3 {
+		t.Fatalf("discovered routes = %+v", got)
+	}
+	for _, route := range got {
+		if route.Interface == "br0" || route.Interface == "br1" {
+			t.Fatalf("QNET/Virtual Switch interface was misclassified as private container bridge: %+v", route)
+		}
+	}
+	if got[0].Interface != "lxcbr0" || got[1].Interface != "docker0" || got[2].Interface != "br-1cbbf626b32b" {
+		t.Fatalf("unexpected private bridge order/content: %+v", got)
+	}
+}
+
+func TestParseBridgeNeighborsBuildsSelectorsWithoutManualTyping(t *testing.T) {
+	_, network, err := net.ParseCIDR("10.0.3.0/24")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge := privateBridgeRoute{Interface: "lxcbr0", CIDR: "10.0.3.0/24", IPv4: "10.0.3.1", Network: network}
+	neighbors := []byte(strings.Join([]string{
+		"10.0.3.6 lladdr 02:42:0a:00:03:06 REACHABLE",
+		"10.0.3.7 lladdr 02:42:0a:00:03:07 STALE",
+		"10.0.3.8 INCOMPLETE",
+		"10.0.3.1 lladdr 02:42:aa:bb:cc:dd PERMANENT",
+	}, "\n"))
+
+	got := parseBridgeNeighbors(neighbors, bridge)
+	if len(got) != 2 {
+		t.Fatalf("candidates = %+v", got)
+	}
+	if got[0].SourceIPv4 != "10.0.3.6" || got[0].IngressInterface != "lxcbr0" || got[0].SelectorID != "auto-lxcbr0-10-0-3-6" {
+		t.Fatalf("first candidate = %+v", got[0])
+	}
+	if got[1].NeighborState != "STALE" {
+		t.Fatalf("second candidate = %+v", got[1])
 	}
 }
