@@ -162,13 +162,29 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     expect(main.querySelector('.mp-status-light')).toBeNull()
   })
 
+  it('renders DNS and Tailscale policy controls as matching compact cards', async () => {
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={() => {}} />)
+
+    const dnsMode = await screen.findByRole('combobox', { name: 'NAS DNS 接管模式' })
+    const tailscale = screen.getByRole('switch', { name: 'Tailscale 共存保护' })
+    const dnsCard = dnsMode.closest('article')
+    const tailscaleCard = tailscale.closest('article')
+
+    expect(dnsCard?.classList.contains('qnap-host-policy-card')).toBe(true)
+    expect(dnsCard?.classList.contains('qnap-host-dns-card')).toBe(true)
+    expect(tailscaleCard?.classList.contains('qnap-host-policy-card')).toBe(true)
+    expect(tailscaleCard?.classList.contains('qnap-host-tailscale-card')).toBe(true)
+  })
+
   it('persists DNS mode and Tailscale protection through the host-routing endpoint', async () => {
     const onNotify = vi.fn()
     render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={onNotify} />)
 
     const mode = await screen.findByRole('combobox', { name: 'NAS DNS 接管模式' })
     await userEvent.selectOptions(mode, 'host')
-    const coexistence = screen.getByRole('checkbox', { name: /Tailscale 共存保护/ })
+    const coexistence = screen.getByRole('switch', { name: 'Tailscale 共存保护' })
+    expect(coexistence.closest('article')?.classList.contains('qnap-host-policy-card')).toBe(true)
+    expect(coexistence.closest('article')?.classList.contains('qnap-host-tailscale-card')).toBe(true)
     await userEvent.click(coexistence)
     await userEvent.click(screen.getByRole('button', { name: '保存接管策略' }))
 
@@ -183,6 +199,8 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={() => {}} />)
 
     const toggle = await screen.findByRole('switch', { name: 'LAN SOCKS5 / SOCKS5H' })
+    expect(toggle.closest('article')?.classList.contains('qnap-runtime-card-wide')).toBe(true)
+    expect(toggle.closest('article')?.classList.contains('qnap-runtime-socks-card')).toBe(true)
     await userEvent.click(toggle)
     const port = screen.getByRole('spinbutton', { name: 'LAN SOCKS 端口' })
     await userEvent.clear(port)

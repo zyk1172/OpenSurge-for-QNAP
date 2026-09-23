@@ -216,28 +216,29 @@ export function QNAPNetworkPage({
           <span><strong>{t('IPv4 DNS')}</strong><br />{dnsMode === 'host' ? t('保留宿主 DNS') : hostRouting.dns_redirect ? t('已透明接管') : t('未接管')}</span>
         </div>
 
-        <div className="source-import-grid qnap-host-policy-grid">
-          <article className="source-import-card">
-            <label>
-              <span>{t('NAS DNS 接管模式')}</span>
-              <select value={dnsMode} disabled={hostRoutingBusy} onChange={event => { setDNSMode(event.target.value as HostDNSMode); setHostPolicyDirty(true) }}>
-                <option value="auto">{t('自动（推荐）')}</option>
-                <option value="opensurge">{t('经 OpenSurge')}</option>
-                <option value="host">{t('保留宿主 DNS')}</option>
-              </select>
-            </label>
-            <p className="muted">{t(dnsMode === 'auto'
-              ? '普通 DNS 经 OpenSurge；保留宿主 VPN 的更高优先级。'
-              : dnsMode === 'opensurge'
-                ? 'NAS DNS 经 OpenSurge；Tailscale 优先级由共存保护决定。'
-                : '不接管 NAS DNS。')}</p>
+        <div className="qnap-host-policy-grid">
+          <article className="qnap-host-policy-card qnap-host-dns-card">
+            <span className="qnap-host-policy-copy">
+              <strong>{t('NAS DNS 接管模式')}</strong>
+              <small>{t(dnsMode === 'auto'
+                ? '普通 DNS 经 OpenSurge；保留宿主 VPN 的更高优先级。'
+                : dnsMode === 'opensurge'
+                  ? 'NAS DNS 经 OpenSurge；Tailscale 优先级由共存保护决定。'
+                  : '不接管 NAS DNS。')}</small>
+            </span>
+            <select className="qnap-host-policy-select" aria-label={t('NAS DNS 接管模式')} value={dnsMode} disabled={hostRoutingBusy} onChange={event => { setDNSMode(event.target.value as HostDNSMode); setHostPolicyDirty(true) }}>
+              <option value="auto">{t('自动（推荐）')}</option>
+              <option value="opensurge">{t('经 OpenSurge')}</option>
+              <option value="host">{t('保留宿主 DNS')}</option>
+            </select>
           </article>
-          <article className="source-import-card">
-            <label className="sidebar-switch">
-              <input type="checkbox" checked={protectTailscale} disabled={hostRoutingBusy} onChange={event => { setProtectTailscale(event.target.checked); setHostPolicyDirty(true) }} />
-              <span><strong>{t('Tailscale 共存保护')}</strong><small>{t('保留宿主 VPN 与 MagicDNS 的优先级。')}</small></span>
-            </label>
-            <p className="muted">{t('仅在需要覆盖宿主 VPN 路由时关闭。')}</p>
+          <article className="qnap-host-policy-card qnap-host-tailscale-card">
+            <span className="qnap-host-policy-copy">
+              <strong>{t('Tailscale 共存保护')}</strong>
+              <small>{t('保留宿主 VPN 与 MagicDNS 的优先级。')}</small>
+              <small>{t('仅在需要覆盖宿主 VPN 路由时关闭。')}</small>
+            </span>
+            <button className={`overlay-switch ${protectTailscale ? 'on' : ''}`} type="button" role="switch" aria-label={t('Tailscale 共存保护')} aria-checked={protectTailscale} disabled={hostRoutingBusy} onClick={() => { setProtectTailscale(current => !current); setHostPolicyDirty(true) }}><i aria-hidden="true" /><span>{t(protectTailscale ? '已启用' : '已停用')}</span></button>
           </article>
         </div>
 
@@ -272,7 +273,7 @@ export function QNAPNetworkPage({
           <span><strong>TUN strict-route</strong><small>{t('严格接管 TUN 路由')}</small></span>
           <button className={`overlay-switch ${draft.transparent.strict_route ? 'on' : ''}`} type="button" role="switch" aria-label="TUN strict-route" aria-checked={draft.transparent.strict_route} onClick={() => patch({ transparent: { ...draft.transparent, strict_route: !draft.transparent.strict_route } })}><i aria-hidden="true" /><span>{t(draft.transparent.strict_route ? '已启用' : '已停用')}</span></button>
         </article>
-        <article className="source-import-card qnap-runtime-card">
+        <article className="source-import-card qnap-runtime-card qnap-runtime-card-wide qnap-runtime-socks-card">
           <span><strong>LAN SOCKS5 / SOCKS5H</strong><small>{t('仅开放独立 SOCKS listener，不暴露内部 mixed-port')}</small></span>
           <button className={`overlay-switch ${lanProxy.enabled ? 'on' : ''}`} type="button" role="switch" aria-label="LAN SOCKS5 / SOCKS5H" aria-checked={lanProxy.enabled} onClick={() => patch({ lan_proxy: { ...lanProxy, enabled: !lanProxy.enabled } })}><i aria-hidden="true" /><span>{t(lanProxy.enabled ? '已启用' : '已停用')}</span></button>
           <label>
