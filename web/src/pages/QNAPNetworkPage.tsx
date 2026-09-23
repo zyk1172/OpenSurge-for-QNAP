@@ -328,16 +328,19 @@ export function QNAPNetworkPage({
       <SectionTitle title="运行参数" subtitle="保存到 /data；运行中保存会重启网关" />
       <div className="source-import-grid qnap-runtime-grid">
         <article className="source-import-card qnap-runtime-card">
-          <span><strong>Store fake-ip</strong><small>{t('持久化 fake-ip 映射')}</small></span>
+          <strong className="qnap-runtime-title">Store fake-ip</strong>
           <button className={`overlay-switch ${draft.mihomo.store_fake_ip ? 'on' : ''}`} type="button" role="switch" aria-label="Store fake-ip" aria-checked={draft.mihomo.store_fake_ip} onClick={() => patch({ mihomo: { ...draft.mihomo, store_fake_ip: !draft.mihomo.store_fake_ip } })}><i aria-hidden="true" /><span>{t(draft.mihomo.store_fake_ip ? '已启用' : '已停用')}</span></button>
+          <small className="qnap-runtime-note">{t('持久化 fake-ip 映射')}</small>
         </article>
         <article className="source-import-card qnap-runtime-card">
-          <span><strong>TUN strict-route</strong><small>{t('严格接管 TUN 路由')}</small></span>
+          <strong className="qnap-runtime-title">TUN strict-route</strong>
           <button className={`overlay-switch ${draft.transparent.strict_route ? 'on' : ''}`} type="button" role="switch" aria-label="TUN strict-route" aria-checked={draft.transparent.strict_route} onClick={() => patch({ transparent: { ...draft.transparent, strict_route: !draft.transparent.strict_route } })}><i aria-hidden="true" /><span>{t(draft.transparent.strict_route ? '已启用' : '已停用')}</span></button>
+          <small className="qnap-runtime-note">{t('严格接管 TUN 路由')}</small>
         </article>
         <article className="source-import-card qnap-runtime-card qnap-runtime-card-wide qnap-runtime-socks-card">
-          <span><strong>LAN SOCKS5 / SOCKS5H</strong><small>{t('仅开放独立 SOCKS listener，不暴露内部 mixed-port')}</small></span>
+          <strong className="qnap-runtime-title">LAN SOCKS5 / SOCKS5H</strong>
           <button className={`overlay-switch ${lanProxy.enabled ? 'on' : ''}`} type="button" role="switch" aria-label="LAN SOCKS5 / SOCKS5H" aria-checked={lanProxy.enabled} onClick={() => patch({ lan_proxy: { ...lanProxy, enabled: !lanProxy.enabled } })}><i aria-hidden="true" /><span>{t(lanProxy.enabled ? '已启用' : '已停用')}</span></button>
+          <small className="qnap-runtime-note">{t('仅开放独立 SOCKS listener，不暴露内部 mixed-port')}</small>
           <label>
             <span>{t('LAN SOCKS 端口')}</span>
             <input aria-label={t('LAN SOCKS 端口')} type="number" min={1} max={65535} value={lanProxy.socks_port} onChange={event => patch({ lan_proxy: { ...lanProxy, socks_port: Number(event.target.value) } })} />

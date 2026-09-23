@@ -104,6 +104,7 @@ export function PolicyGroupNav({ groups, activeGroup, onNavigate, displayName = 
         {groups.map((group, index) => <button
           type="button"
           key={group}
+          className={`policy-group-nav-item policy-group-nav-accent-${index % 3}`}
           ref={node => { if (node) buttonRefs.current.set(group, node); else buttonRefs.current.delete(group) }}
           title={displayName(group) === group ? group : `${displayName(group)} · ${group}`}
           aria-current={group === activeGroup ? 'location' : undefined}

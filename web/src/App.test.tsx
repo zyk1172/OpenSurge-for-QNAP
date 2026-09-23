@@ -135,7 +135,7 @@ vi.mock('./api', () => ({
 }))
 
 import { api, RequestError, waitForOperation } from './api'
-import { App } from './App'
+import { App, nav } from './App'
 
 const overview: Overview = {
   schema_version: 1,
@@ -226,6 +226,15 @@ function gatewayPlanForTest(): GatewayPlan {
 }
 
 describe('OpenSurge app shell', () => {
+  it('keeps Cloudflare optimizer immediately below Tutorial in QNAP navigation', () => {
+    const qnapItems = nav.filter(item => !item.qnapOnly || ['tutorial', 'cloudflare'].includes(item.id))
+    const tutorialIndex = qnapItems.findIndex(item => item.id === 'tutorial')
+    expect(tutorialIndex).toBeGreaterThanOrEqual(0)
+    expect(qnapItems[tutorialIndex + 1]?.id).toBe('cloudflare')
+    expect(qnapItems[tutorialIndex]?.group).toBe('observe')
+    expect(qnapItems[tutorialIndex + 1]?.group).toBe('observe')
+  })
+
   const scrollIntoView = vi.fn()
   const scrollTo = vi.fn()
 

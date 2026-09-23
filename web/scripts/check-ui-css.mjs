@@ -31,6 +31,29 @@ if (!runtimeWide.includes('grid-column:span 2!important')) throw new Error('Wide
 
 const runtimeSocks = ruleBody(design, 'html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card')
 if (!runtimeSocks.includes('grid-template-areas:')) throw new Error('LAN SOCKS runtime card must use the compact horizontal layout')
+if (!runtimeSocks.includes('padding-left:14px!important')) throw new Error('LAN SOCKS runtime card must preserve the shared left content inset')
+if (!runtimeSocks.includes('padding-right:14px!important')) throw new Error('LAN SOCKS runtime card must preserve the shared right content inset')
+if (!runtimeSocks.includes('"title port endpoint"')) throw new Error('LAN SOCKS runtime title must stay in the first hierarchy row')
+if (!runtimeSocks.includes('"toggle port endpoint"')) throw new Error('LAN SOCKS runtime switch must stay in the middle hierarchy row')
+if (!runtimeSocks.includes('"note port endpoint"')) throw new Error('LAN SOCKS runtime note must stay in the bottom hierarchy row')
+
+const gatewayServiceDot = ruleBody(design, 'html[data-product-target="qnap"] .workspace-canvas .gateway-service-state>.status-dot')
+if (!gatewayServiceDot.includes('aspect-ratio:1 / 1!important')) throw new Error('QNAP gateway service status dot must remain square')
+if (!gatewayServiceDot.includes('flex-shrink:0!important')) throw new Error('QNAP gateway service status dot must not shrink beside long labels')
+if (!gatewayServiceDot.includes('flex:0 0 8px!important')) throw new Error('QNAP gateway service status dot must keep its fixed diameter')
+
+const localSourceCard = ruleBody(design, 'html[data-product-target="qnap"] .workspace-canvas .source-import-panel .source-import-card.local')
+if (!localSourceCard.includes('grid-template-rows:auto minmax(154px,1fr)!important')) throw new Error('Local Mihomo YAML card must let the drop zone consume the unused vertical space')
+const localSourceDropzone = ruleBody(design, 'html[data-product-target="qnap"] .workspace-canvas .source-import-panel .source-import-card.local>.source-dropzone')
+if (!localSourceDropzone.includes('margin-top:0!important')) throw new Error('Local Mihomo YAML drop zone must not be pushed to the card bottom')
+if (!localSourceDropzone.includes('align-self:stretch!important')) throw new Error('Local Mihomo YAML drop zone must stretch vertically inside the local card')
+
+for (const accent of ['0', '1', '2']) {
+  const policyAccent = ruleBody(design, `html[data-product-target="qnap"] .workspace-canvas .policy-group-nav button.policy-group-nav-accent-${accent}`)
+  if (!policyAccent.includes('color:var(--qnap-policy-group-accent-')) throw new Error(`Policy group accent ${accent} must color only the group label foreground`)
+}
+const activePolicyGroup = ruleBody(design, 'html[data-product-target="qnap"] .workspace-canvas .policy-group-nav button.policy-group-nav-item[aria-current="location"]')
+if (!activePolicyGroup.includes('color:var(--ui-text)!important')) throw new Error('Active policy group must override the alternating label accent')
 
 const searchActions = ruleBody(traffic, '.traffic-v3-search-actions button')
 if (!searchActions.includes('min-height:var(--ui-control-height,40px)')) throw new Error('Traffic search buttons must use shared control height')
