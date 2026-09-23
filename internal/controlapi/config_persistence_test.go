@@ -51,3 +51,33 @@ func TestApplyControlConfigPreservesUpstreamGateway(t *testing.T) {
 		t.Fatalf("saved config does not persist upstream_gateway:\n%s", data)
 	}
 }
+
+
+func TestApplyControlConfigPersistsLANProxy(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "opensurge.yaml")
+	cfg := config.Default()
+	cfg.Runtime.Dir = filepath.Join(dir, "runtime")
+	cfg.Mihomo.Config = filepath.Join(cfg.Runtime.Dir, "mihomo.yaml")
+	if err := os.WriteFile(configPath, []byte(config.Render(cfg)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	input := controlConfigFrom(cfg, fileDigest(configPath))
+	input.LANProxy = &LANProxyConfigInput{Enabled: true, SOCKSPort: 17891}
+	payload, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := applyControlConfig(configPath, fileDigest(configPath), payload); err != nil {
+		t.Fatalf("applyControlConfig() error = %v", err)
+	}
+
+	loaded, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.LANProxy.Enabled || loaded.LANProxy.SOCKSPort != 17891 {
+		t.Fatalf("LAN proxy after API save = %+v", loaded.LANProxy)
+	}
+}
