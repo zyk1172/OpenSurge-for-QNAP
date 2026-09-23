@@ -31,6 +31,11 @@ if (!runtimeWide.includes('grid-column:span 2!important')) throw new Error('Wide
 
 const runtimeSocks = ruleBody(design, 'html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card')
 if (!runtimeSocks.includes('grid-template-areas:')) throw new Error('LAN SOCKS runtime card must use the compact horizontal layout')
+if (!runtimeSocks.includes('padding-left:14px!important')) throw new Error('LAN SOCKS runtime card must preserve the shared left content inset')
+if (!runtimeSocks.includes('padding-right:14px!important')) throw new Error('LAN SOCKS runtime card must preserve the shared right content inset')
+if (!runtimeSocks.includes('"title port endpoint"')) throw new Error('LAN SOCKS runtime title must stay in the first hierarchy row')
+if (!runtimeSocks.includes('"toggle port endpoint"')) throw new Error('LAN SOCKS runtime switch must stay in the middle hierarchy row')
+if (!runtimeSocks.includes('"note port endpoint"')) throw new Error('LAN SOCKS runtime note must stay in the bottom hierarchy row')
 
 const searchActions = ruleBody(traffic, '.traffic-v3-search-actions button')
 if (!searchActions.includes('min-height:var(--ui-control-height,40px)')) throw new Error('Traffic search buttons must use shared control height')
