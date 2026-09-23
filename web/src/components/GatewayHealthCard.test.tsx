@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { render, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { cleanup, render, screen, within } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { Overview } from '../types'
 import { GatewayHealthCard } from './GatewayHealthCard'
 
@@ -41,6 +41,8 @@ function overviewWithDNS(dns: string, dhcp = 'disabled', dhcpEnabled = false): O
 }
 
 describe('GatewayHealthCard DNS status', () => {
+  afterEach(cleanup)
+
   it('uses the DNS frontend status when DHCP is disabled', () => {
     render(<GatewayHealthCard overview={overviewWithDNS('running')} />)
 
