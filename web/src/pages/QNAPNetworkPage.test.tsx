@@ -183,6 +183,8 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={() => {}} />)
 
     const toggle = await screen.findByRole('switch', { name: 'LAN SOCKS5 / SOCKS5H' })
+    expect(toggle.closest('article')?.classList.contains('qnap-runtime-card-wide')).toBe(true)
+    expect(toggle.closest('article')?.classList.contains('qnap-runtime-socks-card')).toBe(true)
     await userEvent.click(toggle)
     const port = screen.getByRole('spinbutton', { name: 'LAN SOCKS 端口' })
     await userEvent.clear(port)
