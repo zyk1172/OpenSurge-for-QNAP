@@ -328,6 +328,18 @@ func applyValue(cfg *Config, section, key, value string) error {
 			return fmt.Errorf("local_system_proxy.enabled must be a boolean")
 		}
 		cfg.LocalSystemProxy.Enabled = enabled
+	case "lan_proxy.enabled":
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("lan_proxy.enabled must be a boolean")
+		}
+		cfg.LANProxy.Enabled = enabled
+	case "lan_proxy.socks_port":
+		port, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("lan_proxy.socks_port must be a number")
+		}
+		cfg.LANProxy.SOCKSPort = port
 	case "upstream_proxy.enabled":
 		enabled, err := strconv.ParseBool(value)
 		if err != nil {
