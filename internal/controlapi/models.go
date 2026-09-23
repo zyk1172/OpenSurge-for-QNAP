@@ -184,6 +184,7 @@ type ControlConfig struct {
 	Mihomo           MihomoConfigInput           `json:"mihomo"`
 	Transparent      TransparentConfigInput      `json:"transparent"`
 	LocalSystemProxy LocalSystemProxyConfigInput `json:"local_system_proxy"`
+	LANProxy         *LANProxyConfigInput        `json:"lan_proxy,omitempty"`
 	DevicePolicy     DevicePolicyConfigInput     `json:"device_policy"`
 }
 
@@ -226,6 +227,11 @@ type TransparentConfigInput struct {
 
 type LocalSystemProxyConfigInput struct {
 	Enabled bool `json:"enabled"`
+}
+
+type LANProxyConfigInput struct {
+	Enabled   bool `json:"enabled"`
+	SOCKSPort int  `json:"socks_port"`
 }
 
 type DevicePolicyConfigInput struct {
