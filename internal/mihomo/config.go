@@ -85,21 +85,17 @@ tun:
 {{ end }}
 {{ if or .DedicatedLANProxyEnabled .TUNIPv6Enabled }}
 listeners:
-{{- if .DedicatedLANProxyEnabled }}
-  - name: open-surge/lan-socks5
+{{ if .DedicatedLANProxyEnabled }}  - name: open-surge/lan-socks5
     type: socks
     listen: "{{ .DedicatedLANProxyListen }}"
     port: {{ .DedicatedLANProxyPort }}
-{{- end }}
-{{- if .TUNIPv6Enabled }}
-  - name: {{ .IPv6PacketListenerName }}
+{{ end }}{{ if .TUNIPv6Enabled }}  - name: {{ .IPv6PacketListenerName }}
     type: opensurge-packet
     socket: {{ .IPv6PacketSocket }}
     mtu: {{ .IPv6PacketMTU }}
     device-users:
 {{ .IPv6DeviceUsers }}
-{{- end }}
-
+{{ end }}
 {{ end }}
 {{ .PolicySections }}
 `
