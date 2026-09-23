@@ -216,28 +216,29 @@ export function QNAPNetworkPage({
           <span><strong>{t('IPv4 DNS')}</strong><br />{dnsMode === 'host' ? t('保留宿主 DNS') : hostRouting.dns_redirect ? t('已透明接管') : t('未接管')}</span>
         </div>
 
-        <div className="source-import-grid qnap-host-policy-grid">
-          <article className="source-import-card">
-            <label>
-              <span>{t('NAS DNS 接管模式')}</span>
-              <select value={dnsMode} disabled={hostRoutingBusy} onChange={event => { setDNSMode(event.target.value as HostDNSMode); setHostPolicyDirty(true) }}>
-                <option value="auto">{t('自动（推荐）')}</option>
-                <option value="opensurge">{t('经 OpenSurge')}</option>
-                <option value="host">{t('保留宿主 DNS')}</option>
-              </select>
-            </label>
-            <p className="muted">{t(dnsMode === 'auto'
-              ? '普通 DNS 经 OpenSurge；保留宿主 VPN 的更高优先级。'
-              : dnsMode === 'opensurge'
-                ? 'NAS DNS 经 OpenSurge；Tailscale 优先级由共存保护决定。'
-                : '不接管 NAS DNS。')}</p>
+        <div className="qnap-host-policy-grid">
+          <article className="qnap-host-policy-card qnap-host-dns-card">
+            <span className="qnap-host-policy-copy">
+              <strong>{t('NAS DNS 接管模式')}</strong>
+              <small>{t(dnsMode === 'auto'
+                ? '普通 DNS 经 OpenSurge；保留宿主 VPN 的更高优先级。'
+                : dnsMode === 'opensurge'
+                  ? 'NAS DNS 经 OpenSurge；Tailscale 优先级由共存保护决定。'
+                  : '不接管 NAS DNS。')}</small>
+            </span>
+            <select className="qnap-host-policy-select" aria-label={t('NAS DNS 接管模式')} value={dnsMode} disabled={hostRoutingBusy} onChange={event => { setDNSMode(event.target.value as HostDNSMode); setHostPolicyDirty(true) }}>
+              <option value="auto">{t('自动（推荐）')}</option>
+              <option value="opensurge">{t('经 OpenSurge')}</option>
+              <option value="host">{t('保留宿主 DNS')}</option>
+            </select>
           </article>
-          <article className="source-import-card">
-            <label className="sidebar-switch">
-              <input type="checkbox" checked={protectTailscale} disabled={hostRoutingBusy} onChange={event => { setProtectTailscale(event.target.checked); setHostPolicyDirty(true) }} />
-              <span><strong>{t('Tailscale 共存保护')}</strong><small>{t('保留宿主 VPN 与 MagicDNS 的优先级。')}</small></span>
-            </label>
-            <p className="muted">{t('仅在需要覆盖宿主 VPN 路由时关闭。')}</p>
+          <article className="qnap-host-policy-card qnap-host-tailscale-card">
+            <span className="qnap-host-policy-copy">
+              <strong>{t('Tailscale 共存保护')}</strong>
+              <small>{t('保留宿主 VPN 与 MagicDNS 的优先级。')}</small>
+              <small>{t('仅在需要覆盖宿主 VPN 路由时关闭。')}</small>
+            </span>
+            <button className={`overlay-switch ${protectTailscale ? 'on' : ''}`} type="button" role="switch" aria-label={t('Tailscale 共存保护')} aria-checked={protectTailscale} disabled={hostRoutingBusy} onClick={() => { setProtectTailscale(current => !current); setHostPolicyDirty(true) }}><i aria-hidden="true" /><span>{t(protectTailscale ? '已启用' : '已停用')}</span></button>
           </article>
         </div>
 
