@@ -33,10 +33,9 @@ type NavItem = { id: Page; label: string; group: NavGroup; qnapOnly?: boolean }
 const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
 const releaseTag = import.meta.env.VITE_OPENSURGE_RELEASE_TAG
 
-const nav: readonly NavItem[] = [
+export const nav: readonly NavItem[] = [
   { id: 'dashboard', label: '总览', group: 'control' },
   { id: 'network', label: '网络设置', group: 'control' },
-  { id: 'cloudflare', label: 'Cloudflare 优选', group: 'control', qnapOnly: true },
   { id: 'sources', label: '代理与规则源', group: 'control' },
   { id: 'devices', label: '设备', group: 'control' },
   { id: 'policies', label: '策略', group: 'control' },
@@ -45,6 +44,7 @@ const nav: readonly NavItem[] = [
   { id: 'traffic', label: '流量分析', group: 'observe' },
   { id: 'management', label: '管理', group: 'observe', qnapOnly: true },
   { id: 'tutorial', label: '教程', group: 'observe', qnapOnly: true },
+  { id: 'cloudflare', label: 'Cloudflare 优选', group: 'observe', qnapOnly: true },
 ]
 
 const availableNav = nav.filter(item => !item.qnapOnly || qnapBuild)
