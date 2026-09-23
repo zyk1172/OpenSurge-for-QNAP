@@ -414,7 +414,18 @@ export function QNAPNetworkPage({
           {trafficDraft.filter(selector => !(trafficDiscovery?.candidates ?? []).some(candidate => candidate.source_ipv4 === selector.source_ipv4 && candidate.ingress_interface === selector.ingress_interface)).map(selector => {
             const observed = trafficScopes?.selectors.find(item => item.id === selector.id)
             return <article className="source-import-card" key={selector.id}>
-              <span><strong>{selector.label || selector.source_ipv4}</strong><small>{selector.source_ipv4} · {selector.ingress_interface}</small></span>
+              <label>
+                <span>{t('名称（可选）')}</span>
+                <input aria-label={t('名称（可选）')} value={selector.label ?? ''} disabled={trafficBusy} onChange={event => patchTrafficSelector(selector.id, { label: event.target.value })} />
+              </label>
+              <label>
+                <span>{t('容器 IPv4')}</span>
+                <input aria-label={t('容器 IPv4')} value={selector.source_ipv4} disabled={trafficBusy} onChange={event => patchTrafficSelector(selector.id, { source_ipv4: event.target.value })} placeholder="10.0.3.6" inputMode="decimal" />
+              </label>
+              <label>
+                <span>{t('私有 bridge 接口')}</span>
+                <input aria-label={t('私有 bridge 接口')} value={selector.ingress_interface} disabled={trafficBusy} onChange={event => patchTrafficSelector(selector.id, { ingress_interface: event.target.value })} placeholder="lxcbr0" />
+              </label>
               <label className="sidebar-switch">
                 <input type="checkbox" checked={selector.enabled} disabled={trafficBusy} onChange={event => patchTrafficSelector(selector.id, { enabled: event.target.checked })} />
                 <span><strong>{t('通过 OpenSurge')}</strong><small>{observed?.active ? t('已接管') : selector.enabled ? t('等待生效') : t('停用')}</small></span>
