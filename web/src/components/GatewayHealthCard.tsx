@@ -9,6 +9,8 @@ export function GatewayHealthCard({ overview }: { overview: Overview | null }) {
   const status = overview?.status
   const running = status?.gateway === 'running'
   const configState = t(overview?.drift ? running ? '待重载' : '下次启动应用' : '已同步')
+  const dnsState = status?.dns === 'legacy-dnsmasq' ? 'running' : status?.dns
+  const dnsDisplayState = status?.dns === 'legacy-dnsmasq' ? 'legacy-dnsmasq' : undefined
   return <article className="gateway-health-card" aria-label={t('网关状态')}>
     <div className="gateway-health-main">
       <div className="gateway-health-identity"><div className="orb"><span /></div><div><small>GATEWAY</small><h2>{statusLabel(status?.gateway)}</h2><p>{status?.interface ?? '—'} · {status?.lan_ip ?? t('等待状态')}</p></div></div>
@@ -19,7 +21,7 @@ export function GatewayHealthCard({ overview }: { overview: Overview | null }) {
       </div>
     </div>
     <div className="gateway-service-strip" aria-label={t('核心服务状态')}>
-      <ServiceState label={status?.dhcp_enabled === false ? 'DNS' : 'DHCP / DNS'} state={status?.dhcp} />
+      <ServiceState label={status?.dhcp_enabled === false ? 'DNS' : 'DHCP / DNS'} state={status?.dhcp_enabled === false ? dnsState : status?.dhcp} displayState={status?.dhcp_enabled === false ? dnsDisplayState : undefined} />
       <ServiceState label="mihomo" state={status?.mihomo} />
       <ServiceState label={status?.tun_interface ? `TUN · ${status.tun_interface}` : 'TUN'} state={status?.tun} />
       {qnapBuild && <ServiceState label={t('规则与转发')} state={status?.routing} displayState={routingStatusLabel(status?.routing)} detail={status?.routing_error} />}
