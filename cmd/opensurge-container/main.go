@@ -80,7 +80,6 @@ func main() {
 		serveErr := control.Serve(ctx)
 		cancel()
 		releaseTrafficScopes(trafficManager)
-		releaseTrafficScopes(trafficManager)
 		releaseHostRouting(hostManager)
 		if serveErr != nil {
 			fatal(serveErr)
@@ -126,6 +125,7 @@ func main() {
 		case serveErr = <-errCh:
 			cancel()
 		}
+		releaseTrafficScopes(trafficManager)
 		releaseHostRouting(hostManager)
 		if serveErr != nil {
 			fatal(serveErr)
