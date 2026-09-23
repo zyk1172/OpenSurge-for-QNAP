@@ -134,7 +134,7 @@ func newControl(configPath, storeDir, controlAddr string) (*controlapi.Server, *
 	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cleanupCancel()
 	if err := qnaphost.CleanupLegacyTrafficScopes(cleanupCtx, storeDir); err != nil {
-		return nil, nil, fmt.Errorf("clean up removed container traffic takeover: %w", err)
+		fmt.Fprintf(os.Stderr, "warning: clean up removed container traffic takeover: %v\n", err)
 	}
 
 	controlToken, err := controlapi.NewStore(storeDir).Token()
