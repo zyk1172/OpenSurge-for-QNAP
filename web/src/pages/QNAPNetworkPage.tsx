@@ -28,47 +28,6 @@ type QNAPHostRoutingStatus = {
   checked_at: string
 }
 
-type TrafficSelector = {
-  id: string
-  label?: string
-  enabled: boolean
-  type: 'source_ingress'
-  source_ipv4: string
-  ingress_interface: string
-  main_priority?: number
-  proxy_priority?: number
-  active?: boolean
-  error?: string
-}
-
-type TrafficScopeStatus = {
-  schema_version: number
-  supported: boolean
-  gateway_ready: boolean
-  gateway_ipv4?: string
-  gateway_interface?: string
-  selectors: TrafficSelector[]
-  error?: string
-  checked_at: string
-}
-
-type TrafficDiscoveryCandidate = {
-  selector_id: string
-  source_ipv4: string
-  ingress_interface: string
-  mac?: string
-  neighbor_state?: string
-  bridge_cidr: string
-  bridge_ipv4: string
-}
-
-type TrafficDiscovery = {
-  schema_version: number
-  gateway_interface?: string
-  candidates: TrafficDiscoveryCandidate[]
-  checked_at: string
-}
-
 export function QNAPNetworkPage({
   overview,
   onChanged,
@@ -82,10 +41,6 @@ export function QNAPNetworkPage({
   const [draft, setDraft] = useState<ControlConfig | null>(null)
   const [actual, setActual] = useState<NetworkDefaults | null>(null)
   const [hostRouting, setHostRouting] = useState<QNAPHostRoutingStatus | null>(null)
-  const [trafficScopes, setTrafficScopes] = useState<TrafficScopeStatus | null>(null)
-  const [trafficDiscovery, setTrafficDiscovery] = useState<TrafficDiscovery | null>(null)
-  const [trafficDraft, setTrafficDraft] = useState<TrafficSelector[]>([])
-  const [trafficBusy, setTrafficBusy] = useState(false)
   const [dnsMode, setDNSMode] = useState<HostDNSMode>('auto')
   const [protectTailscale, setProtectTailscale] = useState(true)
   const [loading, setLoading] = useState(true)
@@ -102,19 +57,14 @@ export function QNAPNetworkPage({
     setLoading(true)
     setError('')
     try {
-      const [config, network, host, traffic, discovery] = await Promise.all([
+      const [config, network, host] = await Promise.all([
         api.config(),
         api.networkDefaults('same_lan').catch(() => null),
         request<QNAPHostRoutingStatus>('/api/v1/qnap-host-routing').catch(() => null),
-        request<TrafficScopeStatus>('/api/v1/qnap-traffic-scopes').catch(() => null),
-        request<TrafficDiscovery>('/api/v1/qnap-traffic-scopes/discovery').catch(() => null),
       ])
       setDraft(config)
       setActual(network)
       setHostRouting(host)
-      setTrafficScopes(traffic)
-      setTrafficDiscovery(discovery)
-      setTrafficDraft(traffic?.selectors ?? [])
       if (host) {
         setDNSMode(host.dns_mode || 'auto')
         setProtectTailscale(host.protect_tailscale !== false)
@@ -184,77 +134,6 @@ export function QNAPNetworkPage({
       await load()
     } finally {
       setHostRoutingBusy(false)
-    }
-  }
-
-  const addTrafficSelector = () => {
-    setTrafficDraft(current => [...current, {
-      id: `container-${Date.now().toString(36)}`,
-      label: '',
-      enabled: false,
-      type: 'source_ingress',
-      source_ipv4: '',
-      ingress_interface: 'lxcbr0',
-    }])
-  }
-
-  const patchTrafficSelector = (id: string, next: Partial<TrafficSelector>) => {
-    setTrafficDraft(current => current.map(selector => selector.id === id ? { ...selector, ...next } : selector))
-  }
-
-  const toggleDiscoveredCandidate = (candidate: TrafficDiscoveryCandidate, enabled: boolean) => {
-    setTrafficDraft(current => {
-      const index = current.findIndex(selector =>
-        selector.source_ipv4 === candidate.source_ipv4 &&
-        selector.ingress_interface === candidate.ingress_interface)
-      if (index >= 0) {
-        return current.map((selector, selectorIndex) => selectorIndex === index ? { ...selector, enabled } : selector)
-      }
-      if (!enabled) return current
-      return [...current, {
-        id: candidate.selector_id,
-        label: '',
-        enabled: true,
-        type: 'source_ingress',
-        source_ipv4: candidate.source_ipv4,
-        ingress_interface: candidate.ingress_interface,
-      }]
-    })
-  }
-
-  const removeTrafficSelector = (id: string) => {
-    setTrafficDraft(current => current.filter(selector => selector.id !== id))
-  }
-
-  const saveTrafficScopes = async () => {
-    if (trafficBusy) return
-    setTrafficBusy(true)
-    setError('')
-    setMessage('')
-    try {
-      const selectors = trafficDraft.map(({ id, label, enabled, type, source_ipv4, ingress_interface }) => ({
-        id, label, enabled, type, source_ipv4, ingress_interface,
-      }))
-      const status = await request<TrafficScopeStatus>('/api/v1/qnap-traffic-scopes', {
-        method: 'PUT',
-        body: JSON.stringify({ selectors }),
-      })
-      setTrafficScopes(status)
-      setTrafficDraft(status.selectors)
-      const active = status.selectors.filter(selector => selector.enabled && selector.active).length
-      const pending = status.selectors.filter(selector => selector.enabled && !selector.active).length
-      const success = pending > 0
-        ? `容器接管策略已保存；${pending} 项等待网关就绪或需要检查。`
-        : active > 0 ? `容器接管策略已保存，${active} 项已生效。` : '容器接管策略已保存。'
-      setMessage(t(success))
-      onNotify({ tone: pending > 0 ? 'warning' : 'success', title: t('容器流量接管'), message: t(success) })
-    } catch (cause) {
-      const failure = cause instanceof Error ? cause.message : String(cause)
-      setError(failure)
-      onNotify({ tone: 'error', title: t('容器接管策略保存失败'), message: failure })
-      await load()
-    } finally {
-      setTrafficBusy(false)
     }
   }
 
@@ -380,71 +259,6 @@ export function QNAPNetworkPage({
           <button type="button" disabled={hostRoutingBusy} onClick={() => void load()}>{t('刷新状态')}</button>
         </div>
       </> : <div className="empty">{t('正在读取 NAS 主机路由能力…')}</div>}
-    </section>
-
-    <section className="section qnap-traffic-scope-section">
-      <SectionTitle title="容器流量接管" subtitle="自动发现 NAT / 私有桥接容器" />
-      <div className="notice">
-        <strong>{t('QNET 桥接与私有 bridge 分开处理')}</strong>
-        <p>{t('QNAP 的 QNET / Virtual Switch 桥接容器直接处于 LAN 二层网络，不等同于 lxcbr0、docker0、br-* 这类 NAT / 私有 bridge。本功能只自动发现后者，避免把 QNET 流量误判为宿主三层转发。')}</p>
-      </div>
-      {trafficScopes?.error && <div className="notice warn"><strong>{t('当前能力不可用')}</strong><p>{trafficScopes.error}</p></div>}
-
-      <div className="source-import-grid qnap-runtime-grid">
-        {(trafficDiscovery?.candidates ?? []).map(candidate => {
-          const selector = trafficDraft.find(item => item.source_ipv4 === candidate.source_ipv4 && item.ingress_interface === candidate.ingress_interface)
-          const observed = trafficScopes?.selectors.find(item => item.source_ipv4 === candidate.source_ipv4 && item.ingress_interface === candidate.ingress_interface)
-          const state = !selector?.enabled ? t('未选择') : observed?.active ? t('已接管') : t('等待生效')
-          return <article className="source-import-card" key={candidate.selector_id}>
-            <span><strong>{candidate.source_ipv4}</strong><small>{candidate.ingress_interface} · {candidate.bridge_cidr}</small></span>
-            <p className="muted">{candidate.mac ? `${candidate.mac} · ${candidate.neighbor_state || 'NEIGH'}` : candidate.neighbor_state || t('已观察到流量')}</p>
-            <label className="sidebar-switch">
-              <input type="checkbox" aria-label={t('通过 OpenSurge：{{ip}}', { ip: candidate.source_ipv4 })} checked={selector?.enabled === true} disabled={trafficBusy} onChange={event => toggleDiscoveredCandidate(candidate, event.target.checked)} />
-              <span><strong>{t('通过 OpenSurge')}</strong><small>{state}</small></span>
-            </label>
-          </article>
-        })}
-      </div>
-
-      {(trafficDiscovery?.candidates.length ?? 0) === 0 && <div className="empty">{t('暂未观察到 NAT / 私有桥接容器。启动目标容器并产生一次网络流量后刷新即可自动出现。')}</div>}
-
-      {trafficDraft.some(selector => !(trafficDiscovery?.candidates ?? []).some(candidate => candidate.source_ipv4 === selector.source_ipv4 && candidate.ingress_interface === selector.ingress_interface)) && <>
-        <p className="muted">{t('以下是已保存但本次邻居表中未观察到的策略，可继续保留或删除。')}</p>
-        <div className="source-import-grid qnap-runtime-grid">
-          {trafficDraft.filter(selector => !(trafficDiscovery?.candidates ?? []).some(candidate => candidate.source_ipv4 === selector.source_ipv4 && candidate.ingress_interface === selector.ingress_interface)).map(selector => {
-            const observed = trafficScopes?.selectors.find(item => item.id === selector.id)
-            return <article className="source-import-card" key={selector.id}>
-              <label>
-                <span>{t('名称（可选）')}</span>
-                <input aria-label={t('名称（可选）')} value={selector.label ?? ''} disabled={trafficBusy} onChange={event => patchTrafficSelector(selector.id, { label: event.target.value })} />
-              </label>
-              <label>
-                <span>{t('容器 IPv4')}</span>
-                <input aria-label={t('容器 IPv4')} value={selector.source_ipv4} disabled={trafficBusy} onChange={event => patchTrafficSelector(selector.id, { source_ipv4: event.target.value })} placeholder="10.0.3.6" inputMode="decimal" />
-              </label>
-              <label>
-                <span>{t('私有 bridge 接口')}</span>
-                <input aria-label={t('私有 bridge 接口')} value={selector.ingress_interface} disabled={trafficBusy} onChange={event => patchTrafficSelector(selector.id, { ingress_interface: event.target.value })} placeholder="lxcbr0" />
-              </label>
-              <label className="sidebar-switch">
-                <input type="checkbox" checked={selector.enabled} disabled={trafficBusy} onChange={event => patchTrafficSelector(selector.id, { enabled: event.target.checked })} />
-                <span><strong>{t('通过 OpenSurge')}</strong><small>{observed?.active ? t('已接管') : selector.enabled ? t('等待生效') : t('停用')}</small></span>
-              </label>
-              <div className="source-actions"><button type="button" className="danger" disabled={trafficBusy} onClick={() => removeTrafficSelector(selector.id)}>{t('删除')}</button></div>
-            </article>
-          })}
-        </div>
-      </>}
-
-      <details>
-        <summary>{t('手动添加（仅作为自动发现失败时的后备）')}</summary>
-        <div className="source-actions"><button type="button" disabled={trafficBusy} onClick={addTrafficSelector}>{t('手动添加私有 bridge 地址')}</button></div>
-      </details>
-      <div className="source-actions">
-        <button className="primary" type="button" disabled={trafficBusy || !trafficScopes?.supported} onClick={() => void saveTrafficScopes()}>{trafficBusy ? t('正在保存…') : t('保存容器接管')}</button>
-        <button type="button" disabled={trafficBusy} onClick={() => void load()}>{t('重新扫描')}</button>
-      </div>
-      <p className="muted">{t('自动发现依据宿主路由与邻居表，不需要 Docker Socket，也不会获得容器管理权限；规则故障时采用 fail-open，容器恢复 QTS 原有默认路由。')}</p>
     </section>
 
     {draft && <section className="section qnap-runtime-section">
