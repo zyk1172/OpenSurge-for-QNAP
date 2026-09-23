@@ -18,6 +18,7 @@ type Config struct {
 	Tailscale        TailscaleConfig
 	Transparent      TransparentConfig
 	LocalSystemProxy LocalSystemProxyConfig
+	LANProxy         LANProxyConfig
 	UpstreamProxy    UpstreamProxyConfig
 	Runtime          RuntimeConfig
 }
@@ -195,6 +196,14 @@ type LocalSystemProxyConfig struct {
 	Enabled bool
 }
 
+// LANProxyConfig exposes an explicit SOCKS listener to the configured QNAP LAN.
+// The listener is independent from Mihomo's loopback mixed-port so enabling LAN
+// sharing never exposes internal control-plane listeners.
+type LANProxyConfig struct {
+	Enabled   bool
+	SOCKSPort int
+}
+
 func (c TransparentConfig) TUNEnabled() bool {
 	return c.Mode == TransparentModeTUN
 }
@@ -295,6 +304,10 @@ func Default() Config {
 			RouteRulePriority:      DefaultRouteTableID,
 		},
 		LocalSystemProxy: LocalSystemProxyConfig{Enabled: false},
+		LANProxy: LANProxyConfig{
+			Enabled:   false,
+			SOCKSPort: 7891,
+		},
 		UpstreamProxy: UpstreamProxyConfig{
 			Enabled:     false,
 			Name:        "real-device-egress",

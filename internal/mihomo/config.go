@@ -83,15 +83,19 @@ tun:
 {{- end }}
 
 {{ end }}
-{{ if .TUNIPv6Enabled }}
+{{ if or .DedicatedLANProxyEnabled .TUNIPv6Enabled }}
 listeners:
-  - name: {{ .IPv6PacketListenerName }}
+{{ if .DedicatedLANProxyEnabled }}  - name: open-surge/lan-socks5
+    type: socks
+    listen: "{{ .DedicatedLANProxyListen }}"
+    port: {{ .DedicatedLANProxyPort }}
+{{ end }}{{ if .TUNIPv6Enabled }}  - name: {{ .IPv6PacketListenerName }}
     type: opensurge-packet
     socket: {{ .IPv6PacketSocket }}
     mtu: {{ .IPv6PacketMTU }}
     device-users:
 {{ .IPv6DeviceUsers }}
-
+{{ end }}
 {{ end }}
 {{ .PolicySections }}
 `
@@ -122,9 +126,12 @@ type templateData struct {
 	TUNStrictRoute         bool
 	TUNRouteAddresses      string
 	TUNCustomRoutes        bool
-	LANProxyEnabled        bool
-	MihomoBindAddress      string
-	IPv6Enabled            bool
+	LANProxyEnabled           bool
+	MihomoBindAddress         string
+	DedicatedLANProxyEnabled  bool
+	DedicatedLANProxyListen   string
+	DedicatedLANProxyPort     int
+	IPv6Enabled               bool
 	TUNIPv6Enabled         bool
 	TUNIPv6Address         string
 	UpstreamInterface      string
@@ -195,9 +202,12 @@ func newTemplateData(cfg config.Config) (templateData, error) {
 		TUNStrictRoute:         transparent.TUNStrictRoute,
 		TUNRouteAddresses:      tunRouteAddresses,
 		TUNCustomRoutes:        tunRouteAddresses != "",
-		LANProxyEnabled:        lanProxyEnabled,
-		MihomoBindAddress:      mihomoBindAddress,
-		IPv6Enabled:            cfg.DNS.IPv6 || transparent.TUNIPv6 != config.TUNIPv6Off,
+		LANProxyEnabled:          lanProxyEnabled,
+		MihomoBindAddress:        mihomoBindAddress,
+		DedicatedLANProxyEnabled: cfg.LANProxy.Enabled,
+		DedicatedLANProxyListen:  cfg.Gateway.LANIP,
+		DedicatedLANProxyPort:    cfg.LANProxy.SOCKSPort,
+		IPv6Enabled:               cfg.DNS.IPv6 || transparent.TUNIPv6 != config.TUNIPv6Off,
 		TUNIPv6Enabled:         transparent.TUNIPv6 != config.TUNIPv6Off,
 		TUNIPv6Address:         config.MihomoTUNIPv6,
 		UpstreamInterface:      cfg.Gateway.UpstreamInterface,

@@ -107,6 +107,7 @@ export type ControlConfig = {
   mihomo: { store_fake_ip: boolean }
   transparent: { mode: 'off' | 'tun'; strict_route: boolean; tun_ipv6: 'off' | 'auto' | 'always'; ipv6_shared_l2_ready?: boolean }
   local_system_proxy: { enabled: boolean }
+  lan_proxy?: { enabled: boolean; socks_port: number }
   device_policy: { enabled: boolean; protected_ipv4: string[] }
 }
 

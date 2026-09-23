@@ -28,6 +28,30 @@ type QNAPHostRoutingStatus = {
   checked_at: string
 }
 
+type TrafficSelector = {
+  id: string
+  label?: string
+  enabled: boolean
+  type: 'source_ingress'
+  source_ipv4: string
+  ingress_interface: string
+  main_priority?: number
+  proxy_priority?: number
+  active?: boolean
+  error?: string
+}
+
+type TrafficScopeStatus = {
+  schema_version: number
+  supported: boolean
+  gateway_ready: boolean
+  gateway_ipv4?: string
+  gateway_interface?: string
+  selectors: TrafficSelector[]
+  error?: string
+  checked_at: string
+}
+
 export function QNAPNetworkPage({
   overview,
   onChanged,
@@ -41,6 +65,9 @@ export function QNAPNetworkPage({
   const [draft, setDraft] = useState<ControlConfig | null>(null)
   const [actual, setActual] = useState<NetworkDefaults | null>(null)
   const [hostRouting, setHostRouting] = useState<QNAPHostRoutingStatus | null>(null)
+  const [trafficScopes, setTrafficScopes] = useState<TrafficScopeStatus | null>(null)
+  const [trafficDraft, setTrafficDraft] = useState<TrafficSelector[]>([])
+  const [trafficBusy, setTrafficBusy] = useState(false)
   const [dnsMode, setDNSMode] = useState<HostDNSMode>('auto')
   const [protectTailscale, setProtectTailscale] = useState(true)
   const [loading, setLoading] = useState(true)
@@ -57,14 +84,17 @@ export function QNAPNetworkPage({
     setLoading(true)
     setError('')
     try {
-      const [config, network, host] = await Promise.all([
+      const [config, network, host, traffic] = await Promise.all([
         api.config(),
         api.networkDefaults('same_lan').catch(() => null),
         request<QNAPHostRoutingStatus>('/api/v1/qnap-host-routing').catch(() => null),
+        request<TrafficScopeStatus>('/api/v1/qnap-traffic-scopes').catch(() => null),
       ])
       setDraft(config)
       setActual(network)
       setHostRouting(host)
+      setTrafficScopes(traffic)
+      setTrafficDraft(traffic?.selectors ?? [])
       if (host) {
         setDNSMode(host.dns_mode || 'auto')
         setProtectTailscale(host.protect_tailscale !== false)
@@ -137,6 +167,57 @@ export function QNAPNetworkPage({
     }
   }
 
+  const addTrafficSelector = () => {
+    setTrafficDraft(current => [...current, {
+      id: `container-${Date.now().toString(36)}`,
+      label: '',
+      enabled: false,
+      type: 'source_ingress',
+      source_ipv4: '',
+      ingress_interface: 'lxcbr0',
+    }])
+  }
+
+  const patchTrafficSelector = (id: string, next: Partial<TrafficSelector>) => {
+    setTrafficDraft(current => current.map(selector => selector.id === id ? { ...selector, ...next } : selector))
+  }
+
+  const removeTrafficSelector = (id: string) => {
+    setTrafficDraft(current => current.filter(selector => selector.id !== id))
+  }
+
+  const saveTrafficScopes = async () => {
+    if (trafficBusy) return
+    setTrafficBusy(true)
+    setError('')
+    setMessage('')
+    try {
+      const selectors = trafficDraft.map(({ id, label, enabled, type, source_ipv4, ingress_interface }) => ({
+        id, label, enabled, type, source_ipv4, ingress_interface,
+      }))
+      const status = await request<TrafficScopeStatus>('/api/v1/qnap-traffic-scopes', {
+        method: 'PUT',
+        body: JSON.stringify({ selectors }),
+      })
+      setTrafficScopes(status)
+      setTrafficDraft(status.selectors)
+      const active = status.selectors.filter(selector => selector.enabled && selector.active).length
+      const pending = status.selectors.filter(selector => selector.enabled && !selector.active).length
+      const success = pending > 0
+        ? `容器接管策略已保存；${pending} 项等待网关就绪或需要检查。`
+        : active > 0 ? `容器接管策略已保存，${active} 项已生效。` : '容器接管策略已保存。'
+      setMessage(t(success))
+      onNotify({ tone: pending > 0 ? 'warning' : 'success', title: t('容器流量接管'), message: t(success) })
+    } catch (cause) {
+      const failure = cause instanceof Error ? cause.message : String(cause)
+      setError(failure)
+      onNotify({ tone: 'error', title: t('容器接管策略保存失败'), message: failure })
+      await load()
+    } finally {
+      setTrafficBusy(false)
+    }
+  }
+
   const saveRuntime = async () => {
     if (!draft || saving) return
     setSaving(true)
@@ -186,6 +267,7 @@ export function QNAPNetworkPage({
     ? `${actual.snapshot.ipv4}/${draft?.gateway.lan_prefix_len ?? 24}`
     : draft ? `${draft.gateway.lan_ip}/${draft.gateway.lan_prefix_len}` : '—'
   const router = actual?.snapshot.router || t('Docker/QNET 配置')
+  const lanProxy = draft?.lan_proxy ?? { enabled: false, socks_port: 7891 }
 
   return <>
     <PageHeader eyebrow="QNAP NETWORK" title={t('网络设置')} description={t('查看容器网络，并管理 NAS 主机 IPv4 接管与网关运行参数。')} />
@@ -260,6 +342,50 @@ export function QNAPNetworkPage({
       </> : <div className="empty">{t('正在读取 NAS 主机路由能力…')}</div>}
     </section>
 
+    <section className="section qnap-traffic-scope-section">
+      <SectionTitle title="容器流量接管" subtitle="Docker bridge · 按源 IPv4 + 入接口精确接管" />
+      <div className="notice">
+        <strong>{t('仅接管明确选择的 bridge 容器')}</strong>
+        <p>{t('适用于 lxcbr0、br-* 等 Docker bridge。host 网络、QNET/macvlan 与 NAS 原生进程不会匹配这些规则；IPv6 不接管。')}</p>
+      </div>
+      {trafficScopes?.error && <div className="notice warn"><strong>{t('当前能力不可用')}</strong><p>{trafficScopes.error}</p></div>}
+      {trafficDraft.length === 0 ? <div className="empty">{t('尚未添加容器。先添加一项，再填写容器 IPv4 与 Docker bridge 接口。')}</div> :
+        <div className="source-import-grid qnap-runtime-grid">
+          {trafficDraft.map(selector => {
+            const observed = trafficScopes?.selectors.find(item => item.id === selector.id)
+            const state = !selector.enabled ? t('停用') : observed?.active ? t('已接管') : t('等待生效')
+            return <article className="source-import-card" key={selector.id}>
+              <label>
+                <span>{t('容器名称')}</span>
+                <input aria-label={t('容器名称')} value={selector.label ?? ''} disabled={trafficBusy} onChange={event => patchTrafficSelector(selector.id, { label: event.target.value })} placeholder="OpenList" />
+              </label>
+              <label>
+                <span>{t('容器 IPv4')}</span>
+                <input aria-label={t('容器 IPv4')} value={selector.source_ipv4} disabled={trafficBusy} onChange={event => patchTrafficSelector(selector.id, { source_ipv4: event.target.value })} placeholder="10.0.3.6" inputMode="decimal" />
+              </label>
+              <label>
+                <span>{t('入接口')}</span>
+                <input aria-label={t('入接口')} value={selector.ingress_interface} disabled={trafficBusy} onChange={event => patchTrafficSelector(selector.id, { ingress_interface: event.target.value })} placeholder="lxcbr0" />
+              </label>
+              <label className="sidebar-switch">
+                <input type="checkbox" checked={selector.enabled} disabled={trafficBusy} onChange={event => patchTrafficSelector(selector.id, { enabled: event.target.checked })} />
+                <span><strong>{t('通过 OpenSurge')}</strong><small>{state}</small></span>
+              </label>
+              {observed?.error && <p className="muted">{observed.error}</p>}
+              <div className="source-actions">
+                <button type="button" className="danger" disabled={trafficBusy} onClick={() => removeTrafficSelector(selector.id)}>{t('删除')}</button>
+              </div>
+            </article>
+          })}
+        </div>}
+      <div className="source-actions">
+        <button type="button" disabled={trafficBusy} onClick={addTrafficSelector}>{t('添加 bridge 容器')}</button>
+        <button className="primary" type="button" disabled={trafficBusy || !trafficScopes?.supported} onClick={() => void saveTrafficScopes()}>{trafficBusy ? t('正在保存…') : t('保存容器接管')}</button>
+        <button type="button" disabled={trafficBusy} onClick={() => void load()}>{t('刷新状态')}</button>
+      </div>
+      <p className="muted">{t('规则故障时采用 fail-open：撤销 OpenSurge selector，让容器恢复 QTS 原有默认路由；用户配置会保留并在网关恢复后重新协调。')}</p>
+    </section>
+
     {draft && <section className="section qnap-runtime-section">
       <SectionTitle title="运行参数" subtitle="保存到 /data；运行中保存会重启网关" />
       <div className="source-import-grid qnap-runtime-grid">
@@ -270,6 +396,17 @@ export function QNAPNetworkPage({
         <article className="source-import-card qnap-runtime-card">
           <span><strong>TUN strict-route</strong><small>{t('严格接管 TUN 路由')}</small></span>
           <button className={`overlay-switch ${draft.transparent.strict_route ? 'on' : ''}`} type="button" role="switch" aria-label="TUN strict-route" aria-checked={draft.transparent.strict_route} onClick={() => patch({ transparent: { ...draft.transparent, strict_route: !draft.transparent.strict_route } })}><i aria-hidden="true" /><span>{t(draft.transparent.strict_route ? '已启用' : '已停用')}</span></button>
+        </article>
+        <article className="source-import-card qnap-runtime-card">
+          <span><strong>LAN SOCKS5 / SOCKS5H</strong><small>{t('仅开放独立 SOCKS listener，不暴露内部 mixed-port')}</small></span>
+          <button className={`overlay-switch ${lanProxy.enabled ? 'on' : ''}`} type="button" role="switch" aria-label="LAN SOCKS5 / SOCKS5H" aria-checked={lanProxy.enabled} onClick={() => patch({ lan_proxy: { ...lanProxy, enabled: !lanProxy.enabled } })}><i aria-hidden="true" /><span>{t(lanProxy.enabled ? '已启用' : '已停用')}</span></button>
+          <label>
+            <span>{t('LAN SOCKS 端口')}</span>
+            <input aria-label={t('LAN SOCKS 端口')} type="number" min={1} max={65535} value={lanProxy.socks_port} onChange={event => patch({ lan_proxy: { ...lanProxy, socks_port: Number(event.target.value) } })} />
+          </label>
+          <p className="muted">{lanProxy.enabled
+            ? `socks5://${networkIPv4}:${lanProxy.socks_port} · socks5h://${networkIPv4}:${lanProxy.socks_port}`
+            : t('启用后，局域网客户端可使用 SOCKS5；使用 socks5h 时域名也交给代理端解析。')}</p>
         </article>
       </div>
       <div className="source-actions"><button type="button" onClick={() => void load()} disabled={saving}>{t('重新读取')}</button><button className="primary" type="button" onClick={() => void saveRuntime()} disabled={saving}>{saving ? t('正在保存…') : t(running ? '保存并重启网关' : '保存运行参数')}</button></div>

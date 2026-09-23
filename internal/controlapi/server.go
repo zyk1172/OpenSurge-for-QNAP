@@ -418,6 +418,7 @@ func controlConfigFrom(cfg config.Config, revision string) ControlConfig {
 		Mihomo:           MihomoConfigInput{StoreFakeIP: &storeFakeIP},
 		Transparent:      TransparentConfigInput{Mode: cfg.Transparent.Mode, StrictRoute: cfg.Transparent.TUNStrictRoute, TUNIPv6: cfg.Transparent.TUNIPv6, IPv6SharedL2Ready: cfg.Transparent.IPv6SharedL2Ready},
 		LocalSystemProxy: LocalSystemProxyConfigInput{Enabled: cfg.LocalSystemProxy.Enabled},
+		LANProxy:         &LANProxyConfigInput{Enabled: cfg.LANProxy.Enabled, SOCKSPort: cfg.LANProxy.SOCKSPort},
 		DevicePolicy:     DevicePolicyConfigInput{Enabled: cfg.DevicePolicy.File != "", ProtectedIPv4: append([]string{}, cfg.DevicePolicy.ProtectedIPv4...)},
 	}
 }

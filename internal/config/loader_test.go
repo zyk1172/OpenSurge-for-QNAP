@@ -57,6 +57,27 @@ func TestLoadExampleConfig(t *testing.T) {
 	}
 }
 
+
+func TestLoadLANProxySettings(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	configBody := `
+lan_proxy:
+  enabled: true
+  socks_port: 17891
+`
+	if err := os.WriteFile(configPath, []byte(configBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.LANProxy.Enabled || cfg.LANProxy.SOCKSPort != 17891 {
+		t.Fatalf("LANProxy = %+v", cfg.LANProxy)
+	}
+}
+
 func TestLoadSameLANGatewayMode(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
