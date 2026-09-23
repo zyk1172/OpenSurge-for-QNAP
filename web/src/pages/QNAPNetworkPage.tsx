@@ -267,6 +267,7 @@ export function QNAPNetworkPage({
     ? `${actual.snapshot.ipv4}/${draft?.gateway.lan_prefix_len ?? 24}`
     : draft ? `${draft.gateway.lan_ip}/${draft.gateway.lan_prefix_len}` : '—'
   const router = actual?.snapshot.router || t('Docker/QNET 配置')
+  const lanProxy = draft?.lan_proxy ?? { enabled: false, socks_port: 7891 }
 
   return <>
     <PageHeader eyebrow="QNAP NETWORK" title={t('网络设置')} description={t('查看容器网络，并管理 NAS 主机 IPv4 接管与网关运行参数。')} />
@@ -398,13 +399,13 @@ export function QNAPNetworkPage({
         </article>
         <article className="source-import-card qnap-runtime-card">
           <span><strong>LAN SOCKS5 / SOCKS5H</strong><small>{t('仅开放独立 SOCKS listener，不暴露内部 mixed-port')}</small></span>
-          <button className={`overlay-switch ${draft.lan_proxy.enabled ? 'on' : ''}`} type="button" role="switch" aria-label="LAN SOCKS5 / SOCKS5H" aria-checked={draft.lan_proxy.enabled} onClick={() => patch({ lan_proxy: { ...draft.lan_proxy, enabled: !draft.lan_proxy.enabled } })}><i aria-hidden="true" /><span>{t(draft.lan_proxy.enabled ? '已启用' : '已停用')}</span></button>
+          <button className={`overlay-switch ${lanProxy.enabled ? 'on' : ''}`} type="button" role="switch" aria-label="LAN SOCKS5 / SOCKS5H" aria-checked={lanProxy.enabled} onClick={() => patch({ lan_proxy: { ...lanProxy, enabled: !lanProxy.enabled } })}><i aria-hidden="true" /><span>{t(lanProxy.enabled ? '已启用' : '已停用')}</span></button>
           <label>
             <span>{t('LAN SOCKS 端口')}</span>
-            <input aria-label={t('LAN SOCKS 端口')} type="number" min={1} max={65535} value={draft.lan_proxy.socks_port} onChange={event => patch({ lan_proxy: { ...draft.lan_proxy, socks_port: Number(event.target.value) } })} />
+            <input aria-label={t('LAN SOCKS 端口')} type="number" min={1} max={65535} value={lanProxy.socks_port} onChange={event => patch({ lan_proxy: { ...lanProxy, socks_port: Number(event.target.value) } })} />
           </label>
-          <p className="muted">{draft.lan_proxy.enabled
-            ? `socks5://${networkIPv4}:${draft.lan_proxy.socks_port} · socks5h://${networkIPv4}:${draft.lan_proxy.socks_port}`
+          <p className="muted">{lanProxy.enabled
+            ? `socks5://${networkIPv4}:${lanProxy.socks_port} · socks5h://${networkIPv4}:${lanProxy.socks_port}`
             : t('启用后，局域网客户端可使用 SOCKS5；使用 socks5h 时域名也交给代理端解析。')}</p>
         </article>
       </div>
