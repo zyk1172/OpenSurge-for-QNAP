@@ -24,6 +24,7 @@ import (
 
 const (
 	Endpoint              = "/api/v1/qnap-traffic-scopes"
+	DiscoveryEndpoint     = "/api/v1/qnap-traffic-scopes/discovery"
 	stateFileName         = "qnap-traffic-scopes.json"
 	defaultHostNetNS      = "/run/opensurge/host-netns"
 	routeTableID          = "20244"
@@ -57,6 +58,23 @@ type SelectorStatus struct {
 	Selector
 	Active bool   `json:"active"`
 	Error  string `json:"error,omitempty"`
+}
+
+type DiscoveryCandidate struct {
+	SelectorID       string `json:"selector_id"`
+	SourceIPv4       string `json:"source_ipv4"`
+	IngressInterface string `json:"ingress_interface"`
+	MAC              string `json:"mac,omitempty"`
+	NeighborState    string `json:"neighbor_state,omitempty"`
+	BridgeCIDR       string `json:"bridge_cidr"`
+	BridgeIPv4       string `json:"bridge_ipv4"`
+}
+
+type Discovery struct {
+	SchemaVersion    int                  `json:"schema_version"`
+	GatewayInterface string               `json:"gateway_interface,omitempty"`
+	Candidates       []DiscoveryCandidate `json:"candidates"`
+	CheckedAt        time.Time            `json:"checked_at"`
 }
 
 type Status struct {
@@ -151,6 +169,142 @@ func (m *Manager) Status(ctx context.Context) Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.statusLocked(ctx)
+}
+
+func (m *Manager) Discover(ctx context.Context) (Discovery, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	discovery := Discovery{
+		SchemaVersion: statusSchemaVersion,
+		Candidates:    []DiscoveryCandidate{},
+		CheckedAt:     time.Now().UTC(),
+	}
+	cfg, err := config.Load(m.configPath)
+	if err != nil {
+		return discovery, err
+	}
+	if _, err := os.Stat(m.netNSPath); err != nil {
+		return discovery, fmt.Errorf("host network namespace is not mounted")
+	}
+	gatewayInterface, _, err := m.detectHostPathLocked(ctx, cfg.Gateway.LANIP)
+	if err != nil {
+		return discovery, err
+	}
+	discovery.GatewayInterface = gatewayInterface
+
+	routes, err := m.runHost(ctx, nil, "ip", "-4", "route", "show", "table", "main")
+	if err != nil {
+		return discovery, fmt.Errorf("inspect QNAP host routes for private container bridges: %w", err)
+	}
+	bridges := discoverPrivateBridgeRoutes(routes, gatewayInterface)
+	for _, bridge := range bridges {
+		neighbors, err := m.runHost(ctx, nil, "ip", "-4", "neigh", "show", "dev", bridge.Interface)
+		if err != nil {
+			continue
+		}
+		for _, neighbor := range parseBridgeNeighbors(neighbors, bridge) {
+			discovery.Candidates = append(discovery.Candidates, neighbor)
+		}
+	}
+	return discovery, nil
+}
+
+type privateBridgeRoute struct {
+	Interface string
+	CIDR      string
+	IPv4      string
+	Network   *net.IPNet
+}
+
+func discoverPrivateBridgeRoutes(output []byte, gatewayInterface string) []privateBridgeRoute {
+	var routes []privateBridgeRoute
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 2 || !strings.Contains(fields[0], "/") {
+			continue
+		}
+		_, network, err := net.ParseCIDR(fields[0])
+		if err != nil || network.IP.To4() == nil || !network.IP.IsPrivate() {
+			continue
+		}
+		var iface, source string
+		for index := 1; index+1 < len(fields); index++ {
+			switch fields[index] {
+			case "dev":
+				iface = fields[index+1]
+			case "src":
+				source = fields[index+1]
+			}
+		}
+		if iface == "" || source == "" || iface == gatewayInterface || !isContainerPrivateBridge(iface) {
+			continue
+		}
+		if ip := net.ParseIP(source); ip == nil || ip.To4() == nil || !network.Contains(ip) {
+			continue
+		}
+		key := iface + "|" + network.String()
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		routes = append(routes, privateBridgeRoute{Interface: iface, CIDR: network.String(), IPv4: source, Network: network})
+	}
+	return routes
+}
+
+func isContainerPrivateBridge(iface string) bool {
+	return iface == "lxcbr0" || iface == "docker0" || iface == "lxdbr0" || strings.HasPrefix(iface, "br-")
+}
+
+func parseBridgeNeighbors(output []byte, bridge privateBridgeRoute) []DiscoveryCandidate {
+	var candidates []DiscoveryCandidate
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 2 {
+			continue
+		}
+		ip := net.ParseIP(fields[0])
+		if ip == nil || ip.To4() == nil || !bridge.Network.Contains(ip) || ip.String() == bridge.IPv4 {
+			continue
+		}
+		state := strings.ToUpper(fields[len(fields)-1])
+		if state == "FAILED" || state == "INCOMPLETE" {
+			continue
+		}
+		var mac string
+		for index := 1; index+1 < len(fields); index++ {
+			if fields[index] == "lladdr" {
+				mac = strings.ToLower(fields[index+1])
+				break
+			}
+		}
+		key := bridge.Interface + "|" + ip.String()
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		candidates = append(candidates, DiscoveryCandidate{
+			SelectorID:       autoSelectorID(bridge.Interface, ip.String()),
+			SourceIPv4:       ip.String(),
+			IngressInterface: bridge.Interface,
+			MAC:              mac,
+			NeighborState:    state,
+			BridgeCIDR:       bridge.CIDR,
+			BridgeIPv4:       bridge.IPv4,
+		})
+	}
+	return candidates
+}
+
+func autoSelectorID(iface, ipv4 string) string {
+	value := "auto-" + iface + "-" + strings.NewReplacer(".", "-", ":", "-").Replace(ipv4)
+	if len(value) > 64 {
+		value = value[:64]
+	}
+	return value
 }
 
 func (m *Manager) SetSelectors(ctx context.Context, selectors []Selector) (Status, error) {
@@ -655,7 +809,7 @@ func (m *Manager) writeStateLocked(state persistedState) error {
 
 func (m *Manager) Handler(controlToken string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != Endpoint {
+		if r.URL.Path != Endpoint && r.URL.Path != DiscoveryEndpoint {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -666,6 +820,20 @@ func (m *Manager) Handler(controlToken string, next http.Handler) http.Handler {
 		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if subtle.ConstantTimeCompare([]byte(bearer), []byte(controlToken)) != 1 {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": map[string]string{"code": "authentication_required", "message": "authenticated QNAP Web session required"}})
+			return
+		}
+		if r.URL.Path == DiscoveryEndpoint {
+			if r.Method != http.MethodGet {
+				w.Header().Set("Allow", "GET")
+				writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": map[string]string{"code": "method_not_allowed", "message": "method not allowed"}})
+				return
+			}
+			discovery, err := m.Discover(r.Context())
+			if err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": map[string]string{"code": "qnap_traffic_discovery_failed", "message": err.Error()}, "discovery": discovery})
+				return
+			}
+			writeJSON(w, http.StatusOK, discovery)
 			return
 		}
 		switch r.Method {
