@@ -87,13 +87,12 @@ func TestDisableUsesOnlyExactOwnedRulesAndRouteProtocol(t *testing.T) {
 	for _, want := range []string{
 		"pref 19992 from 10.0.3.6/32 iif lxcbr0 table main suppress_prefixlength 0",
 		"pref 19993 from 10.0.3.6/32 iif lxcbr0 table " + routeTableID,
-		"route flush table " + routeTableID + " proto " + routeProtocol,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing cleanup %q in:\n%s", want, joined)
 		}
 	}
-	if strings.Contains(joined, "nft") || strings.Contains(joined, "iptables") || strings.Contains(joined, "rule flush") {
+	if strings.Contains(joined, "nft") || strings.Contains(joined, "iptables") || strings.Contains(joined, "rule flush") || strings.Contains(joined, "route flush") {
 		t.Fatalf("traffic-scope cleanup must stay ownership-scoped:\n%s", joined)
 	}
 }
