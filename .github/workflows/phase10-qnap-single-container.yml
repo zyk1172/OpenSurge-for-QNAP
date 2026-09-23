@@ -13,7 +13,6 @@ on:
       - 'internal/platform/**'
       - 'internal/process/**'
       - 'internal/runtime/**'
-      - 'internal/trafficscope/**'
       - 'internal/webgateway/**'
       - 'docker/**'
       - 'deploy/qnap/**'
@@ -203,8 +202,6 @@ jobs:
         run: go test ./internal/webgateway -run 'TestRemoteTokenStorePersistsOnlyHashAndRevokes|TestRemoteManagementTokenProxiesQNAPAPIWithoutBrowserOrigin|TestRemoteCapabilitiesRequireTokenAndDescribeManagementSurface' -count=1
       - name: QNAP Mihomo exposure tests
         run: go test ./internal/mihomo -run 'TestTUNModeKeepsMihomoInternalListenersOnLoopback|TestTransparentOffExplicitlyEnablesManualLANMixedPort|TestTUNModeCanExposeDedicatedLANSOCKSWithoutOpeningMixedPort' -count=1
-      - name: QNAP Docker bridge traffic-scope tests
-        run: go test ./internal/trafficscope -count=1
       - name: QNAP LAN proxy persistence tests
         run: |
           go test ./internal/config -run 'TestLoadLANProxySettings|TestValidateLANProxyPortAndIsolation|TestRenderRoundTrip' -count=1
