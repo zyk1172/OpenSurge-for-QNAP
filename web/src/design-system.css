@@ -1703,8 +1703,9 @@ html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runt
   height:94px!important;
   box-sizing:border-box!important;
   flex-direction:column!important;
+  align-items:flex-start!important;
   justify-content:space-between!important;
-  gap:8px!important;
+  gap:4px!important;
   padding:12px 14px!important;
   overflow:hidden!important;
   border:1px solid var(--ui-border)!important;
@@ -1715,33 +1716,59 @@ html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runt
 html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runtime-card-wide{
   grid-column:span 2!important;
 }
-html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-card>span{
-  display:grid!important;
-  gap:3px!important;
+html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-title{
+  display:block!important;
+  width:100%!important;
+  margin:0!important;
+  color:var(--ui-text)!important;
+  font-size:var(--ui-font-card)!important;
+  line-height:1.2!important;
+  text-align:left!important;
 }
-html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-card>span small{
+html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-note{
+  display:block!important;
+  width:100%!important;
+  margin:0!important;
   color:var(--ui-text-muted)!important;
+  font-size:var(--ui-font-caption)!important;
+  line-height:1.25!important;
+  text-align:left!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
 }
 html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-card .overlay-switch{
   align-self:flex-start!important;
+  margin:0!important;
 }
 html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card{
   display:grid!important;
   grid-template-columns:minmax(0,1fr) minmax(116px,.55fr) minmax(0,1.1fr)!important;
-  grid-template-rows:auto auto!important;
+  grid-template-rows:auto auto auto!important;
   grid-template-areas:
-    "copy port endpoint"
-    "toggle port endpoint"!important;
+    "title port endpoint"
+    "toggle port endpoint"
+    "note port endpoint"!important;
   align-items:center!important;
+  justify-items:stretch!important;
   column-gap:12px!important;
-  row-gap:4px!important;
+  row-gap:3px!important;
+  padding-left:14px!important;
+  padding-right:14px!important;
 }
-html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card>span{
-  grid-area:copy!important;
+html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card>.qnap-runtime-title{
+  grid-area:title!important;
   min-width:0!important;
+  justify-self:start!important;
 }
 html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card>.overlay-switch{
   grid-area:toggle!important;
+  justify-self:start!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card>.qnap-runtime-note{
+  grid-area:note!important;
+  min-width:0!important;
+  justify-self:start!important;
 }
 html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card>label{
   grid-area:port!important;
@@ -1781,9 +1808,10 @@ html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card>.mut
   html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runtime-card-wide{grid-column:auto!important}
   html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card{
     grid-template-columns:minmax(0,1fr) auto!important;
-    grid-template-rows:auto auto auto!important;
+    grid-template-rows:auto auto auto auto!important;
     grid-template-areas:
-      "copy toggle"
+      "title toggle"
+      "note note"
       "port port"
       "endpoint endpoint"!important;
   }
