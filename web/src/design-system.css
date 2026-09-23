@@ -1919,3 +1919,50 @@ html[data-product-target="qnap"] .workspace-canvas .source-subscription-error{
     grid-column:auto!important;
   }
 }
+
+/* QNAP targeted UI regression fixes: keep geometry and label accents scoped to
+ * the affected surfaces so networking behavior and unrelated cards are untouched. */
+html[data-product-target="qnap"] .workspace-canvas .gateway-service-state>.status-dot{
+  width:8px!important;
+  min-width:8px!important;
+  height:8px!important;
+  min-height:8px!important;
+  aspect-ratio:1 / 1!important;
+  flex:0 0 8px!important;
+  flex-shrink:0!important;
+  border-radius:50%!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-import-panel .source-import-card.local{
+  display:grid!important;
+  grid-template-rows:auto minmax(154px,1fr)!important;
+  align-content:stretch!important;
+  gap:12px!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-import-panel .source-import-card.local>.source-import-head{
+  margin-bottom:0!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .source-import-panel .source-import-card.local>.source-dropzone{
+  width:100%!important;
+  min-height:154px!important;
+  height:100%!important;
+  margin-top:0!important;
+  align-self:stretch!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .policy-group-nav{
+  --qnap-policy-group-accent-a:var(--ui-info);
+  --qnap-policy-group-accent-b:var(--ui-warning);
+  --qnap-policy-group-accent-c:var(--ui-accent-strong);
+}
+html[data-product-target="qnap"] .workspace-canvas .policy-group-nav button.policy-group-nav-accent-0{
+  color:var(--qnap-policy-group-accent-a)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .policy-group-nav button.policy-group-nav-accent-1{
+  color:var(--qnap-policy-group-accent-b)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .policy-group-nav button.policy-group-nav-accent-2{
+  color:var(--qnap-policy-group-accent-c)!important;
+}
+html[data-product-target="qnap"] .workspace-canvas .policy-group-nav button.policy-group-nav-item[aria-current="location"]{
+  color:var(--ui-text)!important;
+  font-weight:850!important;
+}
