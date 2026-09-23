@@ -36,6 +36,22 @@ describe('PolicyGroupNav', () => {
     expect(navigation.parentElement?.classList.contains('can-scroll-left')).toBe(true)
   })
 
+  it('assigns the three policy-group accent classes in a stable repeating cycle', () => {
+    const { rerender } = render(<PolicyGroupNav groups={['AI', 'Apple', 'ChatGPT', 'GLOBAL']} activeGroup="Apple" onNavigate={() => {}} />)
+
+    const buttons = ['AI', 'Apple', 'ChatGPT', 'GLOBAL'].map(name => screen.getByRole('button', { name }))
+    expect(buttons.map(button => button.className)).toEqual([
+      'policy-group-nav-item policy-group-nav-accent-0',
+      'policy-group-nav-item policy-group-nav-accent-1',
+      'policy-group-nav-item policy-group-nav-accent-2',
+      'policy-group-nav-item policy-group-nav-accent-0',
+    ])
+    expect(buttons[1].getAttribute('aria-current')).toBe('location')
+
+    rerender(<PolicyGroupNav groups={['AI', 'Apple', 'ChatGPT', 'GLOBAL']} activeGroup="ChatGPT" onNavigate={() => {}} />)
+    expect(['AI', 'Apple', 'ChatGPT', 'GLOBAL'].map(name => screen.getByRole('button', { name }).className)).toEqual(buttons.map(button => button.className))
+  })
+
   it('supports horizontal arrow-key navigation', async () => {
     const onNavigate = vi.fn()
     render(<PolicyGroupNav groups={['Main', 'Streaming']} activeGroup="Main" onNavigate={onNavigate} />)
