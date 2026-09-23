@@ -1020,6 +1020,16 @@
 
   html[data-product-target="qnap"] .page-header h1{font-size:22px!important}
 
+  html[data-product-target="qnap"] .qnap-dns-detail-grid{
+    grid-template-columns:1fr!important;
+  }
+  html[data-product-target="qnap"] .qnap-dns-detail-card{
+    grid-template-columns:1fr!important;
+    min-height:94px!important;
+    height:auto!important;
+    gap:8px!important;
+  }
+
   html[data-product-target="qnap"] .qnap-host-policy-card{
     grid-template-columns:1fr!important;
     min-height:94px!important;
