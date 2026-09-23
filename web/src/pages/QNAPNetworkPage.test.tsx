@@ -50,7 +50,7 @@ const overview: Overview = {
   warnings: [],
   status: {
     gateway: 'stopped', runtime_state: 'none', interface: 'eth0', lan_ip: '192.168.2.241', data_plane: 'stopped', routing: 'not_applied',
-    dhcp: 'stopped', dhcp_enabled: false, mihomo: 'stopped', tun: 'stopped', forwarding: 'disabled', dns_ipv6: false,
+    dhcp: 'stopped', dhcp_enabled: false, dns: 'running', mihomo: 'stopped', tun: 'stopped', forwarding: 'disabled', dns_ipv6: false,
     tun_ipv6_requested: 'off', ipv6_packet: 'disabled', native_ipv6_available: false, client_count: 0,
   },
   doctor: [], doctor_healthy: true, leases: [], policies: [], providers: { proxy_providers: [], rule_providers: [] },
@@ -151,6 +151,22 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     expect(screen.queryByRole('heading', { name: 'QNAP 网关网络' })).toBeNull()
     expect(screen.queryByRole('button', { name: /启动网关|停止网关/ })).toBeNull()
     expect(screen.queryByText('局域网 API 令牌')).toBeNull()
+  })
+
+  it('shows the actual DNS frontend and dual-view runtime path', async () => {
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={() => {}} />)
+
+    const dns = await screen.findByRole('heading', { name: 'DNS 服务' })
+    const section = dns.closest('section') as HTMLElement
+    expect(within(section).getByLabelText('DNS 实际运行状态')).toBeTruthy()
+    expect(within(section).getByText('运行中')).toBeTruthy()
+    expect(within(section).getByText('SmartDNS')).toBeTruthy()
+    expect(within(section).getByText('192.168.2.241:53')).toBeTruthy()
+    expect(within(section).getByText('Mihomo Fake-IP')).toBeTruthy()
+    expect(within(section).getByText('127.0.0.1:1053')).toBeTruthy()
+    expect(within(section).getByText('Real-IP')).toBeTruthy()
+    expect(within(section).getAllByText('Resolver View').length).toBeGreaterThan(0)
+    expect(within(section).getByText('any:53')).toBeTruthy()
   })
 
   it('renders the NAS takeover status with the same compact card structure', async () => {

@@ -240,6 +240,22 @@ export const qnapEnglishMessages: Record<string, string> = {
   '已重新读取并确认配置文件版本。': 'The configuration file was reread and its revision was confirmed.',
   '配置文件保存失败且网关恢复失败': 'Configuration save failed and gateway recovery failed',
   '保存配置文件失败': 'Failed to save configuration file',
+
+  // QNAP Network Settings · DNS runtime section.
+  '兼容运行': 'Running in compatibility mode',
+  '旁路由默认返回 Real-IP；设备策略可切换到 Gateway View。': 'Selective Gateway defaults to Real-IP responses; device policy can switch clients to Gateway View.',
+  '接管客户端默认进入 Fake-IP 视图。': 'Managed clients default to the Fake-IP view.',
+  '查看容器网络、DNS 实际运行路径，并管理 NAS 主机 IPv4 接管与网关运行参数。': 'Inspect container networking and the active DNS path, and manage NAS host IPv4 takeover and gateway runtime settings.',
+  'DNS 服务': 'DNS service',
+  'SmartDNS 双视图 · 显示实际生效的 DNS 运行路径': 'SmartDNS dual-view · shows the DNS path currently in effect',
+  'DNS 实际运行状态': 'Active DNS runtime status',
+  'DNS 前门': 'DNS frontend',
+  'LAN 监听': 'LAN listener',
+  '默认 DNS 视图': 'Default DNS view',
+  'TUN DNS 劫持': 'TUN DNS hijack',
+  'TUN 内的 53 端口查询交给 Mihomo DNS 处理。': 'Port 53 queries inside TUN are handled by Mihomo DNS.',
+  'DNS 双视图已生效': 'DNS dual-view is active',
+  'Gateway View 只使用 Mihomo Fake-IP DNS；Resolver View 使用系统真实 DNS。设备级 DNS 视图由设备策略决定，NAS 自身的 DNS 接管仍在下方“NAS 主机接管”中单独控制。': 'Gateway View uses only Mihomo Fake-IP DNS, while Resolver View uses real system DNS. Device-level DNS view is selected by device policy; DNS takeover for the NAS host remains controlled separately under NAS Host Takeover below.',
 }
 
 registerEnglishMessages(qnapEnglishMessages)

@@ -914,6 +914,72 @@ dialog.reload-dialog>.dialog-actions{
 .inventory{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;align-items:stretch!important}
 .inventory>span,.source-inventory>span,.overlay-summary>span,.activity-breakdown>span,.qnap-host-status-panel>div,.policy-health-overview>div{min-width:0;min-height:88px;height:100%;padding:var(--ui-space-3)!important;border:1px solid var(--ui-border)!important;border-radius:var(--ui-radius-card)!important;background-color:var(--ui-surface-soft)!important;background-image:linear-gradient(145deg,var(--ui-glass-highlight-soft),transparent 50%)!important;color:var(--ui-text-secondary)!important;box-shadow:none!important}
 .inventory>span strong,.source-inventory>span strong,.overlay-summary>span strong,.activity-breakdown>span strong,.qnap-host-status-panel strong{color:var(--ui-text)!important}
+.qnap-dns-overview>span{
+  display:grid!important;
+  align-content:center!important;
+  gap:3px!important;
+  min-height:94px!important;
+}
+.qnap-dns-overview>span>b{
+  color:var(--ui-text)!important;
+  font-size:var(--ui-font-card)!important;
+  line-height:1.25!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+}
+.qnap-dns-overview>span>b.ok{
+  color:var(--ui-success)!important;
+}
+.qnap-dns-overview>span>small{
+  color:var(--ui-text-muted)!important;
+  font-size:var(--ui-font-caption)!important;
+  line-height:1.35!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+}
+.qnap-dns-detail-grid{
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:var(--ui-space-3)!important;
+  margin:var(--ui-space-3) 0 0!important;
+}
+.qnap-dns-detail-card{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) auto!important;
+  align-items:center!important;
+  gap:var(--ui-space-4)!important;
+  min-height:94px!important;
+  padding:12px 14px!important;
+  border:1px solid var(--ui-border)!important;
+  border-radius:var(--ui-radius-card)!important;
+  background-color:var(--ui-surface-soft)!important;
+  background-image:linear-gradient(145deg,var(--ui-glass-highlight-soft),transparent 50%)!important;
+  color:var(--ui-text-secondary)!important;
+}
+.qnap-dns-detail-card>span{
+  display:grid!important;
+  gap:3px!important;
+  min-width:0!important;
+}
+.qnap-dns-detail-card>span>strong,
+.qnap-dns-detail-card>b{
+  color:var(--ui-text)!important;
+}
+.qnap-dns-detail-card>span>small{
+  color:var(--ui-text-muted)!important;
+  font-size:var(--ui-font-caption)!important;
+  line-height:1.35!important;
+}
+.qnap-dns-detail-card>b{
+  font-size:var(--ui-font-card)!important;
+  white-space:nowrap!important;
+}
+.qnap-dns-note{
+  margin-top:var(--ui-space-3)!important;
+}
+
 .qnap-host-takeover-section>.inventory>span,
 .qnap-host-status-panel>div{
   min-height:94px!important;

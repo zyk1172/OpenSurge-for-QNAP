@@ -187,9 +187,25 @@ export function QNAPNetworkPage({
     : draft ? `${draft.gateway.lan_ip}/${draft.gateway.lan_prefix_len}` : '—'
   const router = actual?.snapshot.router || t('Docker/QNET 配置')
   const lanProxy = draft?.lan_proxy ?? { enabled: false, socks_port: 7891 }
+  const dnsListen = draft?.dns.listen || networkIPv4
+  const resolverUpstreams = (actual?.snapshot.dns || [])
+    .filter(value => value && value !== dnsListen && value !== '127.0.0.1')
+  const resolverUpstreamLabel = resolverUpstreams.length ? resolverUpstreams.join(' · ') : router
+  const dnsFrontendState = overview?.status.dns || (running ? 'unknown' : 'stopped')
+  const dnsFrontendLabel = dnsFrontendState === 'running'
+    ? t('运行中')
+    : dnsFrontendState === 'legacy-dnsmasq'
+      ? t('兼容运行')
+      : dnsFrontendState === 'stopped'
+        ? t('已停止')
+        : t('需要检查')
+  const defaultDNSView = draft?.gateway.mode === 'same_lan' ? 'Resolver View' : 'Gateway View'
+  const defaultDNSViewNote = draft?.gateway.mode === 'same_lan'
+    ? t('旁路由默认返回 Real-IP；设备策略可切换到 Gateway View。')
+    : t('接管客户端默认进入 Fake-IP 视图。')
 
   return <>
-    <PageHeader eyebrow="QNAP NETWORK" title={t('网络设置')} description={t('查看容器网络，并管理 NAS 主机 IPv4 接管与网关运行参数。')} />
+    <PageHeader eyebrow="QNAP NETWORK" title={t('网络设置')} description={t('查看容器网络、DNS 实际运行路径，并管理 NAS 主机 IPv4 接管与网关运行参数。')} />
 
     {interrupted && <div className="notice warn" role="status"><strong>{t('网关状态待恢复')}</strong><p>{t('请在“总览”执行安全清理。')}</p></div>}
     {error && <div className="notice warn" role="alert"><strong>{t('操作未完成')}</strong><p>{error}</p></div>}
@@ -204,6 +220,52 @@ export function QNAPNetworkPage({
         <span><strong>{t('主路由')}</strong><br />{router}</span>
       </div>}
       <div className="notice"><strong>{t('QNET 由容器部署配置决定')}</strong><p>{t('父网卡与静态网络在创建容器时绑定；容器内通常只显示 eth0。')}</p></div>
+    </section>
+
+    <section className="section qnap-dns-section">
+      <SectionTitle title="DNS 服务" subtitle="SmartDNS 双视图 · 显示实际生效的 DNS 运行路径" />
+      <div className="inventory qnap-dns-overview" aria-label={t('DNS 实际运行状态')}>
+        <span>
+          <strong>{t('DNS 前门')}</strong>
+          <b className={dnsFrontendState === 'running' || dnsFrontendState === 'legacy-dnsmasq' ? 'ok' : ''}>{dnsFrontendLabel}</b>
+          <small>SmartDNS</small>
+        </span>
+        <span>
+          <strong>{t('LAN 监听')}</strong>
+          <b>{dnsListen}:53</b>
+          <small>UDP / TCP 53</small>
+        </span>
+        <span>
+          <strong>Gateway View</strong>
+          <b>Mihomo Fake-IP</b>
+          <small>127.0.0.1:1053</small>
+        </span>
+        <span>
+          <strong>Resolver View</strong>
+          <b>Real-IP</b>
+          <small>{resolverUpstreamLabel}</small>
+        </span>
+      </div>
+      <div className="qnap-dns-detail-grid">
+        <article className="qnap-dns-detail-card">
+          <span>
+            <strong>{t('默认 DNS 视图')}</strong>
+            <small>{defaultDNSViewNote}</small>
+          </span>
+          <b>{defaultDNSView}</b>
+        </article>
+        <article className="qnap-dns-detail-card">
+          <span>
+            <strong>{t('TUN DNS 劫持')}</strong>
+            <small>{t('TUN 内的 53 端口查询交给 Mihomo DNS 处理。')}</small>
+          </span>
+          <b>any:53</b>
+        </article>
+      </div>
+      <div className="notice qnap-dns-note">
+        <strong>{t('DNS 双视图已生效')}</strong>
+        <p>{t('Gateway View 只使用 Mihomo Fake-IP DNS；Resolver View 使用系统真实 DNS。设备级 DNS 视图由设备策略决定，NAS 自身的 DNS 接管仍在下方“NAS 主机接管”中单独控制。')}</p>
+      </div>
     </section>
 
     <section className="section qnap-host-takeover-section">
