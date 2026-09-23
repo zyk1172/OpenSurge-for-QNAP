@@ -149,6 +149,15 @@ func validate(cfg Config, checkDevicePolicy bool) error {
 	if cfg.LocalSystemProxy.Enabled && !cfg.Transparent.TUNEnabled() {
 		return fmt.Errorf("local_system_proxy.enabled requires transparent.mode: \"tun\"")
 	}
+	if !validPort(cfg.LANProxy.SOCKSPort) {
+		return fmt.Errorf("lan_proxy.socks_port must be between 1 and 65535")
+	}
+	if cfg.LANProxy.Enabled && cfg.LANProxy.SOCKSPort == cfg.Mihomo.MixedPort {
+		return fmt.Errorf("lan_proxy.socks_port must differ from mihomo.mixed_port")
+	}
+	if cfg.LANProxy.Enabled && cfg.Mihomo.RedirPort != 0 && cfg.LANProxy.SOCKSPort == cfg.Mihomo.RedirPort {
+		return fmt.Errorf("lan_proxy.socks_port must differ from mihomo.redir_port")
+	}
 	if cfg.Gateway.SameLAN() {
 		if cfg.Transparent.Mode != TransparentModeTUN {
 			return fmt.Errorf("gateway.mode %s requires transparent.mode: \"tun\"", cfg.Gateway.Mode)
