@@ -207,7 +207,7 @@ export function QNAPNetworkPage({
         ? `容器接管策略已保存；${pending} 项等待网关就绪或需要检查。`
         : active > 0 ? `容器接管策略已保存，${active} 项已生效。` : '容器接管策略已保存。'
       setMessage(t(success))
-      onNotify({ tone: pending > 0 ? 'info' : 'success', title: t('容器流量接管'), message: t(success) })
+      onNotify({ tone: pending > 0 ? 'warning' : 'success', title: t('容器流量接管'), message: t(success) })
     } catch (cause) {
       const failure = cause instanceof Error ? cause.message : String(cause)
       setError(failure)
