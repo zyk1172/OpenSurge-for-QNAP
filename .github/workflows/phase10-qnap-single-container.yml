@@ -12,6 +12,7 @@ on:
       - 'internal/mihomo/**'
       - 'internal/platform/**'
       - 'internal/process/**'
+      - 'internal/qnaphost/**'
       - 'internal/runtime/**'
       - 'internal/webgateway/**'
       - 'docker/**'
@@ -202,6 +203,8 @@ jobs:
         run: go test ./internal/webgateway -run 'TestRemoteTokenStorePersistsOnlyHashAndRevokes|TestRemoteManagementTokenProxiesQNAPAPIWithoutBrowserOrigin|TestRemoteCapabilitiesRequireTokenAndDescribeManagementSurface' -count=1
       - name: QNAP Mihomo exposure tests
         run: go test ./internal/mihomo -run 'TestTUNModeKeepsMihomoInternalListenersOnLoopback|TestTransparentOffExplicitlyEnablesManualLANMixedPort|TestTUNModeCanExposeDedicatedLANSOCKSWithoutOpeningMixedPort' -count=1
+      - name: Retired container-takeover cleanup tests
+        run: go test ./internal/qnaphost -run 'TestCleanupLegacyTrafficScopes' -count=1
       - name: QNAP LAN proxy persistence tests
         run: |
           go test ./internal/config -run 'TestLoadLANProxySettings|TestValidateLANProxyPortAndIsolation|TestRenderRoundTrip' -count=1
