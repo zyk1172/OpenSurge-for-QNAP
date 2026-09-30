@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -101,6 +102,58 @@ func TestDeviceConnectionRefreshRejectsUnappliedAndUpstreamRouterDevices(t *test
 	response = performAuthorized(server, http.MethodPost, "/api/v1/devices/console/connections/refresh", nil)
 	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "device_connections_unmanaged") {
 		t.Fatalf("upstream-router device status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestPolicyConnectionRefreshMatchesExactChainAcrossSources(t *testing.T) {
+	server := newTestServer(t)
+	const group = "共享/香港 策略"
+	server.fetchProxyGroups = func(context.Context, config.Config) ([]mihomo.ProxyGroup, error) {
+		return []mihomo.ProxyGroup{{Name: group, Type: "Selector", Selected: "new-node"}}, nil
+	}
+	snapshot := mihomo.ConnectionsSnapshot{Connections: []mihomo.Connection{
+		{ID: "gateway", Chains: []string{"old-node", group, "open-surge/mac-global"}},
+		{ID: "device", Chains: []string{"old-node", group, "device/tv/default"}},
+		{ID: "nested", Chains: []string{"old-node", group, "Regional"}},
+		{ID: "already-new", Chains: []string{"new-node", group}},
+		{ID: "other-group", Chains: []string{"old-node", "Streaming"}},
+		{ID: "prefix", Chains: []string{"old-node", group + "-backup"}},
+		{ID: "gateway", Chains: []string{"old-node", group}},
+	}}
+	server.fetchConnections = func(context.Context, config.Config) (mihomo.ConnectionsSnapshot, error) { return snapshot, nil }
+	var closed []string
+	server.closeConnections = func(_ context.Context, _ config.Config, ids []string) (int, error) {
+		closed = append([]string(nil), ids...)
+		return len(ids), nil
+	}
+	response := performAuthorized(server, http.MethodPost, "/api/v1/policies/"+url.PathEscape(group)+"/connections/refresh", nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if !reflect.DeepEqual(closed, []string{"gateway", "device", "nested", "already-new"}) {
+		t.Fatalf("closed IDs = %#v", closed)
+	}
+	var payload ConnectionRefreshResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil { t.Fatal(err) }
+	if payload.Scope != connectionRefreshScopePolicy || payload.PolicyGroup != group || payload.MatchedConnections != 4 || payload.ClosedConnections != 4 {
+		t.Fatalf("refresh response = %#v", payload)
+	}
+}
+
+func TestPolicyConnectionRefreshRejectsUnavailableAndInternalGroups(t *testing.T) {
+	server := newTestServer(t)
+	server.fetchProxyGroups = func(context.Context, config.Config) ([]mihomo.ProxyGroup, error) {
+		return []mihomo.ProxyGroup{{Name: "Main", Type: "Selector"}}, nil
+	}
+	server.fetchConnections = func(context.Context, config.Config) (mihomo.ConnectionsSnapshot, error) {
+		t.Fatal("invalid group must not inspect connections")
+		return mihomo.ConnectionsSnapshot{}, nil
+	}
+	for _, group := range []string{"missing", mihomo.LocalRoutingGlobalGroup, " "} {
+		response := performAuthorized(server, http.MethodPost, "/api/v1/policies/"+url.PathEscape(group)+"/connections/refresh", nil)
+		if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "invalid_policy_group") {
+			t.Fatalf("group=%q status=%d body=%s", group, response.Code, response.Body.String())
+		}
 	}
 }
 

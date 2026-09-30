@@ -76,6 +76,41 @@ describe('global operation progress', () => {
     expect(screen.queryByLabelText('当前操作进度')).toBeNull()
   })
 
+  it('does not reveal an earlier failure after dismissing the latest result', () => {
+    begin()
+    recordOperation({ id: 'op-1', kind: 'start', state: 'failed', error: 'previous startup failed' })
+    const now = new Date().toISOString()
+    recordOperation({ id: 'op-2', kind: 'reload', state: 'running', created_at: now, updated_at: now })
+    render(<OperationProgress onOpenDiagnostics={() => {}} />)
+    act(() => recordOperation({ id: 'op-2', kind: 'reload', state: 'succeeded' }))
+    expect(screen.getByText('已完成')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '关闭操作进度' }))
+    expect(screen.queryByLabelText('当前操作进度')).toBeNull()
+    act(() => recordOperation({ id: 'op-1', kind: 'start', state: 'failed', error: 'previous startup failed' }))
+    expect(screen.queryByText('previous startup failed')).toBeNull()
+  })
+
+  it('does not reveal an earlier failure after the latest success expires', () => {
+    begin()
+    recordOperation({ id: 'op-1', kind: 'start', state: 'failed', error: 'previous startup failed' })
+    const now = new Date().toISOString()
+    recordOperation({ id: 'op-2', kind: 'reload', state: 'succeeded', created_at: now, updated_at: now })
+    render(<OperationProgress onOpenDiagnostics={() => {}} />)
+    expect(screen.getByText('已完成')).toBeTruthy()
+    act(() => vi.advanceTimersByTime(6000))
+    expect(screen.queryByLabelText('当前操作进度')).toBeNull()
+    expect(screen.queryByText('previous startup failed')).toBeNull()
+  })
+
+  it('keeps the newest operation when creation timestamps tie and an older poll arrives later', () => {
+    const now = new Date().toISOString()
+    recordOperation({ id: 'op-1', kind: 'start', state: 'succeeded', created_at: now, updated_at: now })
+    recordOperation({ id: 'op-2', kind: 'stop', state: 'failed', error: 'latest stop failed', created_at: now, updated_at: now })
+    recordOperation({ id: 'op-1', kind: 'start', state: 'succeeded', created_at: now, updated_at: now })
+    render(<OperationProgress onOpenDiagnostics={() => {}} />)
+    expect(screen.getByText('latest stop failed')).toBeTruthy()
+  })
+
   it('renders stages, notices and unknown outcomes in English', async () => {
     await prepareLanguage('en')
     activateLanguage('en')

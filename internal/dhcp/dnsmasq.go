@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -43,10 +44,21 @@ func (m Manager) Start() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if err := os.WriteFile(m.paths.DNSMasqLog, nil, 0o640); err != nil {
+	configPath, err := absoluteDNSMasqPath(m.paths.DNSMasqConf)
+	if err != nil {
 		return 0, err
 	}
-	pid, err := process.StartDetachedWithLog(m.paths.DNSMasqLog, binary, "--no-daemon", "--log-facility=-", "--conf-file="+m.paths.DNSMasqConf)
+	logPath, err := absoluteDNSMasqPath(m.paths.DNSMasqLog)
+	if err != nil {
+		return 0, err
+	}
+	if err := os.WriteFile(logPath, nil, 0o640); err != nil {
+		return 0, err
+	}
+	// Keep dnsmasq in its production foreground mode and let dnsmasq write to
+	// the real log file. StartDetachedWithLog still captures early stderr/stdout
+	// emitted before dnsmasq logging is initialized.
+	pid, err := process.StartDetachedWithLog(logPath, binary, dnsmasqArgs(configPath, logPath)...)
 	if err != nil {
 		return 0, err
 	}
@@ -55,6 +67,18 @@ func (m Manager) Start() (int, error) {
 		return 0, err
 	}
 	return pid, nil
+}
+
+func dnsmasqArgs(configPath, logPath string) []string {
+	return []string{"--keep-in-foreground", "--log-facility=" + logPath, "--conf-file=" + configPath}
+}
+
+func absoluteDNSMasqPath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve dnsmasq runtime path %q: %w", path, err)
+	}
+	return absolute, nil
 }
 
 func (m Manager) Check() error {

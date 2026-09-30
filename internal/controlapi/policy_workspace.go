@@ -123,6 +123,10 @@ func (s *Server) handlePolicyWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "policy_workspace_unavailable", err.Error())
 		return
 	}
+	if request.Action == "test" && strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		s.streamPolicyWorkspace(w, r, input)
+		return
+	}
 	response, err := s.policyWorkspaceRunner.PolicyWorkspace(r.Context(), s.configPath, input)
 	if err != nil {
 		_ = s.policyWorkspaceLease.reset()
@@ -488,6 +492,17 @@ func runPolicyWorkspace(ctx context.Context, configPath string, input PolicyWork
 				if err != nil {
 					return err
 				}
+				// Native automatic-group probing remains authoritative on QNAP.
+				// It returns the group batch atomically, so replay those completed
+				// results to an SSE observer without replacing the native probe.
+				if report := policyWorkspaceResultReporter(ctx); report != nil {
+					for _, result := range response.Results {
+						if err := ctx.Err(); err != nil {
+							return err
+						}
+						report(result)
+					}
+				}
 			} else {
 				for _, name := range names {
 					proxy, ok := available[name]
@@ -495,25 +510,13 @@ func runPolicyWorkspace(ctx context.Context, configPath string, input PolicyWork
 						return fmt.Errorf("node is unavailable or cannot be tested")
 					}
 				}
-				response.Results = make([]mihomo.ProxyDelayResult, len(names))
-				jobs := make(chan int)
-				var workers sync.WaitGroup
-				for range min(proxyHealthConcurrency, len(names)) {
-					workers.Add(1)
-					go func() {
-						defer workers.Done()
-						for index := range jobs {
-							name := names[index]
-							url, timeout := proxyHealthProbe(available[name], health.TestURL)
-							response.Results[index] = mihomo.MeasureProxyDelay(ctx, apiConfig, name, url, timeout)
-						}
-					}()
+				response.Results = measurePolicyWorkspaceNodes(ctx, names, func(ctx context.Context, name string) mihomo.ProxyDelayResult {
+					url, timeout := proxyHealthProbe(available[name], health.TestURL)
+					return mihomo.MeasureProxyDelay(ctx, apiConfig, name, url, timeout)
+				})
+				if err := ctx.Err(); err != nil {
+					return err
 				}
-				for index := range names {
-					jobs <- index
-				}
-				close(jobs)
-				workers.Wait()
 			}
 			// Mihomo's native group delay endpoint clears a fixed URLTest/Fallback
 			// selection and recomputes `now`. Re-read groups after every test so

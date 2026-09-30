@@ -32,6 +32,33 @@ func TestRenderConfig(t *testing.T) {
 	}
 }
 
+func TestRenderConfigUsesAbsoluteRuntimeFiles(t *testing.T) {
+	cfg := config.Default()
+	cfg.Runtime.Dir = filepath.Join(".", "relative-runtime")
+	paths := runtime.NewPaths(cfg)
+	rendered, err := RenderConfig(cfg, paths)
+	if err != nil {
+		t.Fatalf("RenderConfig() error = %v", err)
+	}
+
+	wantLeaseFile, err := filepath.Abs(paths.LeaseFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPIDFile, err := filepath.Abs(paths.DNSMasqPIDFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"dhcp-leasefile=" + wantLeaseFile,
+		"pid-file=" + wantPIDFile,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered config missing absolute runtime path %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestRenderConfigOwnsOnlyLoopbackLocalDNS(t *testing.T) {
 	cfg := config.Default()
 	cfg.DNS.Upstream = "1.1.1.1"

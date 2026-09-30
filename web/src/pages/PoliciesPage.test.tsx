@@ -124,7 +124,7 @@ describe('PoliciesPage', () => {
     render(<PoliciesPageHarness />)
     await screen.findAllByText('86 ms')
     await userEvent.click(screen.getByRole('button', { name: '检测当前视图' }))
-    await waitFor(() => expect(api.policyWorkspace).toHaveBeenCalledWith({ action: 'test', names: ['Proxy-A', 'Proxy-B'] }))
+    await waitFor(() => expect(api.policyWorkspace).toHaveBeenCalledWith({ action: 'test', names: ['Proxy-A', 'Proxy-B'] }, expect.objectContaining({ onResult: expect.any(Function), signal: expect.any(AbortSignal) })))
     expect(api.testProxyHealth).not.toHaveBeenCalled()
   })
 
@@ -136,7 +136,7 @@ describe('PoliciesPage', () => {
     const heading = await screen.findByRole('heading', { name: 'Auto' })
     const card = heading.closest('article') as HTMLElement
     await userEvent.click(within(card).getByRole('button', { name: '检测本组' }))
-    await waitFor(() => expect(api.policyWorkspace).toHaveBeenCalledWith({ action: 'test', names: ['Proxy-A', 'Proxy-B'], group: 'Auto' }))
+    await waitFor(() => expect(api.policyWorkspace).toHaveBeenCalledWith({ action: 'test', names: ['Proxy-A', 'Proxy-B'], group: 'Auto' }, expect.objectContaining({ onResult: expect.any(Function), signal: expect.any(AbortSignal) })))
   })
 
   it('shows native provider health without sending provider leaves to direct probes', async () => {
@@ -154,7 +154,7 @@ describe('PoliciesPage', () => {
     expect(card?.querySelector('.group-health-summary')?.textContent).toContain('2 / 2 可达')
 
     await userEvent.click(screen.getByRole('button', { name: '检测当前视图' }))
-    await waitFor(() => expect(api.policyWorkspace).toHaveBeenCalledWith({ action: 'test', names: ['Proxy-A'] }))
+    await waitFor(() => expect(api.policyWorkspace).toHaveBeenCalledWith({ action: 'test', names: ['Proxy-A'] }, expect.objectContaining({ onResult: expect.any(Function), signal: expect.any(AbortSignal) })))
   })
 
   it('prepares and selects nodes before the gateway starts without using overview policies', async () => {
@@ -184,7 +184,7 @@ describe('PoliciesPage', () => {
     await userEvent.click(screen.getByRole('button', { name: '检测当前视图' }))
 
     expect(await screen.findByText('42 ms')).toBeTruthy()
-    expect(api.policyWorkspace).toHaveBeenCalledWith({ action: 'test', names: ['Proxy-A', 'Proxy-B'] })
+    expect(api.policyWorkspace).toHaveBeenCalledWith({ action: 'test', names: ['Proxy-A', 'Proxy-B'] }, expect.objectContaining({ onResult: expect.any(Function), signal: expect.any(AbortSignal) }))
   })
 
   it('renders an empty current configuration without a stopped-core error or prompt', async () => {
@@ -263,7 +263,7 @@ describe('PoliciesPage', () => {
     await userEvent.click(screen.getByRole('button', { name: '检测当前视图' }))
 
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('Test unavailable'))
-    expect((screen.getByRole('button', { name: '检测当前视图' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '检测当前视图' }) as HTMLButtonElement).disabled).toBe(false)
     expect(api.policyWorkspace).toHaveBeenCalledTimes(2)
   })
 
