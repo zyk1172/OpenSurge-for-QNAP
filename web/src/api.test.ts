@@ -36,6 +36,49 @@ describe('Control API requests', () => {
     }
   })
 
+  it('encodes the complete policy group name for a scoped connection refresh', async () => {
+    const fetcher = vi.fn(async () => ({ ok: true, json: async () => ({ scope: 'policy_group', closed_connections: 0 }) }))
+    vi.stubGlobal('fetch', fetcher)
+    await api.refreshPolicyConnections('共享/香港 策略')
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith(`/api/v1/policies/${encodeURIComponent('共享/香港 策略')}/connections/refresh`, expect.objectContaining({ method: 'POST', credentials: 'same-origin' }))
+  })
+
+  it('delivers split UTF-8 policy results before the final workspace', async () => {
+    let stream!: ReadableStreamDefaultController<Uint8Array>
+    const body = new ReadableStream<Uint8Array>({ start(controller) { stream = controller } })
+    const fetcher = vi.fn(async () => new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }))
+    vi.stubGlobal('fetch', fetcher)
+    const onResult = vi.fn()
+    const controller = new AbortController()
+    let completed = false
+    const requestPromise = api.policyWorkspace({ action: 'test', names: ['东京'] }, { onResult, signal: controller.signal })
+    void requestPromise.then(() => { completed = true })
+    const result = { name: '东京', status: 'reachable' as const, delay_ms: 42, tested_at: '2026-09-29T00:00:00Z', test_url: 'https://example.invalid/' }
+    const bytes = new TextEncoder().encode(`: keepalive\r\n\r\ndata: ${JSON.stringify({ type: 'result', result })}\r\n\r\n`)
+    for (const byte of bytes) stream.enqueue(new Uint8Array([byte]))
+    await vi.waitFor(() => expect(onResult).toHaveBeenCalledExactlyOnceWith(result))
+    expect(completed).toBe(false)
+    const workspace = { schema_version: 1, mode: 'running' as const, revision: 'r', groups: [], health: { schema_version: 1, test_url: '', proxies: [] } }
+    stream.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'complete', workspace })}\n\n`))
+    expect(await requestPromise).toEqual(workspace)
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith('/api/v1/policy-workspace', expect.objectContaining({
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      signal: controller.signal,
+    }))
+  })
+
+  it.each(['error', 'disconnect'])('keeps delivered policy results and rejects an incomplete %s stream', async failure => {
+    const result = { name: 'A', status: 'reachable' as const, delay_ms: 42, tested_at: '', test_url: '' }
+    const frames = `data: ${JSON.stringify({ type: 'result', result })}\n\n${failure === 'error' ? 'data: {"type":"error","error":"controller unavailable"}\n\n' : ''}`
+    const fetcher = vi.fn(async () => new Response(frames, { headers: { 'Content-Type': 'text/event-stream' } }))
+    vi.stubGlobal('fetch', fetcher)
+    const onResult = vi.fn()
+    await expect(api.policyWorkspace({ action: 'test', names: ['A'] }, { onResult, signal: new AbortController().signal }))
+      .rejects.toThrow(failure === 'error' ? 'controller unavailable' : '节点检测连接已中断')
+    expect(onResult).toHaveBeenCalledExactlyOnceWith(result)
+    expect(fetcher).toHaveBeenCalledOnce()
+  })
+
   it('creates an operation id when randomUUID is unavailable on LAN HTTP', () => {
     vi.stubGlobal('crypto', {
       getRandomValues: (bytes: Uint8Array) => {
