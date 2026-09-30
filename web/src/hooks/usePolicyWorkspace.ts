@@ -74,7 +74,7 @@ export function usePolicyWorkspace(refreshKey: string) {
     readVersion.current += 1
     const operation = mutationQueue.current.then(async () => {
       if (observer?.signal.aborted) throw new DOMException('Aborted', 'AbortError')
-      const response = await api.policyWorkspace(request, observer)
+      const response = await (observer ? api.policyWorkspace(request, observer) : api.policyWorkspace(request))
       if (mounted.current) {
         setSnapshot(normalizeSnapshot(response))
         setError('')
