@@ -36,6 +36,7 @@ type Options struct {
 	RequireBootstrapToken bool
 	SecureCookies         bool
 	QNAPOnly              bool
+	NASPlatform           string
 }
 
 type session struct {
@@ -60,6 +61,7 @@ type Server struct {
 	requireBootstrapToken bool
 	secureCookies         bool
 	qnapOnly              bool
+	nasPlatform           NASPlatform
 
 	mu       sync.Mutex
 	sessions map[string]session
@@ -67,6 +69,10 @@ type Server struct {
 }
 
 func New(options Options) (*Server, error) {
+	platform, err := ParseNASPlatform(options.NASPlatform)
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(options.Addr) == "" {
 		options.Addr = "0.0.0.0:8080"
 	}
@@ -108,6 +114,7 @@ func New(options Options) (*Server, error) {
 		requireBootstrapToken: options.RequireBootstrapToken,
 		secureCookies:         options.SecureCookies,
 		qnapOnly:              options.QNAPOnly,
+		nasPlatform:           platform,
 		sessions:              map[string]session{},
 		failures:              map[string]loginBucket{},
 	}
@@ -211,6 +218,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /health/ready", s.handleReady)
 	mux.HandleFunc("GET /auth/", s.handleLoginPage)
 	mux.HandleFunc("GET /api/auth/state", s.handleAuthState)
+	mux.HandleFunc("GET /api/product", s.handleProduct)
 	mux.HandleFunc("POST /api/auth/setup", s.handleSetup)
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
@@ -370,7 +378,7 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'")
-	_, _ = w.Write([]byte(loginHTML))
+	_, _ = w.Write([]byte(strings.ReplaceAll(loginHTML, "OpenSurge for QNAP", s.nasPlatform.productName())))
 }
 
 func qnapPathBlocked(path string) bool {
@@ -394,7 +402,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/auth/", http.StatusFound)
 		return
 	}
-	if s.qnapOnly && qnapPathBlocked(r.URL.Path) {
+	if s.platformPathBlocked(r.URL.Path) || (s.qnapOnly && qnapPathBlocked(r.URL.Path)) {
 		http.NotFound(w, r)
 		return
 	}

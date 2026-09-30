@@ -11,7 +11,7 @@ RUN npm install --global pnpm@10.15.1
 COPY web/package.json web/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY web/ ./
-RUN OPENSURGE_RELEASE_TAG="${OPENSURGE_VERSION}" pnpm build
+RUN OPENSURGE_TARGET=nas OPENSURGE_RELEASE_TAG="${OPENSURGE_VERSION}" pnpm build
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS go-builder
 ARG TARGETOS=linux
@@ -112,14 +112,15 @@ COPY --from=smartdns-builder /out/smartdns /usr/local/bin/smartdns
 COPY --from=mihomo-builder /out-mihomo /usr/local/bin/mihomo
 COPY docker/entrypoint.sh /usr/local/bin/opensurge-entrypoint
 COPY deploy/qnap/config.qnap-docker.yaml /usr/share/opensurge/config.qnap-docker.yaml
+COPY deploy/nas/kernel-probe.sh /usr/share/opensurge/nas-kernel-probe.sh
 COPY LICENSE THIRD_PARTY_NOTICES.md NOTICE.md /usr/share/opensurge/licenses/
 COPY third_party/licenses/ /usr/share/opensurge/licenses/third_party/
 
 RUN chmod 0755 /usr/local/bin/opensurge-entrypoint \
  && mkdir -p /data/config /data/profiles /data/providers /data/runtime /data/state /data/logs /data/backups /data/licenses /data/control /data/web-auth /run/opensurge
 
-LABEL org.opencontainers.image.title="OpenSurge for QNAP" \
-      org.opencontainers.image.description="Web-managed Linux transparent proxy gateway for QNAP NAS" \
+LABEL org.opencontainers.image.title="OpenSurge for NAS" \
+      org.opencontainers.image.description="Web-managed Linux transparent proxy gateway for QNAP, Synology, fnOS and Docker NAS" \
       org.opencontainers.image.source="https://github.com/zyk1172/OpenSurge-for-QNAP" \
       org.opencontainers.image.licenses="GPL-3.0-only" \
       org.opencontainers.image.version="${OPENSURGE_VERSION}" \

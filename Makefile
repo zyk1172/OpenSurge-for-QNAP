@@ -1,6 +1,6 @@
 # OpenSurge for QNAP — Linux/QNAP Docker gateway derived from OpenSurge for Mac.
 
-.PHONY: test test-network-linux lab-test-linux build web-install web-build web-test lint doctor status image image-smoke compose-qnap-check qnap-preflight qnap-preflight-static qnap-interfaces
+.PHONY: test test-network-linux lab-test-linux build web-install web-build web-test lint doctor status image image-smoke compose-qnap-check qnap-preflight qnap-preflight-static qnap-interfaces nas-deployment-check nas-preflight
 
 test:
 	go test ./...
@@ -73,3 +73,9 @@ qnap-interfaces:
 # data-directory existence and address-conflict probes that require a real QNAP host.
 qnap-preflight-static:
 	cd deploy/qnap && sh ./preflight.sh --env-file .env.example --static
+
+nas-deployment-check:
+	python3 tests/deployment/test_nas.py
+
+nas-preflight:
+	cd deploy/nas && sh ./preflight.sh

@@ -3,14 +3,15 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ENV_FILE="$SCRIPT_DIR/.env"
+COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 STATIC_ONLY=0
 LIST_INTERFACES=0
 
 usage() {
   cat <<'EOF'
-Usage: sh ./preflight.sh [--env-file PATH] [--static] [--list-interfaces]
+Usage: sh ./preflight.sh [--env-file PATH] [--compose-file PATH] [--static] [--list-interfaces]
 
-Checks the QNAP Docker deployment before `docker compose up`.
+Checks the NAS Docker deployment before `docker compose up`.
 
   --env-file PATH      Read deployment values from PATH instead of deploy/qnap/.env
   --static             Run only non-host-specific checks. Intended for CI.
@@ -35,6 +36,11 @@ while [ "$#" -gt 0 ]; do
     --static)
       STATIC_ONLY=1
       shift
+      ;;
+    --compose-file)
+      [ "$#" -ge 2 ] || { echo "--compose-file requires a path" >&2; exit 2; }
+      COMPOSE_FILE=$2
+      shift 2
       ;;
     --list-interfaces)
       LIST_INTERFACES=1
@@ -74,7 +80,7 @@ command_exists() {
 }
 
 list_interfaces() {
-  echo "QNAP host network interfaces / QNET parent candidates"
+  echo "NAS host network interfaces / container LAN parent candidates"
   echo "----------------------------------------------------"
   if command_exists ip; then
     echo
@@ -99,7 +105,7 @@ list_interfaces() {
     return 0
   fi
 
-  fail "neither ip nor ifconfig is available; inspect QNAP Network & Virtual Switch instead"
+  fail "neither ip nor ifconfig is available; inspect the NAS network settings instead"
 }
 
 if [ "$LIST_INTERFACES" -eq 1 ]; then
@@ -165,6 +171,7 @@ ipv4_to_int() {
   value=0
   for octet in "$@"; do
     is_uint "$octet" || return 1
+    case "$octet" in 0|[1-9]|[1-9][0-9]|[1-9][0-9][0-9]) ;; *) return 1 ;; esac
     [ "$octet" -ge 0 ] && [ "$octet" -le 255 ] || return 1
     value=$((value * 256 + octet))
   done
@@ -182,6 +189,7 @@ validate_network() {
   esac
 
   is_uint "$prefix" || fail "invalid CIDR prefix: $prefix"
+  case "$prefix" in 0|[1-9]|[1-9][0-9]) ;; *) fail "invalid CIDR prefix: $prefix" ;; esac
   [ "$prefix" -ge 0 ] && [ "$prefix" -le 32 ] || fail "CIDR prefix must be 0..32"
 
   ip_i=$(ipv4_to_int "$ip") || fail "invalid OPENSURGE_IP: $ip"
@@ -198,11 +206,14 @@ validate_network() {
   [ $((ip_i & mask)) -eq "$network" ] || fail "OPENSURGE_IP $ip is outside $cidr"
   [ $((gateway_i & mask)) -eq "$network" ] || fail "OPENSURGE_GATEWAY $gateway is outside $cidr"
   [ "$ip_i" -ne "$gateway_i" ] || fail "OPENSURGE_IP must not equal OPENSURGE_GATEWAY"
+  [ "$subnet_i" -eq "$network" ] || fail "OPENSURGE_SUBNET must use the canonical network address"
+  [ "$prefix" -le 30 ] || fail "same-LAN NAS deployment requires a subnet prefix of 0..30"
 
   if [ "$prefix" -le 30 ]; then
     broadcast=$((network | (4294967295 ^ mask)))
     [ "$ip_i" -ne "$network" ] || fail "OPENSURGE_IP must not be the subnet network address"
     [ "$ip_i" -ne "$broadcast" ] || fail "OPENSURGE_IP must not be the subnet broadcast address"
+    [ "$gateway_i" -ne "$network" ] && [ "$gateway_i" -ne "$broadcast" ] || fail "OPENSURGE_GATEWAY must be a usable host address"
   fi
 
   ok "IPv4 topology is internally consistent: $ip in $cidr via $gateway"
@@ -217,6 +228,17 @@ validate_interface_name() {
 
 validate_data_path() {
   value=$1
+  if [ "$NAS_PLATFORM" != qnap ]; then
+    case "$value" in
+      /*/*/*) ;;
+      *) fail "OPENSURGE_DATA_PATH must be an absolute dedicated NAS subdirectory" ;;
+    esac
+    case "$value" in
+      */../*|*/./*|*/..|*/.|*/|*:*|*','*|*' '*|/volume[0-9]/docker|/srv/opensurge)
+        fail "OPENSURGE_DATA_PATH must be a dedicated directory without ambiguous mount syntax: $value" ;;
+    esac
+    return
+  fi
   case "$value" in
     /share/*) ;;
     /*) warn "OPENSURGE_DATA_PATH is absolute but not under /share; verify this is intentional on QNAP: $value" ;;
@@ -249,7 +271,7 @@ permission_probe() {
   web_gid=$4
 
   docker image inspect "$image" >/dev/null 2>&1 \
-    || fail "OpenSurge image is not loaded locally: $image (default Compose uses pull_policy: never)"
+    || fail "OpenSurge image is not loaded locally: $image (pull or docker load the selected image first)"
   ok "Permission probe image exists locally: $image"
 
   # Root/control-plane persistence semantics. This deliberately exercises the
@@ -269,9 +291,9 @@ permission_probe() {
         test -s "$probe/value"
         rm -rf "$probe"
       '; then
-    fail "container root cannot safely create/rename/delete files in $data_path; check QNAP shared-folder permissions/ACLs and storage health"
+    fail "container root cannot safely create/rename/delete files in $data_path; check NAS shared-folder permissions/ACLs and storage health"
   fi
-  ok "QNAP bind mount supports container root persistence semantics"
+  ok "NAS bind mount supports container root persistence semantics"
 
   # Prepare only the OpenSurge-owned Web credential directory. Never chown the
   # whole /data tree: QNAP shared folders may carry QTS/QuTS ACL ownership that
@@ -285,7 +307,7 @@ permission_probe() {
         chown ${web_uid}:${web_gid} /data/web-auth
         chmod 700 /data/web-auth
       "; then
-    fail "cannot assign /data/web-auth to ${web_uid}:${web_gid}; QNAP ACLs may prohibit the requested ownership"
+    fail "cannot assign /data/web-auth to ${web_uid}:${web_gid}; NAS ACLs may prohibit the requested ownership"
   fi
 
   if ! docker run --rm \
@@ -301,15 +323,21 @@ permission_probe() {
         test -s "$probe"
         rm -f "$probe"
       '; then
-    fail "Web uid:gid ${web_uid}:${web_gid} cannot use /data/web-auth. Run 'id <QNAP-user>' on the NAS, set OPENSURGE_WEB_UID/GID to those numeric values, and review QTS/QuTS Advanced Folder Permissions"
+    fail "Web uid:gid ${web_uid}:${web_gid} cannot use /data/web-auth. Run 'id <NAS-user>' on the NAS, set OPENSURGE_WEB_UID/GID to those numeric values, and review NAS shared-folder ACLs"
   fi
-  ok "Web uid:gid ${web_uid}:${web_gid} can persist credentials through the real QNAP bind mount"
+  ok "Web uid:gid ${web_uid}:${web_gid} can persist credentials through the real NAS bind mount"
 }
 
 [ -f "$ENV_FILE" ] || fail "environment file not found: $ENV_FILE (copy .env.example to .env first)"
 command_exists printenv || fail "printenv command not found"
 command_exists awk || fail "awk command not found"
 
+NAS_PLATFORM=$(read_env OPENSURGE_NAS_PLATFORM qnap)
+case "$NAS_PLATFORM" in
+  qnap) NETWORK_DRIVER=qnet ;;
+  synology|fnos|generic) NETWORK_DRIVER=macvlan ;;
+  *) fail "OPENSURGE_NAS_PLATFORM must be qnap, synology, fnos or generic" ;;
+esac
 OPENSURGE_IP=$(read_env OPENSURGE_IP)
 OPENSURGE_SUBNET=$(read_env OPENSURGE_SUBNET)
 OPENSURGE_GATEWAY=$(read_env OPENSURGE_GATEWAY)
@@ -331,15 +359,25 @@ validate_interface_name "$OPENSURGE_CONTAINER_INTERFACE"
 validate_data_path "$OPENSURGE_DATA_PATH"
 validate_numeric_identity OPENSURGE_WEB_UID "$OPENSURGE_WEB_UID"
 validate_numeric_identity OPENSURGE_WEB_GID "$OPENSURGE_WEB_GID"
-ok "QNET parent interface selected: $OPENSURGE_PARENT_INTERFACE"
+[ "$OPENSURGE_WEB_UID" -gt 0 ] || fail "OPENSURGE_WEB_UID must not be root"
+[ "$OPENSURGE_CONTAINER_INTERFACE" = eth0 ] || fail "single-network NAS Compose requires OPENSURGE_CONTAINER_INTERFACE=eth0"
+ok "$NETWORK_DRIVER parent interface selected: $OPENSURGE_PARENT_INTERFACE"
 ok "Container-side LAN interface: $OPENSURGE_CONTAINER_INTERFACE"
 ok "Persistent /data bind mount: $OPENSURGE_DATA_PATH"
 ok "Unprivileged Web identity: ${OPENSURGE_WEB_UID}:${OPENSURGE_WEB_GID}"
 
 command_exists docker || fail "docker command not found"
-docker compose version >/dev/null 2>&1 || fail "Docker Compose plugin is unavailable"
+compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+  elif command_exists docker-compose; then
+    docker-compose "$@"
+  else
+    fail "Docker Compose is unavailable (docker compose or docker-compose required)"
+  fi
+}
 
-docker compose --env-file "$ENV_FILE" -f "$SCRIPT_DIR/docker-compose.yml" config --quiet \
+compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config --quiet \
   || fail "docker-compose.yml does not resolve with $ENV_FILE"
 ok "Compose configuration resolves successfully"
 
@@ -353,17 +391,28 @@ ok "Docker daemon is reachable"
 
 network_plugins=$(docker info --format '{{json .Plugins.Network}}' 2>/dev/null || true)
 case "$network_plugins" in
-  *qnet*) ok "QNAP qnet Docker network driver is reported by Docker" ;;
-  *) warn "Docker did not advertise qnet in its network-plugin list. Some QNAP builds do not expose third-party drivers consistently here; Compose creation remains the authoritative qnet check." ;;
+  *"$NETWORK_DRIVER"*) ok "$NETWORK_DRIVER Docker network driver is reported by Docker" ;;
+  *)
+    [ "$NETWORK_DRIVER" = qnet ] || fail "Docker does not advertise the macvlan network driver"
+    warn "Docker did not advertise qnet; Compose creation remains the authoritative QNAP check." ;;
 esac
+if [ "$NETWORK_DRIVER" = macvlan ]; then
+  docker_security=$(docker info --format '{{json .SecurityOptions}}')
+  case "$docker_security" in *rootless*) fail "macvlan requires rootful Docker" ;; esac
+  warn "macvlan isolates the NAS host from the container. Test Web and Gateway/DNS from another LAN device; NAS Host Takeover is not supported."
+fi
 
 [ -c /dev/net/tun ] || fail "/dev/net/tun is missing or is not a character device"
 ok "/dev/net/tun is available"
 
 if command_exists ip; then
   ip link show dev "$OPENSURGE_PARENT_INTERFACE" >/dev/null 2>&1 \
-    || fail "QNET parent interface does not exist: $OPENSURGE_PARENT_INTERFACE"
-  ok "QNET parent interface exists: $OPENSURGE_PARENT_INTERFACE"
+    || fail "$NETWORK_DRIVER parent interface does not exist: $OPENSURGE_PARENT_INTERFACE"
+  ok "$NETWORK_DRIVER parent interface exists: $OPENSURGE_PARENT_INTERFACE"
+  host_addresses=$(ip -o -4 addr show 2>/dev/null | awk '{split($4,a,"/"); print a[1]}')
+  if printf '%s\n' "$host_addresses" | awk -v wanted="$OPENSURGE_IP" '$0 == wanted {found=1} END {exit !found}'; then
+    fail "OPENSURGE_IP must not equal a NAS host address"
+  fi
   selected_addr=$(ip -o -4 addr show dev "$OPENSURGE_PARENT_INTERFACE" 2>/dev/null || true)
   if [ -n "$selected_addr" ]; then
     info "Selected-interface IPv4: $selected_addr"
@@ -394,22 +443,39 @@ else
   parent=$(dirname -- "$data_path")
   [ -d "$parent" ] || fail "parent of OPENSURGE_DATA_PATH does not exist: $parent"
   mkdir -p "$data_path" 2>/dev/null \
-    || fail "cannot create OPENSURGE_DATA_PATH under $parent; create a dedicated QNAP shared-folder subdirectory with read/write permission first"
+    || fail "cannot create OPENSURGE_DATA_PATH under $parent; create a dedicated NAS shared-folder subdirectory with read/write permission first"
   ok "Created persistent data directory: $data_path"
 fi
 
 owner=$(numeric_owner "$data_path" 2>/dev/null || true)
 if [ -n "$owner" ]; then
-  info "QNAP host numeric owner for data path: $owner"
+  info "NAS host numeric owner for data path: $owner"
   case "$owner" in
     "${OPENSURGE_WEB_UID}:${OPENSURGE_WEB_GID}") ;;
     *) warn "Data-root owner $owner differs from Web ${OPENSURGE_WEB_UID}:${OPENSURGE_WEB_GID}; this is allowed because only /data/web-auth is Web-writable, but the real container probe below must pass." ;;
   esac
 fi
 
-probe_image=$(docker compose --env-file "$ENV_FILE" -f "$SCRIPT_DIR/docker-compose.yml" config --images 2>/dev/null | head -n 1 || true)
+probe_image=$(compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config --images 2>/dev/null | head -n 1 || true)
 [ -n "$probe_image" ] || probe_image=opensurge-for-qnap:test
 permission_probe "$probe_image" "$data_path" "$OPENSURGE_WEB_UID" "$OPENSURGE_WEB_GID"
+if [ "$NETWORK_DRIVER" = macvlan ]; then
+  reported_platform=$(docker run --rm --network none \
+    -e "OPENSURGE_NAS_PLATFORM=$NAS_PLATFORM" \
+    --entrypoint /usr/local/bin/opensurge-container "$probe_image" --component platform) \
+    || fail "selected image lacks multi-NAS support; load an image built from this revision or a newer release"
+  [ "$reported_platform" = "$NAS_PLATFORM" ] || fail "image does not honor OPENSURGE_NAS_PLATFORM"
+  # All kernel probes run in a disposable container namespace, never on NAS routing.
+  docker run --rm --network none --cap-add NET_ADMIN --cap-add NET_RAW \
+    -e OPENSURGE_DISPOSABLE_PROBE=1 \
+    --device /dev/net/tun:/dev/net/tun --security-opt no-new-privileges:true \
+    --sysctl net.ipv4.ip_forward=1 --sysctl net.ipv4.conf.all.rp_filter=0 \
+    --sysctl net.ipv4.conf.default.rp_filter=0 \
+    --sysctl net.ipv6.conf.all.disable_ipv6=1 \
+    --entrypoint /bin/sh "$probe_image" /usr/share/opensurge/nas-kernel-probe.sh \
+    || fail "NAS kernel cannot provide macvlan / TUN / ingress-interface policy routing"
+  ok "Disposable namespace TUN and policy-routing probe passed"
+fi
 
 if command_exists ping; then
   if ping -c 1 -W 1 "$OPENSURGE_IP" >/dev/null 2>&1; then
@@ -420,4 +486,4 @@ else
   warn "ping command is unavailable; static IP conflict was not probed"
 fi
 
-ok "QNAP deployment preflight complete"
+ok "$NAS_PLATFORM deployment preflight complete"

@@ -1,6 +1,8 @@
 # Agent 指南 — OpenSurge for QNAP
 
-本仓库的当前产品身份是 **OpenSurge for QNAP**。默认目标不是 macOS App，而是运行在 QNAP Container Station / Docker 中的单容器透明代理网关。
+本仓库的当前产品身份是 **OpenSurge for NAS**，由 OpenSurge for QNAP 拓展。默认目标不是 macOS App，而是运行在 NAS Docker 中的单容器透明代理网关。
+
+QNAP 保留 QNET 稳定部署；群晖、飞牛 fnOS 与 generic 使用 `deploy/nas` 的实验性 macvlan 部署。`OPENSURGE_NAS_PLATFORM` 显式声明宿主平台，缺省仍为 qnap，兼容现有部署。其他平台禁止启用 QNAP Host Takeover，不能把 Linux 测试等同于 DSM/fnOS 实机验证。新增平台适配参考 `docs/NAS_ADAPTATION_RESEARCH.zh-CN.md` 和 `deploy/nas/README.zh-CN.md`。
 
 面向用户的主要入口是 QNAP Web UI；`omg` CLI 用于运维、诊断、自动化和恢复。当前代理引擎是 mihomo。
 
@@ -101,6 +103,8 @@ QNAP build 应只显示与 NAS 产品有关的功能。
 
 如果共享 React 组件同时服务 Mac/QNAP，必须通过 build target 明确隔离，不要因为组件复用就让 Mac 文案出现在 QNAP 页面。
 
+共享 Docker 镜像以 `OPENSURGE_TARGET=nas` 构建 Web，再从 `/api/product` 读取部署平台。`qnap` build target 继续兼容；CSS 的 `data-product-target=qnap` 是共用 NAS 样式边界，真实品牌记录在 `data-nas-platform`。不要仅凭旧组件名、CSS 类或 `/api/v1/qnap/...` 兼容路由判断真实宿主平台。
+
 ## 配置与订阅持久化
 
 用户可变配置保存在 `/data`。
@@ -148,6 +152,8 @@ OPENSURGE_TARGET=qnap pnpm build
 ```
 
 QNAP/Linux 网络改动必须至少运行相关 namespace/integration test。
+
+多 NAS 部署改动还应执行 `python3 tests/deployment/test_nas.py` 与 `OPENSURGE_TARGET=nas pnpm build`。`deploy/nas/kernel-probe.sh` 只允许在显式标记的临时容器 namespace 中运行，不要直接在 NAS 宿主执行。
 
 涉及 same-LAN TUN ingress-interface routing 时，必须验证：
 

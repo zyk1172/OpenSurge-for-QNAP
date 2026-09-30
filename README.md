@@ -1,8 +1,19 @@
-# OpenSurge for QNAP
+# OpenSurge for NAS
 
-OpenSurge for QNAP 是一个运行在 QNAP NAS 上的透明代理网关。它把 Mihomo、DNS、TUN、策略路由和 Web 管理放进一个 Docker 容器里，让局域网设备可以把 QNAP 上的 OpenSurge 当作旁路由使用。
+OpenSurge 是一个运行在 NAS 上的透明代理网关。它把 Mihomo、DNS、TUN、策略路由和 Web 管理放进一个 Docker 容器里，让局域网设备把 NAS 上的 OpenSurge 当作旁路由使用。
 
 > 当前稳定范围：**IPv4 + QNET + Same-LAN 旁路由**。不自动修改主路由 DHCP，也不接管 IPv6。
+
+新增 **群晖、飞牛 fnOS 与通用 Linux Docker NAS** 的实验性 `macvlan + Same-LAN` 部署，共用镜像和网关核心；尚未完成这些平台的实机客户端、重启与长期运行验收。仓库及镜像地址保留历史名称，不影响 QNAP 现有部署。
+
+| NAS 平台 | 部署指南 | 支持状态 |
+| --- | --- | --- |
+| QNAP | [QNET 部署](deploy/qnap/README.zh-CN.md) | 现有稳定范围 |
+| 群晖 | [macvlan 部署，选择群晖环境示例](deploy/nas/README.zh-CN.md) | 实验性，需支持 Container Manager 的机型 |
+| 飞牛 fnOS | [macvlan 部署，选择飞牛环境示例](deploy/nas/README.zh-CN.md) | 实验性，按实际内核与 Docker 能力预检 |
+| 其他 Docker NAS | [通用部署](deploy/nas/README.zh-CN.md) | 实验性，仅满足 Linux / rootful Docker / TUN 等要求的设备 |
+
+[适配依据与验证门槛](docs/NAS_ADAPTATION_RESEARCH.zh-CN.md)。下方快速入门保留 QNAP 路径；其他平台使用上表的 macvlan 指南。
 
 [English](README.en.md)
 

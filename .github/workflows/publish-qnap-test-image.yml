@@ -1,4 +1,4 @@
-name: Publish QNAP test image
+name: Publish NAS test image
 
 on:
   push:
@@ -9,6 +9,7 @@ on:
       - 'internal/**'
       - 'web/**'
       - 'deploy/qnap/**'
+      - 'deploy/nas/**'
       - 'go.mod'
       - 'go.sum'
       - '.github/workflows/publish-qnap-test-image.yml'
@@ -56,6 +57,18 @@ jobs:
 
       - name: Load image for SBOM generation
         run: docker load --input artifacts/OpenSurge-for-QNAP-test-${{ matrix.arch }}.tar
+
+      - name: Verify shared NAS image platform support
+        run: |
+          for platform in qnap synology fnos generic; do
+            actual="$(docker run --rm --network none \
+              -e OPENSURGE_NAS_PLATFORM="$platform" \
+              --entrypoint /usr/local/bin/opensurge-container \
+              opensurge-for-qnap:test --component platform)"
+            test "$actual" = "$platform"
+          done
+          docker run --rm --network none --entrypoint /bin/sh \
+            opensurge-for-qnap:test -ec 'test -f /usr/share/opensurge/nas-kernel-probe.sh'
 
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
@@ -120,18 +133,30 @@ jobs:
             gh release delete qnap-test-latest --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
           fi
           {
-            printf '# OpenSurge for QNAP — rolling test image\n\nCommit: `%s`\n\n' "$GITHUB_SHA"
+            printf '# OpenSurge for NAS — rolling test image\n\nCommit: `%s`\n\n' "$GITHUB_SHA"
             cat <<'EOF'
           This is a **test-only** Docker image archive, not a stable release.
 
-          QNAP TS-264C / x86_64 users should download:
+          QNAP, supported Synology, fnOS and generic Linux Docker NAS share this
+          image. Synology/fnOS support is experimental; physical-client, reboot
+          and soak verification is still pending. QNAP keeps QNET; other NAS
+          profiles use macvlan and do not provide NAS Host Takeover.
+
+          x86_64 users should download:
           `OpenSurge-for-QNAP-test-amd64.tar.gz`
+
+          aarch64 users should download:
+          `OpenSurge-for-QNAP-test-arm64.tar.gz`
 
           Load it with:
           `gzip -dc OpenSurge-for-QNAP-test-amd64.tar.gz | docker load`
 
           The loaded image tag is:
           `opensurge-for-qnap:test`
+
+          Repository, release tag and archive names retain the historical QNAP
+          names for compatibility. Deployment guides are in `deploy/qnap` and
+          `deploy/nas` in the source repository.
 
           Each architecture also includes an SPDX JSON SBOM. The Docker archives
           have GitHub build-provenance and SBOM attestations; `SHA256SUMS` covers
@@ -147,5 +172,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --prerelease \
-            --title 'OpenSurge for QNAP — Test Image' \
+            --title 'OpenSurge for NAS — Test Image' \
             --notes-file /tmp/qnap-test-notes.md

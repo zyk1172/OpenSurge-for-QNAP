@@ -1,3 +1,4 @@
+import { product } from '../product'
 import { useEffect, useMemo, useState } from 'react'
 import { t } from '../i18n'
 
@@ -65,7 +66,7 @@ export function RemoteManagementCard() {
   const apiBase = useMemo(() => status ? `${window.location.origin}${status.api_base}` : `${window.location.origin}/api/remote/v1`, [status])
   const capabilities = useMemo(() => status ? `${window.location.origin}${status.capabilities}` : `${window.location.origin}/api/remote/v1/capabilities`, [status])
   const connectionBlock = [
-    t('OpenSurge for QNAP 远程管理'),
+    `${product.name} · ${t('远程管理')}`,
     t('API 地址：{{url}}', { url: apiBase }),
     t('认证：Authorization: Bearer <TOKEN>'),
     t('能力清单：{{url}}', { url: capabilities }),

@@ -17,6 +17,7 @@ on:
       - 'internal/webgateway/**'
       - 'docker/**'
       - 'deploy/qnap/**'
+      - 'deploy/nas/**'
       - 'web/**'
       - 'docs/**'
       - 'README.md'

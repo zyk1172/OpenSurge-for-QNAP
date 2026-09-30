@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
+import { isNASBuild, loadProduct, product } from './product'
 import './navigation-scroll-reset'
 import { activateLanguage, initialRequestedLanguage, prepareLanguage } from './i18n'
 import './i18n.profile-overlay.en'
@@ -32,10 +33,12 @@ import './design-system.css'
 import './mobile-responsive.css'
 
 const productTarget = (import.meta.env.VITE_OPENSURGE_TARGET ?? 'mac').trim().toLowerCase()
-document.documentElement.dataset.productTarget = productTarget
-document.title = productTarget === 'qnap' ? 'OpenSurge for QNAP' : 'OpenSurge for Mac'
+document.documentElement.dataset.productTarget = isNASBuild ? 'qnap' : productTarget
 
 async function start() {
+  await loadProduct()
+  document.documentElement.dataset.nasPlatform = product.platform
+  document.title = isNASBuild ? product.name : 'OpenSurge for Mac'
   const language = initialRequestedLanguage()
   await prepareLanguage(language)
   activateLanguage(language)

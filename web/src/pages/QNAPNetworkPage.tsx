@@ -4,6 +4,7 @@ import { PageHeader, SectionTitle } from '../components/Common'
 import type { OperationNotification } from '../components/OperationNotifications'
 import type { ControlConfig, NetworkDefaults, Overview } from '../types'
 import { t } from '../i18n'
+import { product } from '../product'
 
 type HostDNSMode = 'auto' | 'opensurge' | 'host'
 
@@ -60,7 +61,7 @@ export function QNAPNetworkPage({
       const [config, network, host] = await Promise.all([
         api.config(),
         api.networkDefaults('same_lan').catch(() => null),
-        request<QNAPHostRoutingStatus>('/api/v1/qnap-host-routing').catch(() => null),
+        product.host_takeover ? request<QNAPHostRoutingStatus>('/api/v1/qnap-host-routing').catch(() => null) : Promise.resolve(null),
       ])
       setDraft(config)
       setActual(network)
@@ -185,7 +186,7 @@ export function QNAPNetworkPage({
   const networkCIDR = actual?.snapshot.ipv4
     ? `${actual.snapshot.ipv4}/${draft?.gateway.lan_prefix_len ?? 24}`
     : draft ? `${draft.gateway.lan_ip}/${draft.gateway.lan_prefix_len}` : '—'
-  const router = actual?.snapshot.router || t('Docker/QNET 配置')
+  const router = actual?.snapshot.router || t('Docker 网络配置')
   const lanProxy = draft?.lan_proxy ?? { enabled: false, socks_port: 7891 }
   const dnsListen = draft?.dns.listen || networkIPv4
   const resolverUpstreams = (actual?.snapshot.dns || [])
@@ -205,7 +206,8 @@ export function QNAPNetworkPage({
     : t('接管客户端默认进入 Fake-IP 视图。')
 
   return <>
-    <PageHeader eyebrow="QNAP NETWORK" title={t('网络设置')} description={t('查看容器网络、DNS 实际运行路径，并管理 NAS 主机 IPv4 接管与网关运行参数。')} />
+    <PageHeader eyebrow="NAS NETWORK" title={t('网络设置')} description={t('查看容器网络、DNS 实际运行路径与网关运行参数。')} />
+    {product.experimental && <div className="notice warn"><strong>{t('实验性 NAS 适配')}</strong><p>{t('部署与网关核心可共用；当前平台尚未完成实机客户端、重启与长期运行验证。')}</p></div>}
 
     {interrupted && <div className="notice warn" role="status"><strong>{t('网关状态待恢复')}</strong><p>{t('请在“总览”执行安全清理。')}</p></div>}
     {error && <div className="notice warn" role="alert"><strong>{t('操作未完成')}</strong><p>{error}</p></div>}
@@ -219,7 +221,7 @@ export function QNAPNetworkPage({
         <span><strong>{t('LAN')}</strong><br />{networkCIDR}</span>
         <span><strong>{t('主路由')}</strong><br />{router}</span>
       </div>}
-      <div className="notice"><strong>{t('QNET 由容器部署配置决定')}</strong><p>{t('父网卡与静态网络在创建容器时绑定；容器内通常只显示 eth0。')}</p></div>
+      <div className="notice"><strong>{t('容器网络由部署配置决定')} · {product.network_driver}</strong><p>{t('父网卡与静态网络在创建容器时绑定；容器内通常只显示 eth0。')}</p></div>
     </section>
 
     <section className="section qnap-dns-section">
@@ -264,11 +266,11 @@ export function QNAPNetworkPage({
       </div>
       <div className="notice qnap-dns-note">
         <strong>{t('DNS 双视图已生效')}</strong>
-        <p>{t('Gateway View 只使用 Mihomo Fake-IP DNS；Resolver View 使用系统真实 DNS。设备级 DNS 视图由设备策略决定，NAS 自身的 DNS 接管仍在下方“NAS 主机接管”中单独控制。')}</p>
+        <p>{t('Gateway View 使用 Mihomo Fake-IP DNS；Resolver View 使用真实 DNS。设备级 DNS 视图由设备策略决定。')}</p>
       </div>
     </section>
 
-    <section className="section qnap-host-takeover-section">
+    {product.host_takeover ? <section className="section qnap-host-takeover-section">
       <SectionTitle title="NAS 主机接管" subtitle="让 NAS 宿主机 IPv4 通过 OpenSurge" />
       {hostRouting ? <>
         <div className="inventory">
@@ -322,7 +324,7 @@ export function QNAPNetworkPage({
           <button type="button" disabled={hostRoutingBusy} onClick={() => void load()}>{t('刷新状态')}</button>
         </div>
       </> : <div className="empty">{t('正在读取 NAS 主机路由能力…')}</div>}
-    </section>
+    </section> : <section className="section"><SectionTitle title="NAS 宿主网络" subtitle="macvlan 宿主隔离" /><p>{t('macvlan 默认隔离 NAS 宿主机与容器。请从另一台局域网设备访问 Web；当前适配不提供 NAS 主机接管。')}</p></section>}
 
     {draft && <section className="section qnap-runtime-section">
       <SectionTitle title="运行参数" subtitle="保存到 /data；运行中保存会重启网关" />

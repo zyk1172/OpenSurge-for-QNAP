@@ -1,3 +1,4 @@
+import { isNASBuild } from '../product'
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { PageHeader, SectionTitle, StatusDot } from '../components/Common'
@@ -5,7 +6,7 @@ import type { Diagnostics, DoctorRunStatus, Overview } from '../types'
 import { t } from '../i18n'
 
 const doctorPollIntervalMs = 500
-const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
+const qnapBuild = isNASBuild
 
 export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
   const [details, setDetails] = useState<Diagnostics | null>(null)

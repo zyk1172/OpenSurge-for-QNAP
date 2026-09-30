@@ -160,7 +160,7 @@ export function QNAPSourcesPage({ overview, onChanged, onNotify }: {
   }
 
   return <>
-    <PageHeader eyebrow="QNAP SOURCES" title="代理与规则源" description="导入、校验并应用 Mihomo 配置来源。" />
+    <PageHeader eyebrow="NAS SOURCES" title="代理与规则源" description="导入、校验并应用 Mihomo 配置来源。" />
     {error && <div className="notice warn" role="alert"><strong>{t('操作未完成')}</strong><p>{error}</p></div>}
     {message && <div className="ok-notice" role="status"><strong>{t('状态已更新')}</strong><p>{message}</p></div>}
 

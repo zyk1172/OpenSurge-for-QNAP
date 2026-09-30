@@ -229,11 +229,11 @@ func remoteCapabilities() map[string]any {
 			"header": "Authorization: Bearer <remote-management-token>",
 		},
 		"notes": []string{
-			"Remote management exposes the existing QNAP Web management surface through a dedicated prefix.",
+			"Remote management exposes the existing NAS Web management surface through a dedicated prefix.",
 			"Browser session cookies are not accepted on the remote prefix; a remote management token is required.",
 			"Configuration writes use optimistic concurrency: GET the current resource first and send its ETag/revision with If-Match when required.",
 			"Gateway lifecycle operations can be asynchronous; follow the returned operation id through /operations/{id}.",
-			"QNAP-blocked desktop/macOS operations remain unavailable remotely.",
+			"NAS-blocked desktop/macOS operations remain unavailable remotely.",
 		},
 		"endpoints": []remoteEndpoint{
 			{Method: "GET", Path: "/overview", Summary: "Read gateway, policy, provider, device and recovery overview."},
@@ -269,11 +269,11 @@ func remoteCapabilities() map[string]any {
 			{Method: "GET", Path: "/network/interfaces", Summary: "Read container-visible network interfaces."},
 			{Method: "GET", Path: "/network/defaults", Summary: "Read detected network defaults."},
 			{Method: "GET", Path: "/network/discovery", Summary: "Read network discovery data."},
-			{Method: "POST", Path: "/network/dhcp-probe", Summary: "Probe DHCP state without mutating QNAP host networking."},
+			{Method: "POST", Path: "/network/dhcp-probe", Summary: "Probe DHCP state without mutating NAS host networking."},
 			{Method: "GET|PUT", Path: "/tailscale", Summary: "Read or update Tailscale/Headscale integration."},
 			{Method: "GET", Path: "/tailscale/discovery", Summary: "Discover Tailscale nodes and routes."},
 			{Method: "POST", Path: "/tailscale/forget-identity", Summary: "Forget persisted Tailscale identity."},
-			{Method: "GET|POST", Path: "/doctor", Summary: "Read or run the QNAP environment Doctor."},
+			{Method: "GET|POST", Path: "/doctor", Summary: "Read or run the NAS environment Doctor."},
 			{Method: "GET", Path: "/diagnostics", Summary: "Read detailed diagnostics and process logs."},
 			{Method: "GET", Path: "/operations", Summary: "List recent operations."},
 			{Method: "GET", Path: "/operations/{id}", Summary: "Read one asynchronous operation."},
@@ -298,7 +298,10 @@ func (s *Server) handleRemoteManagement(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if r.URL.Path == remoteAPIPrefix || r.URL.Path == remoteAPIPrefix+"/" || r.URL.Path == remoteAPIPrefix+"/capabilities" {
-		writeJSON(w, http.StatusOK, remoteCapabilities())
+		capabilities := remoteCapabilities()
+		capabilities["product"] = s.nasPlatform.productName()
+		capabilities["host_takeover"] = s.nasPlatform == "qnap"
+		writeJSON(w, http.StatusOK, capabilities)
 		return
 	}
 
@@ -308,7 +311,7 @@ func (s *Server) handleRemoteManagement(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	targetPath := "/api/v1" + suffix
-	if remotePathBlocked(targetPath) {
+	if remotePathBlocked(targetPath) || s.platformPathBlocked(targetPath) {
 		http.NotFound(w, r)
 		return
 	}

@@ -1,9 +1,10 @@
+import { isNASBuild } from '../product'
 import { statusLabel } from '../status'
 import type { Overview } from '../types'
 import { StatusDot } from './Common'
 import { t } from '../i18n'
 
-const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
+const qnapBuild = isNASBuild
 
 export function GatewayHealthCard({ overview }: { overview: Overview | null }) {
   const status = overview?.status
