@@ -2,7 +2,9 @@ package dhcp
 
 import (
 	"bytes"
+	"fmt"
 	"net"
+	"path/filepath"
 	"strings"
 	"text/template"
 
@@ -69,6 +71,14 @@ func RenderConfig(cfg config.Config, paths runtime.Paths) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	leaseFile, err := filepath.Abs(paths.LeaseFile)
+	if err != nil {
+		return "", fmt.Errorf("resolve dnsmasq lease path %q: %w", paths.LeaseFile, err)
+	}
+	pidFile, err := filepath.Abs(paths.DNSMasqPIDFile)
+	if err != nil {
+		return "", fmt.Errorf("resolve dnsmasq pid path %q: %w", paths.DNSMasqPIDFile, err)
+	}
 	var reservations []device.Reservation
 	bundle := cfg.DevicePolicy.Bundle
 	if bundle == nil && cfg.DevicePolicy.File != "" {
@@ -109,8 +119,8 @@ func RenderConfig(cfg config.Config, paths runtime.Paths) (string, error) {
 		RouterBypassEnabled: routerBypassEnabled,
 		BypassDNSEnabled:    len(cfg.DHCP.BypassDNS) > 0,
 		Domain:              cfg.DHCP.Domain,
-		LeaseFile:           paths.LeaseFile,
-		PIDFile:             paths.DNSMasqPIDFile,
+		LeaseFile:           leaseFile,
+		PIDFile:             pidFile,
 		Reservations:        reservations,
 		// same_lan is selective, manual IPv6 onboarding. Advertising RA on a
 		// shared LAN would silently move devices that were never selected for
