@@ -135,7 +135,6 @@ export const englishMessages: Record<string, string> = {
   '新连接将使用“{{selection}}”；已有连接可能继续使用原链路。刷新会关闭这台设备当前由 OpenSurge 管理的连接，下载、通话等可能中断。': 'New connections will use “{{selection}}”; existing connections may remain on the old path. Refreshing closes this device’s OpenSurge-managed connections, which may interrupt downloads or calls.',
   '刷新网关本机连接': 'Refresh gateway-host connections',
   '刷新经过此策略组的连接': 'Refresh connections through this group',
-  '刷新 {{name}} 连接': 'Refresh {{name}} connections',
   '关闭提示：{{title}}': 'Dismiss prompt: {{title}}',
   '重试刷新连接': 'Retry connection refresh',
   '暂不刷新': 'Not now',
