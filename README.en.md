@@ -119,7 +119,7 @@ http://<OpenSurge-IP>:8080
 
 The QNAP Web surface currently provides:
 
-- first-admin creation and authenticated login;
+- direct local access without a username, password or first-run token;
 - gateway start/stop and interrupted-state recovery;
 - actual container network status;
 - mutable DNS/TUN runtime settings;

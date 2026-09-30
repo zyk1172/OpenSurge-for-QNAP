@@ -12,7 +12,7 @@ After the container starts, open:
 http://<OpenSurge-IP>:8080
 ```
 
-Create the first administrator account. Normal day-to-day configuration is then handled in the Web UI.
+Open the local management page directly; no username, password or bootstrap token is required. Normal day-to-day configuration is handled in the Web UI.
 
 The QNAP edition is a single-container product; there is no separate Manager or Orchestrator UI in the default deployment.
 

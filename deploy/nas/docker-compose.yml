@@ -32,6 +32,8 @@ services:
       OPENSURGE_ROLE: gateway
       OPENSURGE_WEB_ADDR: 0.0.0.0:8080
       OPENSURGE_ALLOWED_HOSTS: ${OPENSURGE_ALLOWED_HOSTS:-}
+      # Local Web opens directly by default; login is an optional opt-in.
+      OPENSURGE_WEB_AUTH: ${OPENSURGE_WEB_AUTH:-false}
       OPENSURGE_WEB_UID: ${OPENSURGE_WEB_UID:-1000}
       OPENSURGE_WEB_GID: ${OPENSURGE_WEB_GID:-100}
       # Set true only when clients reach OpenSurge through an HTTPS reverse

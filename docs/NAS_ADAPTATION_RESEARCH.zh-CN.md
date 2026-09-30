@@ -47,7 +47,7 @@ Mihomo、dnsmasq、TUN、IPv4 `ip rule iif` 策略路由和 `/data` 持久化可
 
 记录 NAS 型号、OS/内核/Docker/Compose 版本、CPU 架构、父接口与交换机环境，再完成：
 
-1. 镜像加载、完整预检、独立 IP、Web 登录、账户与订阅重建后保留。
+1. 镜像加载、完整预检、独立 IP、Web 免登录访问、配置与订阅重建后保留。
 2. 一台真实客户端使用 OpenSurge 网关/DNS：DNS、国内 DIRECT、PROXY、TCP、UDP/QUIC、设备固定出口与 fake-IP。
 3. Stop / 启动失败回滚后路由清理准确，NAS 管理和无关容器正常。
 4. 容器重启与 NAS 重启自动恢复；接口、TUN 或存储晚于容器就绪时可诊断和重试。

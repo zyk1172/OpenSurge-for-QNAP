@@ -33,6 +33,7 @@ type Options struct {
 	ControlToken          string
 	AuthDir               string
 	AllowedHosts          []string
+	DisableAuthentication bool
 	RequireBootstrapToken bool
 	SecureCookies         bool
 	QNAPOnly              bool
@@ -58,6 +59,7 @@ type Server struct {
 	proxy                 *httputil.ReverseProxy
 	client                *http.Client
 	allowedHosts          map[string]struct{}
+	disableAuthentication bool
 	requireBootstrapToken bool
 	secureCookies         bool
 	qnapOnly              bool
@@ -111,6 +113,7 @@ func New(options Options) (*Server, error) {
 		remoteTokens:          NewRemoteTokenStore(options.AuthDir),
 		client:                &http.Client{Timeout: 3 * time.Second},
 		allowedHosts:          allowed,
+		disableAuthentication: options.DisableAuthentication,
 		requireBootstrapToken: options.RequireBootstrapToken,
 		secureCookies:         options.SecureCookies,
 		qnapOnly:              options.QNAPOnly,
@@ -138,7 +141,7 @@ func New(options Options) (*Server, error) {
 }
 
 func (s *Server) ensureBootstrapToken() error {
-	if !s.requireBootstrapToken {
+	if s.disableAuthentication || !s.requireBootstrapToken {
 		return nil
 	}
 	required, err := s.auth.SetupRequired()
@@ -219,9 +222,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /auth/", s.handleLoginPage)
 	mux.HandleFunc("GET /api/auth/state", s.handleAuthState)
 	mux.HandleFunc("GET /api/product", s.handleProduct)
-	mux.HandleFunc("POST /api/auth/setup", s.handleSetup)
-	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
-	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
+	if s.disableAuthentication {
+		// Retired credential endpoints must not fall through to Control.
+		mux.HandleFunc("/api/auth/setup", s.handleAuthenticationDisabled)
+		mux.HandleFunc("/api/auth/login", s.handleAuthenticationDisabled)
+		mux.HandleFunc("/api/auth/logout", s.handleAuthenticationDisabled)
+	} else {
+		mux.HandleFunc("POST /api/auth/setup", s.handleSetup)
+		mux.HandleFunc("POST /api/auth/login", s.handleLogin)
+		mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
+	}
 	mux.HandleFunc("GET /api/auth/remote-token", s.handleRemoteTokenStatus)
 	mux.HandleFunc("POST /api/auth/remote-token", s.handleRemoteTokenRotate)
 	mux.HandleFunc("DELETE /api/auth/remote-token", s.handleRemoteTokenRevoke)
@@ -285,15 +295,28 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAuthState(w http.ResponseWriter, _ *http.Request) {
+	if s.disableAuthentication {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"authentication_required": false,
+			"setup_required":          false,
+			"bootstrap_required":      false,
+		})
+		return
+	}
 	required, err := s.auth.SetupRequired()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "auth_state_failed"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"setup_required":     required,
-		"bootstrap_required": required && s.requireBootstrapToken,
+		"authentication_required": true,
+		"setup_required":          required,
+		"bootstrap_required":      required && s.requireBootstrapToken,
 	})
+}
+
+func (s *Server) handleAuthenticationDisabled(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusNotFound, map[string]any{"error": "authentication_disabled"})
 }
 
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
@@ -414,6 +437,9 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) authenticated(r *http.Request) bool {
+	if s.disableAuthentication {
+		return true
+	}
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil || cookie.Value == "" {
 		return false

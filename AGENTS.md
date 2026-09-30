@@ -28,7 +28,7 @@ QNAP QNET
 └──────────────────────────────┘
 ```
 
-默认部署只有一个 `opensurge` 容器。
+默认部署只有一个 `opensurge` 容器。家庭局域网 Web 默认免登录（无需用户名、密码或 bootstrap token），已有安装升级也直接进入；`OPENSURGE_WEB_AUTH=true` 是可选登录模式。免登录不移除 Host/Origin 检查、内部 Control Token、远程管理 Token 或非特权 Web 进程边界。
 
 不要重新引入以下默认架构：
 

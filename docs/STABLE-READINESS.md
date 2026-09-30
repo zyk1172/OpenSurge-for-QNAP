@@ -13,18 +13,20 @@ The guard is installed before the dedicated routes and lookup rule and removed l
 
 The guard, primary rule, and dedicated table remain OpenSurge-owned resources and are covered by the existing durable cleanup journal and exact cleanup rules.
 
-## First administrator bootstrap
+## Local Web access and optional login
 
-QNAP requires a one-time 32-byte bootstrap token before the first administrator account can be created. The token is stored at `/data/web-auth/bootstrap-token` with mode `0600` and is printed to the container log on first creation. A successful setup consumes the token. Existing installations migrate the legacy administrator credential from `/data/control/admin.json` to `/data/web-auth/admin.json` without resetting the account.
+NAS Web defaults to password-free local access. Fresh installations and upgrades open the management page directly; no account or bootstrap token is required. Host validation, same-origin mutation checks, the privilege split and Remote Management Token verification remain active.
+
+With the optional `OPENSURGE_WEB_AUTH=true` mode, a one-time 32-byte bootstrap token is required before the first administrator account can be created. The token is stored at `/data/web-auth/bootstrap-token` with mode `0600` and is printed to the container log on first creation. A successful setup consumes the token. Existing installations migrate the legacy administrator credential from `/data/control/admin.json` to `/data/web-auth/admin.json` without resetting the account.
 
 ## One container, two privilege domains
 
 The QNAP image still deploys exactly one Docker container, but its entrypoint supervises two OpenSurge processes:
 
 - the Control component runs as root with the container's network capabilities and listens only on `127.0.0.1`;
-- the LAN-facing Web component runs as UID/GID 65532 with an empty capability bounding/effective set.
+- the LAN-facing Web component runs as the configured non-root UID/GID with an empty capability bounding/effective set.
 
-The Web process receives the internal Control bearer token and proxies authenticated QNAP operations to loopback. Mac-only LAN API routes are rejected by the QNAP Web boundary. The QNAP runtime image does not include the historical manager or orchestrator binaries.
+The Web process receives the internal Control bearer token and proxies local QNAP operations using internal authentication to loopback. Mac-only LAN API routes are rejected by the QNAP Web boundary. The QNAP runtime image does not include the historical manager or orchestrator binaries.
 
 ## Listener exposure
 

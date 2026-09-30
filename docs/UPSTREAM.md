@@ -67,7 +67,7 @@
 | Stop/rollback | 上游运行时状态 | 持久化 cleanup recipe + network namespace ownership |
 | 崩溃窗口 | 上游 boot/PID 机制 | 增加 write-ahead cleanup journal |
 | 状态持久化 | 原子 state 写入 | temp + file fsync + rename + parent-dir fsync |
-| QNAP Web 安全 | 不适用 | LAN Web + Argon2id + session + Origin/CSRF + bootstrap token + 登录限流 |
+| QNAP Web 安全 | 不适用 | 默认本地免登录 + Origin/CSRF + 权限隔离；可选 Argon2id/session/bootstrap token/登录限流 |
 | 权限边界 | macOS 本机进程 | Control 保留网络权限；Web 以可配置 UID/GID 降权并清空 capabilities |
 | QNAP bind mount | 不适用 | `/share/... -> /data` + 容器内真实权限/ACL 预检 |
 | Docker 发布 | 不适用 | 固定基础镜像/第三方 SHA、amd64/arm64 构建、SBOM、provenance、checksums |

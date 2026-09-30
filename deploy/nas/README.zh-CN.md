@@ -76,7 +76,7 @@ docker logs opensurge
 
 ## 4. 使用一台真实客户端验收
 
-从 **另一台局域网电脑/手机** 打开 `http://OpenSurge-IP:8080`，使用容器日志的一次性 bootstrap token 创建管理员，导入 Mihomo 订阅或 YAML，启动网关。将一台客户端的 **IPv4 网关与 DNS** 均设为 OpenSurge IP，测试 DNS、直连、代理、TCP、UDP/QUIC 和设备策略。
+从 **另一台局域网电脑/手机** 打开 `http://OpenSurge-IP:8080`，默认免登录，直接进入管理页面，导入 Mihomo 订阅或 YAML，启动网关。将一台客户端的 **IPv4 网关与 DNS** 均设为 OpenSurge IP，测试 DNS、直连、代理、TCP、UDP/QUIC 和设备策略。
 
 macvlan 默认隔离 NAS 宿主与容器，因此：
 

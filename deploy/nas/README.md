@@ -15,7 +15,7 @@ docker logs opensurge
 
 Keep the adjacent `deploy/qnap/preflight.sh`, which provides shared checks. Rootful Docker, Compose, macvlan, `/dev/net/tun` and ingress-interface policy routing are required. Preflight tests persistence permissions and kernel routing in disposable containers without changing NAS routes.
 
-Access `http://OpenSurge-IP:8080` from **another LAN device**, create the administrator with the log bootstrap token, import a Mihomo profile, and start the gateway. Set one physical client's IPv4 gateway and DNS to the container IP and verify DNS, DIRECT, PROXY, TCP and UDP/QUIC.
+Access `http://OpenSurge-IP:8080` from **another LAN device**, open the password-free management page, import a Mihomo profile, and start the gateway. Set one physical client's IPv4 gateway and DNS to the container IP and verify DNS, DIRECT, PROXY, TCP and UDP/QUIC.
 
 macvlan isolates the NAS host from the container; host curl and NAS reverse proxies can therefore fail even when LAN clients work. Host Takeover is unavailable on these platforms. No Docker socket, host namespace, privileged mode or host-network gateway is used. Keep NAS gateway/DNS and main-router DHCP unchanged.
 
