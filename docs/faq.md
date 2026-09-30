@@ -150,7 +150,7 @@ This avoids installing development dependencies and spending substantial CPU tim
 3. `docker load` it;
 4. preserve the same `/data` and QNET creation parameters;
 5. recreate `opensurge`;
-6. verify Web login, configuration, subscriptions, and admin state;
+6. verify direct local Web access, configuration, subscriptions, and remote-token state;
 7. start the Gateway.
 
 Do not delete `/data` as part of a normal upgrade.

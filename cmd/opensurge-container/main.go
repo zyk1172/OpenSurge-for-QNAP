@@ -27,7 +27,8 @@ func main() {
 	storeDir := flag.String("store", "/data/control", "persistent privileged control directory")
 	authDir := flag.String("auth-dir", "", "persistent Web authentication directory")
 	controlAddr := flag.String("control-addr", "127.0.0.1:61767", "loopback-only privileged Control API address")
-	webAddr := flag.String("web-addr", "0.0.0.0:8080", "LAN-facing authenticated Web address")
+	webAddr := flag.String("web-addr", "0.0.0.0:8080", "LAN-facing Web address")
+	webAuth := flag.Bool("web-auth", false, "require administrator login instead of the default local password-free Web")
 	allowedHosts := flag.String("allowed-hosts", "", "comma-separated additional hostnames accepted by the Web gateway")
 	controlTokenFlag := flag.String("control-token", "", "internal token supplied to the unprivileged Web component")
 	requireBootstrapToken := flag.Bool("require-bootstrap-token", false, "require a one-time token before first administrator setup")
@@ -93,7 +94,7 @@ func main() {
 		if strings.TrimSpace(*controlTokenFlag) == "" {
 			fatal(fmt.Errorf("--control-token is required for the standalone Web component"))
 		}
-		gateway, err := newWeb(*webAddr, *controlAddr, *controlTokenFlag, *authDir, *allowedHosts, *requireBootstrapToken, *secureCookies, *qnapOnly)
+		gateway, err := newWeb(*webAddr, *controlAddr, *controlTokenFlag, *authDir, *allowedHosts, *webAuth, *requireBootstrapToken, *secureCookies, *qnapOnly)
 		if err != nil {
 			fatal(err)
 		}
@@ -113,7 +114,7 @@ func main() {
 				fatal(fmt.Errorf("load internal control token: %w", err))
 			}
 		}
-		gateway, err := newWeb(*webAddr, *controlAddr, controlToken, *authDir, *allowedHosts, *requireBootstrapToken, *secureCookies, *qnapOnly)
+		gateway, err := newWeb(*webAddr, *controlAddr, controlToken, *authDir, *allowedHosts, *webAuth, *requireBootstrapToken, *secureCookies, *qnapOnly)
 		if err != nil {
 			fatal(err)
 		}
@@ -183,13 +184,14 @@ func newControl(configPath, storeDir, controlAddr string) (*controlapi.Server, *
 	return control, hostManager, nil
 }
 
-func newWeb(webAddr, controlAddr, token, authDir, allowedHosts string, requireBootstrapToken, secureCookies, qnapOnly bool) (*webgateway.Server, error) {
+func newWeb(webAddr, controlAddr, token, authDir, allowedHosts string, webAuth, requireBootstrapToken, secureCookies, qnapOnly bool) (*webgateway.Server, error) {
 	return webgateway.New(webgateway.Options{
 		Addr:                  webAddr,
 		Upstream:              "http://" + controlAddr,
 		ControlToken:          token,
 		AuthDir:               authDir,
 		AllowedHosts:          splitCSV(allowedHosts),
+		DisableAuthentication: !webAuth,
 		RequireBootstrapToken: requireBootstrapToken,
 		SecureCookies:         secureCookies,
 		QNAPOnly:              qnapOnly,

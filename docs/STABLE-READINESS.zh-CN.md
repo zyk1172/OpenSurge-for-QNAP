@@ -11,9 +11,11 @@ same-LAN QNET 部署会安装两条基于入口接口的 RPDB 规则：
 
 保护规则先安装、最后删除。因此主规则或 TUN 默认路由意外消失时，客户端转发流量会被拒绝，而不是继续掉入容器 `main` 路由表直连。显式 DIRECT fallback 仍通过专用表中指向真实上游网关的默认路由实现。
 
-## 首次管理员启动令牌
+## 本地免登录与可选登录模式
 
-QNAP 首次创建管理员前必须输入一次性 32 字节启动令牌。令牌保存在 `/data/web-auth/bootstrap-token`，权限为 `0600`，首次创建时同时打印到容器日志。管理员创建成功后令牌立即失效并删除。
+NAS Web 默认本地免登录，全新安装和已有安装升级后都直接进入管理页，无需账户或启动令牌。Host 检查、修改操作的同源检查、进程权限隔离和远程管理 Token 验证继续生效。
+
+可选的 `OPENSURGE_WEB_AUTH=true` 模式下，首次创建管理员前必须输入一次性 32 字节启动令牌。令牌保存在 `/data/web-auth/bootstrap-token`，权限为 `0600`，首次创建时同时打印到容器日志。管理员创建成功后令牌立即失效并删除。
 
 已有安装会把旧的 `/data/control/admin.json` 管理员凭据迁移到 `/data/web-auth/admin.json`，不会要求重新创建账号。
 
@@ -24,7 +26,7 @@ QNAP 只部署一个 Docker 容器，但 entrypoint 在容器内监管两个 Ope
 - Control 进程以 root 运行，保留容器网络管理能力，只监听 `127.0.0.1`；
 - 面向 LAN 的 Web 进程以配置的非特权 UID/GID 运行，capability 集为空。
 
-Web 通过内部 bearer token 把已认证的 QNAP 操作代理到 loopback Control。QNAP 运行镜像不包含旧 manager/orchestrator 二进制，也不挂载 Docker Socket。
+Web 通过内部 bearer token 把本地 QNAP 操作代理到 loopback Control。QNAP 运行镜像不包含旧 manager/orchestrator 二进制，也不挂载 Docker Socket。
 
 ## NAS Host Takeover 权限显式启用
 

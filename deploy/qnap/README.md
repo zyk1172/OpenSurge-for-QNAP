@@ -156,7 +156,9 @@ Open:
 http://<OpenSurge-IP>:8080
 ```
 
-First-admin creation requires the one-time bootstrap token printed to the container log. The token is deleted after successful administrator creation.
+Local Web opens directly without a username, password or bootstrap token, including after upgrading an existing installation. Keep `/data` to preserve configuration.
+
+Optional login mode: set `OPENSURGE_WEB_AUTH=true` in `.env` and recreate the container. First-admin creation then requires the one-time bootstrap token from `docker logs opensurge`.
 
 The QNAP Web surface manages gateway lifecycle, DNS/TUN, subscriptions, providers, policies, device rules, connection/traffic analysis, diagnostics/logs and optional NAS Host Takeover.
 

@@ -98,7 +98,8 @@ jobs:
           grep -q -- '--component web' docker/entrypoint.sh
           grep -q -- '--component control' docker/entrypoint.sh
           grep -q -- '--bounding-set=-all' docker/entrypoint.sh
-          grep -q -- '--require-bootstrap-token' docker/entrypoint.sh
+          grep -Fq 'WEB_AUTH="${OPENSURGE_WEB_AUTH:-false}"' docker/entrypoint.sh
+          grep -q -- '--web-auth --require-bootstrap-token' docker/entrypoint.sh
           ! grep -q 'enable_container_ipv6' docker/entrypoint.sh
           ! grep -q 'net/ipv6/conf/' docker/entrypoint.sh
 

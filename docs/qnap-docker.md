@@ -160,12 +160,9 @@ network_mode: host
 http://<OPENSURGE_IP>:8080/
 ```
 
-首次进入会要求创建管理员：
+默认免登录，打开即进入管理页面。已有管理员账户的安装升级后也免登录。
 
-- 用户名 3–64 字符；
-- 密码至少 12 字符；
-- 密码使用 Argon2id 存储；
-- 原始密码不会写入配置或日志。
+可选登录模式通过 `OPENSURGE_WEB_AUTH=true` 启用；首次使用需日志中的 bootstrap token 创建管理员。账户使用 Argon2id 保存密码。
 
 LAN-facing Web Gateway 与 privileged Control API 是两个边界：
 
@@ -174,7 +171,7 @@ Browser
    │
    ▼
 0.0.0.0:8080
-Authenticated Web Gateway
+Local Web Gateway
    │ internal bearer
    ▼
 127.0.0.1:61767

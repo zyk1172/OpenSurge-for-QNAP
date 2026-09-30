@@ -26,12 +26,12 @@ OpenSurge Control
 
 Remote Management Token 与以下两种凭证彼此独立：
 
-- Web 管理员 Cookie；
+- 可选登录模式下的 Web 管理员 Cookie；
 - Web Gateway -> Control 的内部 Control Token。
 
 ## 创建 Token
 
-登录 OpenSurge Web GUI，进入 QNAP Network 页面，在 **LAN management token** 区域选择 **Create token**。
+打开本地 OpenSurge Web GUI（默认免登录），进入 QNAP Network 页面，在 **LAN management token** 区域选择 **Create token**。
 
 Token 格式：
 
@@ -255,6 +255,6 @@ Remote Management Token 等价于 OpenSurge 管理权限，应按管理员密钥
 - 如果需要跨互联网访问，优先通过可信 VPN/Tailscale，或在受控反向代理后使用 HTTPS。
 - 不要把 Token 写入公开仓库、日志、截图或提示词模板。
 - Token 泄露时直接在 Web GUI Rotate/Revoke。
-- Remote Token 不能通过 Remote API 创建、轮换或撤销自身；这些动作必须由已登录 Web 管理员执行。
+- Remote Token 不能通过 Remote API 创建、轮换或撤销自身；这些动作必须通过本地 Web 页面执行；若启用可选登录模式，则需要管理员登录。
 - 内部 Control Token 不会返回给 Remote API 客户端。
 - 该功能不需要 Docker Socket，也不改变 QNAP Web 进程的 capability 边界。

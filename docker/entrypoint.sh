@@ -14,6 +14,7 @@ AUTH_DIR="${OPENSURGE_AUTH_DIR:-${DATA_DIR}/web-auth}"
 WEB_ADDR="${OPENSURGE_WEB_ADDR:-0.0.0.0:8080}"
 CONTROL_ADDR="${OPENSURGE_CONTROL_ADDR:-127.0.0.1:61767}"
 ALLOWED_HOSTS="${OPENSURGE_ALLOWED_HOSTS:-}"
+WEB_AUTH="${OPENSURGE_WEB_AUTH:-false}"
 SECURE_COOKIES="${OPENSURGE_SECURE_COOKIES:-false}"
 SEED_LAN_IP="${OPENSURGE_SEED_LAN_IP:-192.168.50.2}"
 SEED_LAN_CIDR="${OPENSURGE_SEED_LAN_CIDR:-192.168.50.0/24}"
@@ -190,8 +191,12 @@ set -- /usr/local/bin/opensurge-container \
   --control-token "${CONTROL_TOKEN}" \
   --web-addr "${WEB_ADDR}" \
   --allowed-hosts "${ALLOWED_HOSTS}" \
-  --require-bootstrap-token \
   --qnap-only
+case "$(printf '%s' "$WEB_AUTH" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on) set -- "$@" --web-auth --require-bootstrap-token ;;
+  0|false|no|off|'') ;;
+  *) kill -TERM "$CONTROL_PID" 2>/dev/null || true; fatal "OPENSURGE_WEB_AUTH must be a boolean" ;;
+esac
 case "$(printf '%s' "$SECURE_COOKIES" | tr '[:upper:]' '[:lower:]')" in
   1|true|yes|on) set -- "$@" --secure-cookies ;;
   0|false|no|off|'') ;;

@@ -113,13 +113,9 @@ http://<OpenSurge-IP>:8080
 http://192.168.2.241:8080
 ```
 
-首次创建管理员账户需要一次性 bootstrap token，可从日志中找到：
+默认免登录，打开即进入管理页面，不需要用户名、密码或首次启动令牌。代理、DNS、策略和设备设置都在 Web 中完成。已有安装升级后也直接进入，保留 `/data` 即可保留配置。
 
-```sh
-docker logs opensurge
-```
-
-创建管理员后，之后的代理、DNS、策略和设备设置都在 Web 中完成。
+如需启用可选登录模式，在 `.env` 中设置 `OPENSURGE_WEB_AUTH=true` 并重建容器；首次创建管理员时使用 `docker logs opensurge` 中的一次性 bootstrap token。
 
 ## 六、导入代理配置并启动网关
 
