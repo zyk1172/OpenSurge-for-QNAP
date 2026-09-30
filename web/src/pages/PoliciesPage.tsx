@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { Empty, PageHeader } from '../components/Common'
+import type { ConnectionRefreshSuggestion } from '../components/ConnectionRefreshPrompts'
 import { OutletSummary } from '../components/OutletSummary'
 import { PolicyGroupHealthCard } from '../components/PolicyGroupHealthCard'
 import { PolicyGroupNav } from '../components/PolicyGroupNav'
@@ -24,12 +25,13 @@ type PoliciesPageProps = {
   onViewStateChange: (patch: Partial<PoliciesViewState>) => void
   restoreScrollY: number | null
   onScrollPositionChange: (scrollY: number) => void
+  onSuggestConnectionRefresh?: (suggestion: ConnectionRefreshSuggestion) => void
 }
 
 const emptyGroups: ProxyGroup[] = []
 const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
 
-export function PoliciesPage({ overview, onChanged, viewState, onViewStateChange, restoreScrollY, onScrollPositionChange }: PoliciesPageProps) {
+export function PoliciesPage({ overview, onChanged, viewState, onViewStateChange, restoreScrollY, onScrollPositionChange, onSuggestConnectionRefresh }: PoliciesPageProps) {
   const { search, scope, activeGroup } = viewState
   const refreshKey = JSON.stringify([overview?.revision, overview?.status.gateway, overview?.status.mihomo, overview?.desired_digest, overview?.applied_digest, overview?.desired_profile_digest, overview?.applied_profile_digest, overview?.policies])
   const { snapshot, byName, testing, loading, error, refresh, test, select: selectWorkspacePolicy } = usePolicyWorkspace(refreshKey)
@@ -60,8 +62,15 @@ export function PoliciesPage({ overview, onChanged, viewState, onViewStateChange
   }).length
 
   const select = async (group: string, policy: string) => {
-    await selectWorkspacePolicy(group, policy)
-    await onChanged()
+    const previous = groups.find(item => item.name === group)?.selected
+    const updated = await selectWorkspacePolicy(group, policy)
+    const deviceID = deviceIDFromPolicyGroup(group)
+    if (updated.mode === 'running' && previous !== policy) {
+      onSuggestConnectionRefresh?.(deviceID
+        ? { key: `device:${deviceID}`, scope: 'device', deviceID, subject: deviceID, selection: policyDisplayName(policy, byName.get(policy)) }
+        : { key: `policy_group:${group}`, scope: 'policy_group', group, subject: policyDisplayName(group, byName.get(group)), selection: policyDisplayName(policy, byName.get(policy)) })
+    }
+    try { await onChanged() } catch { /* The selection succeeded; overview refresh is best-effort. */ }
   }
 
   const registerGroup = useCallback((name: string) => (node: HTMLElement | null) => {
@@ -246,4 +255,9 @@ function LocalMacGlobalPolicy({
       {error && <div className="notice warn" role="alert">{error}</div>}
     </div>
   </section>
+}
+
+function deviceIDFromPolicyGroup(group: string) {
+  const [namespace, deviceID, slot] = group.split('/')
+  return namespace === 'device' && deviceID && slot ? deviceID : ''
 }
