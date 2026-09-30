@@ -25,7 +25,9 @@ export function recordOperation(operation: Operation) {
   if (previous?.updated_at && operation.updated_at && Date.parse(operation.updated_at) < Date.parse(previous.updated_at) && previous.state === 'running' && operation.state === 'running') return
   const updatedAt = operation.updated_at || (operation.state !== 'running' && previous?.state === 'running' ? new Date().toISOString() : previous?.updated_at)
   const next: TrackedOperation = { ...previous, ...operation, updated_at: updatedAt, connection: 'connected' }
-  publish([...snapshot.filter(item => item.id !== operation.id), next].slice(-20))
+  // Keep first-seen order stable so polling an older operation cannot promote
+  // it over a newer one when their creation timestamps are equal.
+  publish(previous ? snapshot.map(item => item.id === operation.id ? next : item) : [...snapshot, next].slice(-20))
 }
 
 export function markOperationConnection(id: string, connection: TrackedOperation['connection']) {
