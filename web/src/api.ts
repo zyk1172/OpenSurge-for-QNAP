@@ -1,5 +1,6 @@
 import type { APIError, ConfigFile, ConnectionRefreshResult, ConnectivityResponse, ControlConfig, DevicePolicyDocument, DevicesResponse, DeviceTraffic, Diagnostics, DoctorRunStatus, GatewayPlan, LocalRouting, LocalRoutingMode, NetworkDefaults, NetworkInterfacesResponse, Operation, Overview, PolicySet, PolicyWorkspaceRequest, PolicyWorkspaceSnapshot, ProfileOverlay, ProfileOverlayDocument, ProfileOverlayPreview, ProxyGroup, ProxyHealthSnapshot, ProxyHealthTestResponse, SleepPreventionStatus, Source, SourceSnapshotFile, TailscaleDiscoveryResponse, TailscaleResponse, TailscaleUpdate, UIPreferences, HostHostsSync } from './types'
 import { getOperation, markOperationConnection, operationStatusUnknownMessage, recordOperation } from './operations'
+import { t } from './i18n'
 
 export class RequestError extends Error {
   constructor(public status: number, public code: string, message: string) {
@@ -30,7 +31,7 @@ export function createOperationID(): string {
   return `op-${Date.now().toString(36)}-${operationIDCounter.toString(36)}-${randomPart}`
 }
 
-export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function controlResponse(path: string, init?: RequestInit): Promise<Response> {
   const response = await fetch(path, {
     credentials: 'same-origin',
     ...init,
@@ -42,7 +43,50 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     try { payload = await response.json() as APIError } catch { /* response was not JSON */ }
     throw new RequestError(response.status, payload.error?.code ?? 'request_failed', payload.error?.message ?? response.statusText)
   }
-  return response.json() as Promise<T>
+  return response
+}
+
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  return (await controlResponse(path, init)).json() as Promise<T>
+}
+
+export type PolicyTestResult = ProxyHealthTestResponse['results'][number]
+export type PolicyTestObserver = { onResult: (result: PolicyTestResult) => void; signal: AbortSignal }
+
+async function policyWorkspaceRequest(action: PolicyWorkspaceRequest, observer?: PolicyTestObserver): Promise<PolicyWorkspaceSnapshot> {
+  const response = await controlResponse('/api/v1/policy-workspace', {
+    method: 'POST',
+    body: JSON.stringify(action),
+    ...(observer ? { headers: { Accept: 'text/event-stream' }, signal: observer.signal } : {}),
+  })
+  // Retain compatibility with services that only return a final JSON snapshot.
+  if (!observer || !response.headers.get('Content-Type')?.startsWith('text/event-stream')) return response.json()
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error(t('节点检测连接已中断，请重试。'))
+  const decoder = new TextDecoder()
+  let buffer = ''
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      buffer += decoder.decode(value, { stream: !done })
+      buffer = buffer.replace(/\r\n/g, '\n')
+      let boundary: number
+      while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+        const frame = buffer.slice(0, boundary)
+        buffer = buffer.slice(boundary + 2)
+        const data = frame.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n')
+        if (!data) continue
+        const event = JSON.parse(data) as { type: string; result?: PolicyTestResult; workspace?: PolicyWorkspaceSnapshot; error?: string }
+        if (event.type === 'error') throw new Error(event.error || t('节点检测连接已中断，请重试。'))
+        if (event.type === 'result' && event.result) observer.onResult(event.result)
+        if (event.type === 'complete' && event.workspace) return event.workspace
+      }
+      if (done) throw new Error(t('节点检测连接已中断，请重试。'))
+    }
+  } finally {
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
 }
 
 async function operationStatusRequest<T>(path: string): Promise<T> {
@@ -109,7 +153,7 @@ export const api = {
   devicePolicy: () => request<DevicePolicyDocument>('/api/v1/device-policy'),
   saveDevicePolicy: (policy: PolicySet, revision: string) => trackedRequest<DevicePolicyDocument>('save-device-policy', '/api/v1/device-policy', { method: 'PUT', headers: { 'If-Match': `"${revision}"` }, body: JSON.stringify(policy) }),
   policies: () => request<{ groups: ProxyGroup[] }>('/api/v1/policies'),
-  policyWorkspace: (action: PolicyWorkspaceRequest) => request<PolicyWorkspaceSnapshot>('/api/v1/policy-workspace', { method: 'POST', body: JSON.stringify(action) }),
+  policyWorkspace: (action: PolicyWorkspaceRequest, observer?: PolicyTestObserver) => policyWorkspaceRequest(action, observer),
   selectPolicy: (group: string, policy: string) => request(`/api/v1/policies/${encodeURIComponent(group)}/selection`, { method: 'POST', body: JSON.stringify({ policy }) }),
   localRouting: () => request<LocalRouting>('/api/v1/local-routing'),
   setLocalRouting: (mode: LocalRoutingMode, globalPolicy?: string) => request<LocalRouting>('/api/v1/local-routing', { method: 'POST', body: JSON.stringify({ mode, global_policy: globalPolicy }) }),
