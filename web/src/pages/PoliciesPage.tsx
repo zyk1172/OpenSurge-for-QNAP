@@ -1,3 +1,4 @@
+import { isNASBuild } from '../product'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { Empty, PageHeader } from '../components/Common'
@@ -29,7 +30,7 @@ type PoliciesPageProps = {
 }
 
 const emptyGroups: ProxyGroup[] = []
-const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
+const qnapBuild = isNASBuild
 
 export function PoliciesPage({ overview, onChanged, viewState, onViewStateChange, restoreScrollY, onScrollPositionChange, onSuggestConnectionRefresh }: PoliciesPageProps) {
   const { search, scope, activeGroup } = viewState

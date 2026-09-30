@@ -3,7 +3,7 @@ set -eu
 
 ROLE="${OPENSURGE_ROLE:-gateway}"
 [ "$ROLE" = "gateway" ] || {
-  echo "OpenSurge entrypoint: only OPENSURGE_ROLE=gateway is supported by the QNAP image" >&2
+  echo "OpenSurge entrypoint: only OPENSURGE_ROLE=gateway is supported by the NAS image" >&2
   exit 1
 }
 
@@ -96,6 +96,7 @@ seed_config() {
 
 validate_uint OPENSURGE_WEB_UID "$WEB_UID"
 validate_uint OPENSURGE_WEB_GID "$WEB_GID"
+[ "$WEB_UID" -gt 0 ] || fatal "OPENSURGE_WEB_UID must not be root"
 validate_uint OPENSURGE_RECOVERY_RETRY_ATTEMPTS "$RECOVERY_RETRY_ATTEMPTS"
 validate_uint OPENSURGE_RECOVERY_RETRY_DELAY_SECONDS "$RECOVERY_RETRY_DELAY_SECONDS"
 [ "$RECOVERY_RETRY_ATTEMPTS" -gt 0 ] || fatal "OPENSURGE_RECOVERY_RETRY_ATTEMPTS must be greater than zero"
@@ -154,14 +155,14 @@ fi
 # ACLs and user ownership that must remain intact. Only the OpenSurge-owned
 # web-auth directory is assigned to the configured unprivileged identity.
 if ! chown "${WEB_UID}:${WEB_GID}" "${AUTH_DIR}"; then
-  fatal "cannot assign ${AUTH_DIR} to ${WEB_UID}:${WEB_GID}; check QNAP shared-folder ACLs and run deploy/qnap/preflight.sh"
+  fatal "cannot assign ${AUTH_DIR} to ${WEB_UID}:${WEB_GID}; check NAS shared-folder ACLs and run the deployment preflight"
 fi
 if ! chmod 700 "${AUTH_DIR}"; then
-  fatal "cannot set secure permissions on ${AUTH_DIR}; check QNAP shared-folder ACLs"
+  fatal "cannot set secure permissions on ${AUTH_DIR}; check NAS shared-folder ACLs"
 fi
 if ! setpriv --reuid="$WEB_UID" --regid="$WEB_GID" --clear-groups --no-new-privs \
   /bin/sh -c 'test -r "$1" && test -w "$1" && test -x "$1"' sh "${AUTH_DIR}"; then
-  fatal "${AUTH_DIR} is not usable by Web uid:gid ${WEB_UID}:${WEB_GID}; QNAP ACL/ownership conflicts with OPENSURGE_WEB_UID/GID"
+  fatal "${AUTH_DIR} is not usable by Web uid:gid ${WEB_UID}:${WEB_GID}; NAS ACL/ownership conflicts with OPENSURGE_WEB_UID/GID"
 fi
 
 if [ ! -f "${AUTH_DIR}/admin.json" ] && [ -f "${STORE_DIR}/admin.json" ]; then

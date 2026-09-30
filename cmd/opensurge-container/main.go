@@ -19,7 +19,10 @@ import (
 )
 
 func main() {
-	component := flag.String("component", "all", "component to run: all, control, web, token, recover, or health")
+	if _, err := webgateway.ParseNASPlatform(os.Getenv("OPENSURGE_NAS_PLATFORM")); err != nil {
+		fatal(err)
+	}
+	component := flag.String("component", "all", "component to run: all, control, web, token, recover, health, or platform")
 	configPath := flag.String("config", "/data/config/opensurge.yaml", "path to persistent gateway config")
 	storeDir := flag.String("store", "/data/control", "persistent privileged control directory")
 	authDir := flag.String("auth-dir", "", "persistent Web authentication directory")
@@ -48,6 +51,9 @@ func main() {
 	defer cancel()
 
 	switch *component {
+	case "platform":
+		platform, _ := webgateway.ParseNASPlatform(os.Getenv("OPENSURGE_NAS_PLATFORM"))
+		fmt.Println(platform)
 	case "recover":
 		recovered, err := controlapi.RecoverContainerConfigAfterRestart(ctx, *configPath, *storeDir)
 		if err != nil {
@@ -73,7 +79,9 @@ func main() {
 		if err != nil {
 			fatal(err)
 		}
-		go hostManager.Run(ctx)
+		if hostManager != nil {
+			go hostManager.Run(ctx)
+		}
 		fmt.Printf("OpenSurge privileged control: http://%s (loopback only)\n", *controlAddr)
 		serveErr := control.Serve(ctx)
 		cancel()
@@ -110,7 +118,9 @@ func main() {
 			fatal(err)
 		}
 		errCh := make(chan error, 2)
-		go hostManager.Run(ctx)
+		if hostManager != nil {
+			go hostManager.Run(ctx)
+		}
 		go func() { errCh <- control.Serve(ctx) }()
 		go func() { errCh <- gateway.Serve(ctx) }()
 		fmt.Printf("OpenSurge privileged control: http://%s (loopback only)\n", *controlAddr)
@@ -141,9 +151,17 @@ func newControl(configPath, storeDir, controlAddr string) (*controlapi.Server, *
 	if err != nil {
 		return nil, nil, fmt.Errorf("load internal control token: %w", err)
 	}
-	hostManager := qnaphost.New(configPath, storeDir)
+	platform, err := webgateway.ParseNASPlatform(os.Getenv("OPENSURGE_NAS_PLATFORM"))
+	if err != nil {
+		return nil, nil, err
+	}
+	var hostManager *qnaphost.Manager
 	runner := controlapi.ContainerRunner{StoreDir: storeDir}
-	static := hostManager.Handler(controlToken, webui.Handler())
+	static := webui.Handler()
+	if platform == "qnap" {
+		hostManager = qnaphost.New(configPath, storeDir)
+		static = hostManager.Handler(controlToken, static)
+	}
 	static = controlapi.WrapCloudflareOptimizer(static, configPath, storeDir, runner)
 	static = controlapi.WrapQNAPSourceDelete(static, configPath, storeDir, controlToken)
 	control, err := controlapi.New(controlapi.Options{
@@ -175,10 +193,14 @@ func newWeb(webAddr, controlAddr, token, authDir, allowedHosts string, requireBo
 		RequireBootstrapToken: requireBootstrapToken,
 		SecureCookies:         secureCookies,
 		QNAPOnly:              qnapOnly,
+		NASPlatform:           os.Getenv("OPENSURGE_NAS_PLATFORM"),
 	})
 }
 
 func releaseHostRouting(manager *qnaphost.Manager) {
+	if manager == nil {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := manager.Release(ctx); err != nil {

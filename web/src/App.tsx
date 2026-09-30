@@ -1,3 +1,4 @@
+import { isNASBuild, product } from './product'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, authenticationRequiredEvent, RequestError } from './api'
 import { CommandPalette } from './components/CommandPalette'
@@ -31,7 +32,7 @@ type NetworkNavigationTarget = 'none' | 'control' | 'bottom'
 type NavGroup = 'control' | 'observe'
 type NavItem = { id: Page; label: string; group: NavGroup; qnapOnly?: boolean }
 
-const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
+const qnapBuild = isNASBuild
 const releaseTag = import.meta.env.VITE_OPENSURGE_RELEASE_TAG
 
 export const nav: readonly NavItem[] = [
@@ -307,7 +308,7 @@ export function App() {
     <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />
     <aside className="sidebar">
       <div className="sidebar-brand-row">
-        <div className="brand"><img className="brand-mark" src="/opensurge-icon.png" alt="" aria-hidden="true" /><div><strong>OpenSurge</strong><small>{qnapBuild ? 'for QNAP' : 'for Mac'}</small></div></div>
+        <div className="brand"><img className="brand-mark" src="/opensurge-icon.png" alt="" aria-hidden="true" /><div><strong>OpenSurge</strong><small>{qnapBuild ? product.name.replace('OpenSurge ', '') : 'for Mac'}</small></div></div>
         <button type="button" className="sidebar-collapse" aria-label="Toggle compact navigation" aria-pressed={sidebarCompact} onClick={() => setSidebarCompact(current => !current)}><ShellIcon name="collapse" /></button>
         <button type="button" className="mobile-sidebar-close" aria-label="Close sidebar navigation" onClick={() => setSidebarOpen(false)}>×</button>
       </div>

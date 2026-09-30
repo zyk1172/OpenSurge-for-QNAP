@@ -285,7 +285,7 @@ export function localeIdentifier(): string {
 }
 
 export function copyForTarget(source: string, target: string = productTarget): string {
-  return target === 'qnap' ? qnapSourceOverrides[source] ?? source : source
+  return ['qnap', 'nas', 'synology', 'fnos', 'generic'].includes(target) ? qnapSourceOverrides[source] ?? source : source
 }
 
 export function t(source: string, values: Record<string, string | number> = {}): string {

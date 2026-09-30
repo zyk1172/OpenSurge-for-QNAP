@@ -1,6 +1,8 @@
 import { registerEnglishMessages } from './i18n'
 
 export const profileOverlayEnglishMessages: Record<string, string> = {
+  '从只读映射的 NAS /etc/hosts 导入；独立于手工附加配置，并在成功校验后进入最终 Mihomo 配置。': 'Import the read-only NAS /etc/hosts mount separately from manual overlays, then include it in the final Mihomo configuration after validation.',
+  '对应 mihomo dns.use-system-hosts；NAS Docker 中读取的是容器内 /etc/hosts。': 'Controls mihomo dns.use-system-hosts; NAS Docker reads the container /etc/hosts.',
   'Hosts 条目': 'Hosts entries',
   'Hosts 与本地解析': 'Hosts & local resolution',
   '导入标准 Hosts 文件生成 mihomo hosts 映射，并控制是否读取容器系统 Hosts。': 'Import a standard Hosts file into mihomo hosts mappings and control whether container system Hosts are also read.',

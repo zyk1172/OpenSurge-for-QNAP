@@ -153,7 +153,7 @@ export function ProfileOverlayPanel({ overlay, sources, onSaved }: { overlay: Pr
           <section className="overlay-editor-section open host-hosts-sync">
             <header>
               <span>04</span>
-              <div><strong>{t('NAS 宿主机 Hosts 同步')}</strong><small>{t('从只读映射的 QNAP /etc/hosts 导入；独立于手工附加配置，并在成功校验后进入最终 Mihomo 配置。')}</small></div>
+              <div><strong>{t('NAS 宿主机 Hosts 同步')}</strong><small>{t('从只读映射的 NAS /etc/hosts 导入；独立于手工附加配置，并在成功校验后进入最终 Mihomo 配置。')}</small></div>
             </header>
             <div className="overlay-section-body">
               {hostSync ? <>
@@ -312,7 +312,7 @@ function HostsFileEditor({ merge, onChange }: { merge: Record<string, unknown>; 
       <button className={`overlay-switch ${useHosts ? 'on' : ''}`} type="button" role="switch" aria-checked={useHosts} onClick={() => updateField('use-hosts', !useHosts)}><i aria-hidden="true" /><span>{t(useHosts ? '已启用' : '已停用')}</span></button>
     </div>
     <div className="overlay-enable-row">
-      <div><strong>{t('读取系统 Hosts')}</strong><small>{t('对应 mihomo dns.use-system-hosts；QNAP Docker 中读取的是容器内 /etc/hosts。')}</small></div>
+      <div><strong>{t('读取系统 Hosts')}</strong><small>{t('对应 mihomo dns.use-system-hosts；NAS Docker 中读取的是容器内 /etc/hosts。')}</small></div>
       <button className={`overlay-switch ${useSystemHosts ? 'on' : ''}`} type="button" role="switch" aria-checked={useSystemHosts} onClick={() => updateField('use-system-hosts', !useSystemHosts)}><i aria-hidden="true" /><span>{t(useSystemHosts ? '已启用' : '已停用')}</span></button>
     </div>
     <div className="overlay-share-form">

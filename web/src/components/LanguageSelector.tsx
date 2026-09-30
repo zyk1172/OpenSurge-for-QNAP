@@ -1,6 +1,7 @@
+import { isNASBuild } from '../product'
 import { languageDisplayName, resolveLanguage, t, type RequestedLanguage } from '../i18n'
 
-const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
+const qnapBuild = isNASBuild
 
 export function LanguageSelector({ language, changing, onChange }: {
   language: RequestedLanguage

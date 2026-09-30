@@ -17,6 +17,7 @@ vi.mock('../api', () => ({
 
 import { api, request, waitForOperation } from '../api'
 import { QNAPNetworkPage } from './QNAPNetworkPage'
+import { product } from '../product'
 
 const config: ControlConfig = {
   schema_version: 1,
@@ -99,6 +100,20 @@ let hostRouting: HostRoutingFixture = {
 }
 
 describe('QNAPNetworkPage host takeover coexistence controls', () => {
+  it('hides host takeover and avoids privileged capability requests on portable NAS', async () => {
+    const previous = { ...product }
+    Object.assign(product, { platform: 'synology', network_driver: 'macvlan', host_takeover: false, experimental: true })
+    try {
+      render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNotify={() => {}} />)
+      await screen.findByRole('heading', { name: 'NAS 宿主网络' })
+      await waitFor(() => expect(api.config).toHaveBeenCalled())
+      expect(screen.getByText('实验性 NAS 适配')).toBeTruthy()
+      expect(screen.queryByRole('button', { name: '让 NAS 使用 OpenSurge' })).toBeNull()
+      expect(request).not.toHaveBeenCalledWith('/api/v1/qnap-host-routing')
+    } finally {
+      Object.assign(product, previous)
+    }
+  })
   afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
   beforeEach(() => {

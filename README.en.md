@@ -1,4 +1,8 @@
-# OpenSurge for QNAP
+# OpenSurge for NAS
+
+QNAP keeps its existing IPv4 / QNET / same-LAN scope. **Experimental Synology, fnOS and generic Linux Docker NAS profiles** now share the single-container gateway through macvlan. Physical-client, NAS reboot and soak testing on the new platforms is still pending; NAS Host Takeover remains QNAP-only. Historical repository and image names remain unchanged.
+
+See [multi-NAS deployment](deploy/nas/README.md) and [source-backed research / acceptance requirements](docs/NAS_ADAPTATION_RESEARCH.zh-CN.md). The QNAP instructions below continue to use QNET.
 
 OpenSurge for QNAP is a single-container transparent proxy gateway for QNAP NAS. It combines the Web control plane, mihomo, DNS, TUN, policy routing, and persistent recovery in one Docker container with its own LAN IPv4 through QNAP QNET.
 

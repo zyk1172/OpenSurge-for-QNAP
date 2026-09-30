@@ -1,3 +1,4 @@
+import { isNASBuild } from '../product'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, waitForOperation } from '../api'
 import { ConnectivityCategory } from '../components/ConnectivityCategory'
@@ -7,7 +8,7 @@ import type { ConnectivityResponse, ConnectivityResult, Overview } from '../type
 import { t } from '../i18n'
 
 const baselineKey = 'opensurge-connectivity-baseline'
-const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
+const qnapBuild = isNASBuild
 
 export function ConnectivityPage({ overview, onChanged }: { overview: Overview | null; onChanged: () => Promise<void> }) {
   const [catalog, setCatalog] = useState<ConnectivityResponse | null>(null)
@@ -104,7 +105,7 @@ export function ConnectivityPage({ overview, onChanged }: { overview: Overview |
     {runtimeInterrupted && <div className="notice warn" role="status">{t(qnapBuild ? '运行状态被中断；请在“总览”安全清理后重新启动。' : '上一次网关运行已被系统重启中断。请先到“网络设置”安全清理旧 runtime，再重新启动完整网关；此时不能只重启 Mihomo。')}</div>}
     {mihomoFailureDetected && automaticMihomoRecoveryState === 'observing' && <div className="notice warn" role="status"><strong>{t('正在确认 Mihomo 状态')}</strong><p>{t(qnapBuild ? '连续异常后会执行一次 Mihomo 恢复。' : '连续异常确认后会自动执行一次 Mihomo-only 恢复，不改动 DHCP/DNS、PF 或 IPv4 forwarding。')}</p></div>}
     {mihomoFailureDetected && automaticMihomoRecoveryState === 'recovering' && <div className="notice actionable" role="status"><div><strong>{t('正在自动恢复 Mihomo')}</strong><p>{t(qnapBuild ? '正在校验配置并重建 Mihomo/TUN。' : 'OpenSurge 正在验证 applied 配置、归档旧日志并重建 Mihomo/TUN；无需手动操作。')}</p></div></div>}
-    {manualMihomoRecoveryNeeded && <div className="notice actionable" role="status"><div><strong>{t('Mihomo 自动恢复未成功')}</strong><p>{t(qnapBuild ? '可手动重试，不修改 QNAP 宿主网络。' : '可以手动重试这条 Mihomo-only 恢复路径；不会停止 DHCP/DNS、卸载 PF 或修改 Mac 网络设置，旧 Mihomo 日志会先归档。')}</p></div><button className="primary" type="button" disabled={recovering || testing.size > 0} onClick={() => void recoverMihomo()}>{t(recovering ? '正在恢复…' : '恢复 Mihomo')}</button></div>}
+    {manualMihomoRecoveryNeeded && <div className="notice actionable" role="status"><div><strong>{t('Mihomo 自动恢复未成功')}</strong><p>{t(qnapBuild ? '可手动重试，不修改 NAS 宿主网络。' : '可以手动重试这条 Mihomo-only 恢复路径；不会停止 DHCP/DNS、卸载 PF 或修改 Mac 网络设置，旧 Mihomo 日志会先归档。')}</p></div><button className="primary" type="button" disabled={recovering || testing.size > 0} onClick={() => void recoverMihomo()}>{t(recovering ? '正在恢复…' : '恢复 Mihomo')}</button></div>}
     {error && <div className="error-banner" role="alert"><span>!</span><p>{error}</p><button type="button" onClick={() => void loadCatalog()}>{t('重试')}</button></div>}
     <section className="connectivity-overview">
       <div className="connectivity-score"><span className={`score-orb ${tested.length ? mismatches || reachable < tested.length ? 'mixed' : 'healthy' : ''}`}><strong>{tested.length ? `${reachable}/${tested.length}` : '—'}</strong><small>{t('可达')}</small></span><div><small>APPLIED ROUTING</small><h2>{tested.length ? mismatches ? t('{{count}} 项路径需要关注', { count: mismatches }) : t('当前分流符合所选基线') : t('等待首次检测')}</h2><p>{tested.length ? t('三轮探测 · 整体中位 {{median}} ms', { median: overallMedian || '—' }) : t('不会在打开页面时自动访问第三方服务')}</p></div></div>

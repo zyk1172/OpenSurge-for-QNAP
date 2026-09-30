@@ -29,16 +29,18 @@ func requireNetworkTests(t *testing.T) {
 	}
 }
 
-// ensureDummyTUN creates a throwaway interface standing in for the device
-// mihomo would create. Real TUN creation is the proxy core's job; these tests
-// only need a named device that a route can point at.
+// ensureDummyTUN creates a throwaway routing target. NAS kernels may provide
+// TUN without the dummy module, so a real persistent TUN is a valid fallback.
 func ensureDummyTUN(t *testing.T, backend *Backend, name string) {
 	t.Helper()
 	ctx := context.Background()
 	runner := backend.runner
 	_ = runner.run(ctx, runner.ipPath, "link", "del", name)
 	if err := runner.run(ctx, runner.ipPath, "link", "add", name, "type", "dummy"); err != nil {
-		t.Skipf("cannot create dummy interface %s (needs CAP_NET_ADMIN): %v", name, err)
+		if tunErr := runner.run(ctx, runner.ipPath, "tuntap", "add", "dev", name, "mode", "tun"); tunErr != nil {
+			t.Skipf("cannot create dummy or TUN interface %s: dummy=%v, tun=%v", name, err, tunErr)
+		}
+		t.Logf("dummy module unavailable; testing with real TUN %s", name)
 	}
 	t.Cleanup(func() {
 		_ = runner.run(context.Background(), runner.ipPath, "link", "del", name)

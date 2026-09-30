@@ -1,3 +1,4 @@
+import { isNASBuild, product } from '../product'
 import { useState } from 'react'
 import { api, waitForOperation } from '../api'
 import { ActivityCard } from '../components/ActivityCard'
@@ -10,7 +11,7 @@ import { useDeviceTraffic } from '../hooks/useDeviceTraffic'
 import type { Overview } from '../types'
 import { t } from '../i18n'
 
-const qnapBuild = import.meta.env.VITE_OPENSURGE_TARGET === 'qnap'
+const qnapBuild = isNASBuild
 
 export function DashboardPage({ overview, onOpenNetwork, onChanged }: { overview: Overview | null; onOpenNetwork: (action: 'start' | 'stop' | 'cleanup') => void; onChanged: () => Promise<void> }) {
   const [lifecycleBusy, setLifecycleBusy] = useState(false)
@@ -61,8 +62,8 @@ export function DashboardPage({ overview, onOpenNetwork, onChanged }: { overview
 
   return <>
     <PageHeader
-      eyebrow={qnapBuild ? 'QNAP GATEWAY' : 'CONTROL CENTER'}
-      title={qnapBuild ? 'QNAP 网关总览' : '全屋网关，一眼可见'}
+      eyebrow={qnapBuild ? 'NAS GATEWAY' : 'CONTROL CENTER'}
+      title={qnapBuild ? (product.platform === 'qnap' ? 'QNAP 网关总览' : 'NAS 网关总览') : '全屋网关，一眼可见'}
       description={qnapBuild ? '网关状态、实时流量与运行控制。' : 'OpenSurge 负责网关生命周期；mihomo 是当前代理引擎。'}
       action={<div className="dashboard-header-actions">
         <button className={interrupted ? 'primary' : running ? 'danger' : 'primary'} disabled={!overview || lifecycleBusy || restarting || (!running && !stopped && !interrupted)} onClick={() => qnapBuild ? void runQNAPLifecycle() : onOpenNetwork(primaryAction)}>{primaryLabel}</button>
