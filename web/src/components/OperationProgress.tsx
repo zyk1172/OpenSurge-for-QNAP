@@ -46,9 +46,12 @@ export function OperationProgress({ onOpenDiagnostics }: { onOpenDiagnostics: ()
   const [now, setNow] = useState(Date.now)
   useEffect(() => watchOperations(), [])
 
-  const visible = operations.filter(operation => !operation.dismissed && (operation.state !== 'succeeded' || now - Date.parse(operation.updated_at || '') < 6000))
-  const active = visible.filter(operation => operation.state === 'running')
-  const operation = [...(active.length ? active : visible)].sort((a, b) => Date.parse(b.created_at || '') - Date.parse(a.created_at || ''))[0]
+  const newestFirst = [...operations].reverse().sort((a, b) => Date.parse(b.created_at || '') - Date.parse(a.created_at || ''))
+  const active = newestFirst.filter(operation => !operation.dismissed && operation.state === 'running')
+  // Select the latest result before checking dismissal/expiry. Filtering first
+  // would reveal an older failure after a newer result is dismissed or expires.
+  const candidate = active[0] || newestFirst[0]
+  const operation = candidate && !candidate.dismissed && (candidate.state !== 'succeeded' || now - Date.parse(candidate.updated_at || '') < 6000) ? candidate : undefined
   const ticking = operation?.state === 'running' || operation?.state === 'succeeded'
   useEffect(() => {
     if (!ticking) return
