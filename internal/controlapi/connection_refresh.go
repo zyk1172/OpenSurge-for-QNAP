@@ -3,6 +3,7 @@ package controlapi
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"open-mihomo-gateway/internal/config"
@@ -14,6 +15,7 @@ import (
 const (
 	connectionRefreshScopeLocal  = "gateway_local"
 	connectionRefreshScopeDevice = "device"
+	connectionRefreshScopePolicy = "policy_group"
 )
 
 func (s *Server) handleLocalConnectionRefresh(w http.ResponseWriter, r *http.Request) {
@@ -31,7 +33,7 @@ func (s *Server) handleLocalConnectionRefresh(w http.ResponseWriter, r *http.Req
 	ids := matchingConnectionIDs(snapshot, func(connection mihomo.Connection) bool {
 		return isGatewayLocalConnection(connection, cfg.Gateway.LANIP, localSources)
 	})
-	s.writeConnectionRefresh(w, r, cfg, connectionRefreshScopeLocal, "", ids)
+	s.writeConnectionRefresh(w, r, cfg, ConnectionRefreshResponse{Scope: connectionRefreshScopeLocal}, ids)
 }
 
 func (s *Server) handleDeviceConnectionRefresh(w http.ResponseWriter, r *http.Request) {
@@ -60,10 +62,41 @@ func (s *Server) handleDeviceConnectionRefresh(w http.ResponseWriter, r *http.Re
 		return normalizeTrafficIP(metadataString(connection.Metadata, "sourceIP")) == sourceIP ||
 			metadataString(connection.Metadata, "inboundUser") == mihomo.DeviceInboundUser(managed.ID)
 	})
-	s.writeConnectionRefresh(w, r, cfg, connectionRefreshScopeDevice, managed.ID, ids)
+	s.writeConnectionRefresh(w, r, cfg, ConnectionRefreshResponse{Scope: connectionRefreshScopeDevice, DeviceID: managed.ID}, ids)
 }
 
-func (s *Server) writeConnectionRefresh(w http.ResponseWriter, r *http.Request, cfg config.Config, scope, deviceID string, ids []string) {
+func (s *Server) handlePolicyConnectionRefresh(w http.ResponseWriter, r *http.Request) {
+	cfg, err := config.LoadRuntime(s.configPath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "config_invalid", err.Error())
+		return
+	}
+	group := r.PathValue("group")
+	if strings.TrimSpace(group) == "" || mihomo.IsLocalRoutingGroup(group) {
+		writeError(w, http.StatusUnprocessableEntity, "invalid_policy_group", "choose an available user policy group")
+		return
+	}
+	groups, err := s.fetchProxyGroups(r.Context(), cfg)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "policies_unavailable", err.Error())
+		return
+	}
+	if !slices.ContainsFunc(mihomo.VisibleProxyGroups(groups), func(candidate mihomo.ProxyGroup) bool { return candidate.Name == group }) {
+		writeError(w, http.StatusUnprocessableEntity, "invalid_policy_group", "policy group is not available")
+		return
+	}
+	snapshot, err := s.fetchConnections(r.Context(), cfg)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "connections_unavailable", err.Error())
+		return
+	}
+	ids := matchingConnectionIDs(snapshot, func(connection mihomo.Connection) bool {
+		return slices.Contains(connection.Chains, group)
+	})
+	s.writeConnectionRefresh(w, r, cfg, ConnectionRefreshResponse{Scope: connectionRefreshScopePolicy, PolicyGroup: group}, ids)
+}
+
+func (s *Server) writeConnectionRefresh(w http.ResponseWriter, r *http.Request, cfg config.Config, response ConnectionRefreshResponse, ids []string) {
 	closed, err := s.closeConnections(r.Context(), cfg, ids)
 	if closed > 0 {
 		s.trafficSampler.reset()
@@ -72,13 +105,10 @@ func (s *Server) writeConnectionRefresh(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusBadGateway, "connection_refresh_failed", fmt.Sprintf("closed %d of %d matching connections: %v", closed, len(ids), err))
 		return
 	}
-	writeJSON(w, http.StatusOK, ConnectionRefreshResponse{
-		SchemaVersion:      SchemaVersion,
-		Scope:              scope,
-		DeviceID:           deviceID,
-		MatchedConnections: len(ids),
-		ClosedConnections:  closed,
-	})
+	response.SchemaVersion = SchemaVersion
+	response.MatchedConnections = len(ids)
+	response.ClosedConnections = closed
+	writeJSON(w, http.StatusOK, response)
 }
 
 func appliedManagedDevice(paths runtime.Paths, id string) (device.ManagedDevice, bool) {
