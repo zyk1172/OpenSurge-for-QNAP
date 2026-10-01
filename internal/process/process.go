@@ -87,10 +87,19 @@ func Fingerprint(pid int) (string, error) {
 }
 
 func linuxProcessIdentity(pid int) (string, error) {
+	return linuxProcessIdentityWithProc(pid, os.ReadFile, os.Readlink, IsAlive)
+}
+
+func linuxProcessIdentityWithProc(
+	pid int,
+	readProcFile func(string) ([]byte, error),
+	readProcLink func(string) (string, error),
+	isAlive func(int) bool,
+) (string, error) {
 	statPath := fmt.Sprintf("/proc/%d/stat", pid)
-	statData, err := os.ReadFile(statPath)
+	statData, err := readProcFile(statPath)
 	if err != nil {
-		if !IsAlive(pid) {
+		if !isAlive(pid) {
 			return "", nil
 		}
 		return "", fmt.Errorf("inspect pid %d identity from procfs stat: %w", pid, err)
@@ -110,9 +119,9 @@ func linuxProcessIdentity(pid int) (string, error) {
 	}
 	startTime := statFields[19]
 
-	cmdlineData, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	cmdlineData, err := readProcFile(fmt.Sprintf("/proc/%d/cmdline", pid))
 	if err != nil {
-		if !IsAlive(pid) {
+		if !isAlive(pid) {
 			return "", nil
 		}
 		return "", fmt.Errorf("inspect pid %d identity from procfs cmdline: %w", pid, err)
@@ -133,12 +142,19 @@ func linuxProcessIdentity(pid int) (string, error) {
 		return "", fmt.Errorf("inspect pid %d identity from procfs: empty command", pid)
 	}
 
-	exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+	exe, err := readProcLink(fmt.Sprintf("/proc/%d/exe", pid))
 	if err != nil {
-		if !IsAlive(pid) {
+		if !isAlive(pid) {
 			return "", nil
 		}
-		return "", fmt.Errorf("inspect pid %d identity from procfs exe: %w", pid, err)
+		if !errors.Is(err, os.ErrPermission) {
+			return "", fmt.Errorf("inspect pid %d identity from procfs exe: %w", pid, err)
+		}
+		// Some Linux container kernels allow reading stat/cmdline but restrict
+		// /proc/<pid>/exe through ptrace access checks. Keep the kernel start time
+		// and command line as the process identity, and encode the unavailable exe
+		// explicitly so later checks use the same fallback without widening caps.
+		exe = "<permission-denied>"
 	}
 
 	return fmt.Sprintf("linux-proc-v1|start=%s|exe=%s|command=%s", startTime, exe, cmdline), nil

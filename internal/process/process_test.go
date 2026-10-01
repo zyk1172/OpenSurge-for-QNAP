@@ -2,6 +2,7 @@ package process
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,6 +117,68 @@ func TestLinuxProcessIdentityUsesProcfsWithoutPS(t *testing.T) {
 		if !strings.Contains(identity, token) {
 			t.Fatalf("procfs identity %q does not contain %q", identity, token)
 		}
+	}
+}
+
+func TestLinuxProcessIdentityFallsBackWhenExeReadlinkIsDenied(t *testing.T) {
+	const pid = 73
+	statFields := make([]string, 20)
+	for i := range statFields {
+		statFields[i] = "0"
+	}
+	statFields[0] = "S"
+	statFields[19] = "12345"
+	stat := []byte(fmt.Sprintf("%d (mihomo) %s", pid, strings.Join(statFields, " ")))
+	command := []byte("/usr/local/bin/mihomo\x00-d\x00/data/mihomo\x00")
+	readProcFile := func(path string) ([]byte, error) {
+		switch path {
+		case "/proc/73/stat":
+			return stat, nil
+		case "/proc/73/cmdline":
+			return command, nil
+		default:
+			return nil, os.ErrNotExist
+		}
+	}
+	readProcLink := func(path string) (string, error) {
+		return "", &os.PathError{Op: "readlink", Path: path, Err: syscall.EACCES}
+	}
+
+	identity, err := linuxProcessIdentityWithProc(pid, readProcFile, readProcLink, func(candidate int) bool {
+		return candidate == pid
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "linux-proc-v1|start=12345|exe=<permission-denied>|command=/usr/local/bin/mihomo -d /data/mihomo"
+	if identity != want {
+		t.Fatalf("linuxProcessIdentityWithProc() = %q, want %q", identity, want)
+	}
+}
+
+func TestLinuxProcessIdentityStillRejectsOtherExeReadlinkErrors(t *testing.T) {
+	const pid = 73
+	statFields := make([]string, 20)
+	for i := range statFields {
+		statFields[i] = "0"
+	}
+	statFields[0] = "S"
+	statFields[19] = "12345"
+	stat := []byte(fmt.Sprintf("%d (mihomo) %s", pid, strings.Join(statFields, " ")))
+	readProcFile := func(path string) ([]byte, error) {
+		if path == "/proc/73/stat" {
+			return stat, nil
+		}
+		if path == "/proc/73/cmdline" {
+			return []byte("mihomo\x00"), nil
+		}
+		return nil, os.ErrNotExist
+	}
+	readProcLink := func(string) (string, error) { return "", syscall.EIO }
+
+	_, err := linuxProcessIdentityWithProc(pid, readProcFile, readProcLink, func(int) bool { return true })
+	if !errors.Is(err, syscall.EIO) {
+		t.Fatalf("linuxProcessIdentityWithProc() error = %v, want EIO", err)
 	}
 }
 
