@@ -113,78 +113,109 @@ func TestLinuxProcessIdentityUsesProcfsWithoutPS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, token := range []string{"linux-proc-v1|", "start=", "|exe=", "|command="} {
+	for _, token := range []string{"linux-proc-v2|pid=", "|start="} {
 		if !strings.Contains(identity, token) {
 			t.Fatalf("procfs identity %q does not contain %q", identity, token)
 		}
 	}
 }
 
-func TestLinuxProcessIdentityFallsBackWhenExeReadlinkIsDenied(t *testing.T) {
+func TestLinuxProcessIdentityIsStableAcrossCommChanges(t *testing.T) {
 	const pid = 73
-	statFields := make([]string, 20)
-	for i := range statFields {
-		statFields[i] = "0"
-	}
-	statFields[0] = "S"
-	statFields[19] = "12345"
-	stat := []byte(fmt.Sprintf("%d (mihomo) %s", pid, strings.Join(statFields, " ")))
-	command := []byte("/usr/local/bin/mihomo\x00-d\x00/data/mihomo\x00")
-	readProcFile := func(path string) ([]byte, error) {
-		switch path {
-		case "/proc/73/stat":
-			return stat, nil
-		case "/proc/73/cmdline":
-			return command, nil
-		default:
-			return nil, os.ErrNotExist
+	stat := func(command string) []byte {
+		statFields := make([]string, 20)
+		for i := range statFields {
+			statFields[i] = "0"
 		}
+		statFields[0] = "S"
+		statFields[19] = "12345"
+		return []byte(fmt.Sprintf("%d (%s) %s", pid, command, strings.Join(statFields, " ")))
 	}
-	readProcLink := func(path string) (string, error) {
-		return "", &os.PathError{Op: "readlink", Path: path, Err: syscall.EACCES}
+	currentStat := stat("dnsmasq")
+	readProcFile := func(path string) ([]byte, error) {
+		if path != "/proc/73/stat" {
+			t.Fatalf("process identity read mutable procfs metadata at %s", path)
+		}
+		return currentStat, nil
 	}
-
-	identity, err := linuxProcessIdentityWithProc(pid, readProcFile, readProcLink, func(candidate int) bool {
-		return candidate == pid
-	})
+	isAlive := func(candidate int) bool { return candidate == pid }
+	firstIdentity, err := linuxProcessIdentityWithProc(pid, readProcFile, isAlive)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "linux-proc-v1|start=12345|exe=<permission-denied>|command=/usr/local/bin/mihomo -d /data/mihomo"
-	if identity != want {
-		t.Fatalf("linuxProcessIdentityWithProc() = %q, want %q", identity, want)
+	currentStat = stat("dnsmasq (nobody)")
+	secondIdentity, err := linuxProcessIdentityWithProc(pid, readProcFile, isAlive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstIdentity != secondIdentity {
+		t.Fatalf("process identity changed with comm metadata: first=%q second=%q", firstIdentity, secondIdentity)
+	}
+	if want := "linux-proc-v2|pid=73|start=12345"; firstIdentity != want {
+		t.Fatalf("linuxProcessIdentityWithProc() = %q, want %q", firstIdentity, want)
+	}
+
+	currentStat = stat("dnsmasq (nobody)")
+	changedStartStat := []byte(strings.Replace(string(currentStat), " 12345", " 12346", 1))
+	readProcFile = func(path string) ([]byte, error) {
+		if path != "/proc/73/stat" {
+			t.Fatalf("process identity read mutable procfs metadata at %s", path)
+		}
+		return changedStartStat, nil
+	}
+	changedIdentity, err := linuxProcessIdentityWithProc(pid, readProcFile, isAlive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changedIdentity == firstIdentity {
+		t.Fatal("process identity did not change when kernel start time changed")
 	}
 }
 
-func TestLinuxProcessIdentityStillRejectsOtherExeReadlinkErrors(t *testing.T) {
+func TestLinuxProcessIdentityTreatsMissingProcessAsAbsent(t *testing.T) {
 	const pid = 73
-	statFields := make([]string, 20)
-	for i := range statFields {
-		statFields[i] = "0"
-	}
-	statFields[0] = "S"
-	statFields[19] = "12345"
-	stat := []byte(fmt.Sprintf("%d (mihomo) %s", pid, strings.Join(statFields, " ")))
-	readProcFile := func(path string) ([]byte, error) {
-		if path == "/proc/73/stat" {
-			return stat, nil
-		}
-		if path == "/proc/73/cmdline" {
-			return []byte("mihomo\x00"), nil
-		}
+	identity, err := linuxProcessIdentityWithProc(pid, func(string) ([]byte, error) {
 		return nil, os.ErrNotExist
+	}, func(int) bool { return false })
+	if err != nil || identity != "" {
+		t.Fatalf("missing process identity = %q, %v", identity, err)
 	}
-	readProcLink := func(string) (string, error) { return "", syscall.EIO }
+}
 
-	_, err := linuxProcessIdentityWithProc(pid, readProcFile, readProcLink, func(int) bool { return true })
+func TestLinuxProcessIdentityRejectsOtherProcStatErrors(t *testing.T) {
+	const pid = 73
+	_, err := linuxProcessIdentityWithProc(pid, func(string) ([]byte, error) {
+		return nil, syscall.EIO
+	}, func(int) bool { return true })
 	if !errors.Is(err, syscall.EIO) {
 		t.Fatalf("linuxProcessIdentityWithProc() error = %v, want EIO", err)
 	}
 }
 
-func TestNormalizeProcCmdline(t *testing.T) {
-	got := normalizeProcCmdline([]byte("/usr/local/bin/mihomo\x00-d\x00/data/mihomo\x00\x00"))
-	if want := "/usr/local/bin/mihomo -d /data/mihomo"; got != want {
-		t.Fatalf("normalizeProcCmdline() = %q, want %q", got, want)
+func TestLinuxProcessIdentityIncludesPID(t *testing.T) {
+	stat := func(pid int) []byte {
+		statFields := make([]string, 20)
+		for i := range statFields {
+			statFields[i] = "0"
+		}
+		statFields[0] = "S"
+		statFields[19] = "12345"
+		return []byte(fmt.Sprintf("%d (daemon) %s", pid, strings.Join(statFields, " ")))
+	}
+	identities := make([]string, 2)
+	for index, pid := range []int{73, 74} {
+		identity, err := linuxProcessIdentityWithProc(pid, func(path string) ([]byte, error) {
+			if path != fmt.Sprintf("/proc/%d/stat", pid) {
+				return nil, os.ErrNotExist
+			}
+			return stat(pid), nil
+		}, func(candidate int) bool { return candidate == pid })
+		if err != nil {
+			t.Fatal(err)
+		}
+		identities[index] = identity
+	}
+	if identities[0] == identities[1] {
+		t.Fatalf("different PIDs have identical process identities: %q", identities[0])
 	}
 }
