@@ -87,13 +87,13 @@ type Server struct {
 	token                 string
 	baseURL               string
 
-	mu          sync.Mutex
-	lifecycleMu sync.Mutex
-	sessions    map[string]time.Time
+	mu                sync.Mutex
+	lifecycleMu       sync.Mutex
+	sessions          map[string]time.Time
 	bootstraps        map[string]bootstrapGrant
-	hostHostsSyncOnce  sync.Once
-	sourceRefreshOnce  sync.Once
-	sourceRefreshMu    sync.Mutex
+	hostHostsSyncOnce sync.Once
+	sourceRefreshOnce sync.Once
+	sourceRefreshMu   sync.Mutex
 }
 
 type bootstrapGrant struct {
@@ -799,8 +799,12 @@ func (s *Server) handleGatewayPlan(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGatewayAction(w http.ResponseWriter, r *http.Request) {
 	action := strings.TrimPrefix(r.URL.Path, "/api/v1/gateway/")
-	if action != "start" && action != "stop" && action != "reload" && action != "restart-mihomo" {
+	if action != "start" && action != "stop" && action != "reload" && action != "restart-mihomo" && action != "recover-gateway" {
 		writeError(w, http.StatusNotFound, "not_found", "unknown gateway action")
+		return
+	}
+	if action == "recover-gateway" && !containerRecoveryRunner(s.runner) {
+		writeError(w, http.StatusNotFound, "not_found", "full gateway recovery is only available in the NAS container")
 		return
 	}
 	id := r.Header.Get("Idempotency-Key")
@@ -900,7 +904,7 @@ func (s *Server) handleGatewayAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "operation_failed", err.Error())
 		return
 	}
-	if action == "restart-mihomo" {
+	if action == "restart-mihomo" || action == "recover-gateway" {
 		s.mihomoRecovery.beginManual()
 	}
 	locked = false
@@ -951,7 +955,7 @@ func (s *Server) runOperationLocked(op Operation, topology string, recoveryBefor
 	_ = s.store.SaveOperation(op)
 	if completed != nil {
 		completed(err)
-	} else if op.Kind == "restart-mihomo" {
+	} else if op.Kind == "restart-mihomo" || op.Kind == "recover-gateway" {
 		s.mihomoRecovery.finishManual(err)
 	}
 }

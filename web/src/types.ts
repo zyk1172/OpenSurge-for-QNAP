@@ -1,6 +1,6 @@
 export type GatewayStatus = {
   gateway: string
-  runtime_state?: 'none' | 'active' | 'interrupted'
+  runtime_state?: 'none' | 'active' | 'interrupted' | 'incomplete'
   interface: string
   lan_ip: string
   data_plane?: string
@@ -9,6 +9,8 @@ export type GatewayStatus = {
   dhcp: string
   dhcp_enabled: boolean
   dns?: string
+  local_dns?: string
+  desired_running?: boolean
   mihomo: string
   mihomo_error?: string
   tun?: string
@@ -97,7 +99,7 @@ export type Operation = {
   phase?: string; phase_started_at?: string; notices?: string[]
   created_at?: string; updated_at?: string
 }
-export type MihomoRecoveryStatus = { state: 'idle' | 'observing' | 'recovering' | 'failed'; reason?: 'process_missing' | 'controller_refused'; error?: string }
+export type MihomoRecoveryStatus = { state: 'idle' | 'observing' | 'recovering' | 'failed'; reason?: 'process_missing' | 'controller_refused' | 'dns_missing' | 'gateway_incomplete'; error?: string }
 export type SleepPreventionStatus = { enabled: boolean; active: boolean; error?: string }
 export type ControlConfig = {
   schema_version: number; revision: string

@@ -124,7 +124,7 @@ sudo ip netns exec "$GATEWAY_NS" env OPEN_SURGE_NETWORK_TESTS=1 \
 
 log "injecting a real dnsmasq crash and proving safe replacement"
 sudo ip netns exec "$GATEWAY_NS" env OPEN_SURGE_DNSMASQ_FAULT_TESTS=1 \
-  "$GATEWAY_TEST_BIN" -test.v -test.run '^TestDNSMasqCrashRecoveryLinux$'
+  "$GATEWAY_TEST_BIN" -test.v -test.run '^Test(DNSMasqCrashRecoveryLinux|FullGatewayDNSRecoveryLinux)$'
 
 log "proving the lab namespace still routes after integration and crash recovery"
 # The network integration suite intentionally exercises failure/restore paths.

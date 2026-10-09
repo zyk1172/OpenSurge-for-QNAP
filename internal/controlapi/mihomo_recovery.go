@@ -18,6 +18,8 @@ const (
 
 	mihomoFailureProcessMissing    = "process_missing"
 	mihomoFailureControllerRefused = "controller_refused"
+	containerFailureDNSMissing     = "dns_missing"
+	containerFailureIncomplete     = "gateway_incomplete"
 
 	autoMihomoRecoveryInterval         = 5 * time.Second
 	mihomoRecoveryHealthyConfirmations = 2
@@ -90,6 +92,9 @@ func (c *mihomoRecoveryController) observeFailure(reason string) bool {
 		c.state = mihomoRecoveryFailed
 		c.reason = reason
 		c.error = "mihomo remained unhealthy after restart"
+		if reason == containerFailureDNSMissing || reason == containerFailureIncomplete {
+			c.error = "gateway remained unhealthy after full recovery"
+		}
 		return false
 	}
 	if c.attempted || c.state == mihomoRecoveryFailed {
@@ -101,7 +106,7 @@ func (c *mihomoRecoveryController) observeFailure(reason string) bool {
 	}
 	c.state = mihomoRecoveryObserving
 	c.error = ""
-	if reason == mihomoFailureProcessMissing {
+	if reason == mihomoFailureProcessMissing || reason == containerFailureDNSMissing || reason == containerFailureIncomplete {
 		return true
 	}
 	if reason == mihomoFailureControllerRefused {
@@ -195,12 +200,17 @@ func (s *Server) evaluateMihomoRecovery(ctx context.Context) {
 		return
 	}
 	status, err := s.gatewayStatus(ctx, cfg)
-	if err != nil || status.RuntimeState != "active" {
+	isContainer := containerRecoveryRunner(s.runner)
+	if err != nil || !isContainer && status.RuntimeState != "active" {
 		s.mihomoRecovery.observeUnknown()
 		return
 	}
 
-	reason := mihomoFailureReason(status)
+	action, reason := automaticRecoveryAction(status, isContainer)
+	if action == "" {
+		s.mihomoRecovery.observeUnknown()
+		return
+	}
 	if reason == "" {
 		s.mihomoRecovery.observeHealthy()
 		return
@@ -229,13 +239,42 @@ func (s *Server) evaluateMihomoRecovery(ctx context.Context) {
 		return
 	}
 
-	op := newOperation("auto-restart-mihomo-"+randomToken(8), "restart-mihomo")
+	op := newOperation("auto-"+action+"-"+randomToken(8), action)
 	if err := s.store.CreateOperation(op); err != nil {
 		s.lifecycleMu.Unlock()
 		s.mihomoRecovery.finishAutomatic(err)
 		return
 	}
 	go s.runOperationLocked(op, cfg.Gateway.Mode, recovery, nil, s.mihomoRecovery.finishAutomatic)
+}
+
+// A cleanup journal, or a gateway missing a DNS dependency, cannot be healed
+// by restarting only the engine. Include the legacy partial-start format and
+// the state-less result of a successful rollback with running intent retained.
+func automaticRecoveryAction(status gateway.Status, isContainer bool) (string, string) {
+	if isContainer {
+		if !status.DesiredRunning {
+			return "", ""
+		}
+		switch status.RuntimeState {
+		case "none", "incomplete", "interrupted":
+			return "recover-gateway", containerFailureIncomplete
+		case "active":
+		default:
+			return "", ""
+		}
+		if status.DNS == "stopped" || status.LocalDNS == "stopped" || status.DHCP == "stopped" {
+			return "recover-gateway", containerFailureDNSMissing
+		}
+		// A missing/unknown DNS observation does not confirm a repaired engine.
+		if status.DNS != "running" && status.DNS != "legacy-dnsmasq" {
+			return "", ""
+		}
+		if mihomoFailureReason(status) == "" && status.Gateway != "running" {
+			return "", ""
+		}
+	}
+	return "restart-mihomo", mihomoFailureReason(status)
 }
 
 func mihomoFailureReason(status gateway.Status) string {

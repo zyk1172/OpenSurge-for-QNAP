@@ -141,6 +141,52 @@ func TestStopStartedProcessAllowsGracefulTUNCleanup(t *testing.T) {
 	}
 }
 
+func TestAPIStartupAllowsNASGeodataLoadBeyondTwoSeconds(t *testing.T) {
+	started := time.Now()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if time.Since(started) < 2300*time.Millisecond {
+			http.Error(w, "loading geodata", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`{"version":"test"}`))
+	}))
+	defer server.Close()
+	cfg := config.Default()
+	cfg.Mihomo.APIAddr = server.URL
+	m := New(cfg, runtime.NewPaths(cfg))
+	if err := m.waitForAPI(os.Getpid(), 2*time.Second); err == nil {
+		t.Fatal("fault injection did not reproduce the old two-second startup failure")
+	}
+	if err := m.waitForAPI(os.Getpid(), apiStartupTimeout); err != nil {
+		t.Fatalf("healthy NAS cold start was rejected: %v", err)
+	}
+	if time.Since(started) > 5*time.Second {
+		t.Fatal("startup did not finish promptly after API became ready")
+	}
+}
+
+func TestStartupLogRotationRetainsTwoPreviousGenerations(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mihomo.log")
+	for _, generation := range []string{"first", "second", "third"} {
+		if err := os.WriteFile(path, []byte(generation), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := rotateStartupLog(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, want := range map[string]string{"mihomo-previous.log": "third", "mihomo-previous-2.log": "second"} {
+		data, err := os.ReadFile(filepath.Join(filepath.Dir(path), name))
+		if err != nil || string(data) != want {
+			t.Fatalf("%s=%q, want %q: %v", name, data, want, err)
+		}
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("startup history not bounded: %v %v", entries, err)
+	}
+}
+
 func TestStopRemovesOwnedIPv6PacketListenerSocket(t *testing.T) {
 	// Keep the Unix socket path short on macOS while remaining portable to the
 	// Linux CI runner, where /private/tmp does not exist.

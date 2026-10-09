@@ -33,6 +33,7 @@ func TestStopRetainsRuntimeStateWhenTrackedProcessIdentityChanges(t *testing.T) 
 	manager := Manager{cfg: cfg, paths: paths, deps: gatewayDeps{
 		geteuid:     func() int { return 0 },
 		loadState:   runtime.LoadState,
+		saveState:   runtime.SaveState,
 		removeState: runtime.RemoveState,
 		newDHCP:     func(config.Config, runtime.Paths) dhcpService { return dhcpManager },
 		newMihomo:   func(config.Config, runtime.Paths) mihomoService { return &fakeMihomo{} },

@@ -104,7 +104,7 @@ export const api = {
   networkDefaults: (mode: NetworkDefaults['mode']) => request<NetworkDefaults>(`/api/v1/network/defaults?mode=${encodeURIComponent(mode)}`),
   saveConfig: (config: ControlConfig) => request<ControlConfig>('/api/v1/config', { method: 'PUT', headers: { 'If-Match': `"${config.revision}"` }, body: JSON.stringify(config) }),
   saveConfigFile: (content: string, revision: string) => request<ConfigFile>('/api/v1/config/file', { method: 'PUT', headers: { 'If-Match': `"${revision}"` }, body: JSON.stringify({ content }) }),
-  gateway: (action: 'start' | 'stop' | 'reload' | 'restart-mihomo') => trackedRequest<Operation>(action, `/api/v1/gateway/${action}`, { method: 'POST' }, true),
+  gateway: (action: 'start' | 'stop' | 'reload' | 'restart-mihomo' | 'recover-gateway') => trackedRequest<Operation>(action, `/api/v1/gateway/${action}`, { method: 'POST' }, true),
   setSleepPrevention: (enabled: boolean) => request<SleepPreventionStatus>('/api/v1/sleep-prevention', { method: 'PUT', body: JSON.stringify({ enabled }) }),
   setUIPreferences: (preferences: Pick<UIPreferences, 'language'>) => request<UIPreferences>('/api/v1/ui-preferences', { method: 'PUT', body: JSON.stringify(preferences) }),
   operation: (id: string) => operationStatusRequest<Operation>(`/api/v1/operations/${encodeURIComponent(id)}`),

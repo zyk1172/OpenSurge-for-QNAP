@@ -11,19 +11,22 @@ import (
 )
 
 type State struct {
-	PIDDNSMasq                int       `json:"pid_dnsmasq,omitempty"`
-	DNSMasqProcessFingerprint string    `json:"dnsmasq_process_fingerprint,omitempty"`
-	PIDSmartDNS               int       `json:"pid_smartdns,omitempty"`
-	SmartDNSProcessFingerprint string   `json:"smartdns_process_fingerprint,omitempty"`
-	DNSFrontend               string    `json:"dns_frontend,omitempty"`
-	PIDMihomo                 int       `json:"pid_mihomo,omitempty"`
-	MihomoProcessFingerprint  string    `json:"mihomo_process_fingerprint,omitempty"`
-	BootSessionID             string    `json:"boot_session_id,omitempty"`
-	DevicePolicyDigest        string    `json:"device_policy_digest,omitempty"`
-	ProfileDigest             string    `json:"profile_digest,omitempty"`
-	DNSIPv6                   bool      `json:"dns_ipv6"`
-	TUNDevice                 string    `json:"tun_device,omitempty"`
-	StartedAt                 time.Time `json:"started_at"`
+	// Lifecycle separates a cleanup journal from a fully started gateway. Empty
+	// is the legacy format; process and DNS checks still apply to those states.
+	Lifecycle                  string    `json:"lifecycle,omitempty"`
+	PIDDNSMasq                 int       `json:"pid_dnsmasq,omitempty"`
+	DNSMasqProcessFingerprint  string    `json:"dnsmasq_process_fingerprint,omitempty"`
+	PIDSmartDNS                int       `json:"pid_smartdns,omitempty"`
+	SmartDNSProcessFingerprint string    `json:"smartdns_process_fingerprint,omitempty"`
+	DNSFrontend                string    `json:"dns_frontend,omitempty"`
+	PIDMihomo                  int       `json:"pid_mihomo,omitempty"`
+	MihomoProcessFingerprint   string    `json:"mihomo_process_fingerprint,omitempty"`
+	BootSessionID              string    `json:"boot_session_id,omitempty"`
+	DevicePolicyDigest         string    `json:"device_policy_digest,omitempty"`
+	ProfileDigest              string    `json:"profile_digest,omitempty"`
+	DNSIPv6                    bool      `json:"dns_ipv6"`
+	TUNDevice                  string    `json:"tun_device,omitempty"`
+	StartedAt                  time.Time `json:"started_at"`
 
 	ForwardingApplied bool `json:"forwarding_applied"`
 	NATApplied        bool `json:"nat_applied"`

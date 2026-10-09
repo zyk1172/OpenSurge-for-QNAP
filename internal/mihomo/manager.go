@@ -25,7 +25,10 @@ type Manager struct {
 }
 
 const (
-	configValidationTimeout   = 90 * time.Second
+	configValidationTimeout = 90 * time.Second
+	// NAS cold starts load geodata before opening the controller. Readiness
+	// polling stays bounded, but a two-second window can kill a healthy engine.
+	apiStartupTimeout         = 30 * time.Second
 	tunStartupTimeout         = 10 * time.Second
 	startupProcessStopTimeout = 3 * time.Second
 )
@@ -83,6 +86,9 @@ func (m Manager) Start() (int, error) {
 	if _, err := os.Stat(m.paths.MihomoConfig); err != nil {
 		return 0, fmt.Errorf("prepared mihomo config: %w", err)
 	}
+	if err := rotateStartupLog(m.paths.MihomoLog); err != nil {
+		return 0, fmt.Errorf("preserve previous mihomo startup log: %w", err)
+	}
 	if err := os.WriteFile(m.paths.MihomoLog, nil, 0o640); err != nil {
 		return 0, err
 	}
@@ -94,7 +100,7 @@ func (m Manager) Start() (int, error) {
 		m.stopStartedProcess(pid)
 		return 0, err
 	}
-	if err := m.waitForAPI(pid, 2*time.Second); err != nil {
+	if err := m.waitForAPI(pid, apiStartupTimeout); err != nil {
 		m.stopStartedProcess(pid)
 		return 0, err
 	}
@@ -111,6 +117,24 @@ func (m Manager) Start() (int, error) {
 		}
 	}
 	return pid, nil
+}
+
+// Full reload used to truncate the log that explains the original failure.
+// Keep two previous generations, with fixed names so repeated failures cannot
+// grow this startup history without bound.
+func rotateStartupLog(path string) error {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	previous, older := base+"-previous"+ext, base+"-previous-2"+ext
+	if err := os.Rename(previous, older); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.Rename(path, previous)
 }
 
 func (m Manager) waitForIPv6PacketListener(pid int, timeout time.Duration) error {
