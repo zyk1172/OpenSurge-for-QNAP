@@ -166,7 +166,11 @@ func normalizeResolvers(values []string, cfg config.Config) []string {
 			continue
 		}
 		value := ip.To4().String()
-		if value == "127.0.0.1" || value == self || seen[value] {
+		// Loopback resolvers belong to the current namespace. Docker's embedded
+		// 127.0.0.11 can forward to host-only DNS (for example Tailscale MagicDNS),
+		// which is unreachable from QNET/macvlan. Use the real upstream gateway
+		// fallback when no routable system resolver remains.
+		if ip.IsLoopback() || ip.IsUnspecified() || ip.IsMulticast() || value == self || value == strings.TrimSpace(cfg.Gateway.LANIP) || seen[value] {
 			continue
 		}
 		seen[value] = true

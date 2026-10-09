@@ -12,6 +12,44 @@ import (
 	"open-mihomo-gateway/internal/runtime"
 )
 
+func TestDockerHostOnlyResolverFallsBackToRealUpstreamRouter(t *testing.T) {
+	cfg := config.Default()
+	cfg.Gateway.LANIP = "192.168.2.241"
+	cfg.Gateway.UpstreamGateway = "192.168.2.1"
+	cfg.DNS.Listen = cfg.Gateway.LANIP
+	path := filepath.Join(t.TempDir(), "resolv.conf")
+	if err := os.WriteFile(path, []byte("nameserver 127.0.0.11\n# ExtServers: [100.100.100.100]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	resolvers, err := systemResolvers(path, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolvers) != 0 {
+		t.Fatalf("Docker stub escaped namespace filtering: %v", resolvers)
+	}
+	rendered, err := RenderConfigWithResolvers(cfg, runtime.NewPaths(cfg), resolvers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(rendered, "server 127.0.0.11 ") || !strings.Contains(rendered, "server 192.168.2.1 -group opensurge-resolver") {
+		t.Fatalf("Resolver View still depends on Docker host-only DNS:\n%s", rendered)
+	}
+	if strings.Count(rendered, "-group opensurge-gateway -exclude-default-group") != 1 || !strings.Contains(rendered, "server 127.0.0.1:1053 -group opensurge-gateway") {
+		t.Fatalf("real-IP fallback leaked into Gateway View:\n%s", rendered)
+	}
+}
+
+func TestNormalizeResolversRejectsNamespaceStubsAndOwnGatewayIP(t *testing.T) {
+	cfg := config.Default()
+	cfg.Gateway.LANIP = "192.168.2.241"
+	cfg.DNS.Listen = ""
+	got := normalizeResolvers([]string{"127.0.0.1", "127.0.0.11", "127.0.0.53", "0.0.0.0", "224.0.0.1", "192.168.2.241", "192.168.2.1", "192.168.2.1"}, cfg)
+	if len(got) != 1 || got[0] != "192.168.2.1" {
+		t.Fatalf("resolver normalization = %v", got)
+	}
+}
+
 func TestSameLANDefaultsUnknownClientsToResolverAndRegisteredGatewayToMihomo(t *testing.T) {
 	cfg := config.Default()
 	cfg.Gateway.Mode = config.GatewayModeSameLAN
@@ -196,7 +234,7 @@ rules:
   - MATCH,DIRECT
 `)
 	optimized, err := cloudflareopt.ApplyResultsToProfile(base, []cloudflareopt.TargetResult{{
-		Domain: "cdn.example.com",
+		Domain:   "cdn.example.com",
 		Selected: cloudflareopt.CandidateResult{IP: "104.18.42.212"},
 	}})
 	if err != nil {
@@ -227,4 +265,3 @@ rules:
 		t.Fatalf("underlying host mapping overrode Cloudflare optimizer result:\n%s", rendered)
 	}
 }
-

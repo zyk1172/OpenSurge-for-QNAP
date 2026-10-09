@@ -28,8 +28,10 @@ const (
 	configValidationTimeout = 90 * time.Second
 	// NAS cold starts load geodata before opening the controller. Readiness
 	// polling stays bounded, but a two-second window can kill a healthy engine.
-	apiStartupTimeout         = 30 * time.Second
-	tunStartupTimeout         = 10 * time.Second
+	apiStartupTimeout = 30 * time.Second
+	// The controller may listen before cold-start TUN initialization finishes.
+	// Give that phase the same bounded NAS startup window as the controller.
+	tunStartupTimeout         = 30 * time.Second
 	startupProcessStopTimeout = 3 * time.Second
 )
 
