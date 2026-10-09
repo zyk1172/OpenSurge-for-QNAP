@@ -2,6 +2,8 @@ package controlapi
 
 import (
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"open-mihomo-gateway/internal/gateway"
@@ -10,8 +12,29 @@ import (
 func TestFullGatewayRecoveryHTTPIsNASOnly(t *testing.T) {
 	s := newTestServer(t)
 	response := performAuthorized(s, http.MethodPost, "/api/v1/gateway/recover-gateway", nil)
-	if response.Code != http.StatusNotFound {
+	if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), "full gateway recovery is only available") {
 		t.Fatalf("non-container runner exposed NAS recovery: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestFullGatewayRecoveryHTTPRouteRequiresAuthentication(t *testing.T) {
+	s := newTestServer(t)
+	s.runner = ContainerRunner{}
+	response := httptest.NewRecorder()
+	s.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "http://127.0.0.1:61767/api/v1/gateway/recover-gateway", nil))
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated NAS recovery: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestFullGatewayRecoveryHTTPRouteUsesLifecycleGuard(t *testing.T) {
+	s := newTestServer(t)
+	s.runner = ContainerRunner{}
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	response := performAuthorized(s, http.MethodPost, "/api/v1/gateway/recover-gateway", nil)
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "operation_in_progress") {
+		t.Fatalf("NAS recovery route bypassed lifecycle guard: %d %s", response.Code, response.Body.String())
 	}
 }
 

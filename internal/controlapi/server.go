@@ -279,6 +279,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/gateway/stop", s.auth(http.HandlerFunc(s.handleGatewayAction)))
 	mux.Handle("POST /api/v1/gateway/reload", s.auth(http.HandlerFunc(s.handleGatewayAction)))
 	mux.Handle("POST /api/v1/gateway/restart-mihomo", s.auth(http.HandlerFunc(s.handleGatewayAction)))
+	mux.Handle("POST /api/v1/gateway/recover-gateway", s.auth(http.HandlerFunc(s.handleGatewayAction)))
 	mux.Handle("GET /api/v1/recovery", s.auth(http.HandlerFunc(s.handleRecovery)))
 	mux.Handle("POST /api/v1/recovery", s.auth(http.HandlerFunc(s.handleRecovery)))
 	mux.Handle("GET /api/v1/recovery/card", s.auth(http.HandlerFunc(s.handleRecoveryCard)))
