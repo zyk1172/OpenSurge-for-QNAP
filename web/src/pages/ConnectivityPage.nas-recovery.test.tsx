@@ -26,5 +26,16 @@ it('recovers the complete NAS gateway when the engine runs but DNS is absent', a
 it('does not offer automatic recovery after an intentional NAS gateway stop', async () => {
   render(<ConnectivityPage overview={{ ...failedDNS, status: { ...failedDNS.status, gateway: 'stopped', runtime_state: 'none', desired_running: false } }} onChanged={async () => {}} />)
   expect(screen.queryByRole('button', { name: '恢复完整网关' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '手动恢复完整网关' })).toBeNull()
   expect(api.gateway).not.toHaveBeenCalled()
+})
+
+it('offers an independent complete recovery control when policy routing is missing', async () => {
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
+  const changed = vi.fn(async () => {})
+  render(<ConnectivityPage overview={{status: {gateway:'degraded',runtime_state:'active', desired_running:true, mihomo:'running',dns:'running',local_dns:'running',routing:'missing'},mihomo_recovery:{state:'idle'}} as Overview} onChanged={changed} />)
+  await userEvent.click(screen.getByText('高级恢复操作'))
+  await userEvent.click(screen.getByRole('button', {name:'手动恢复完整网关'}))
+  await waitFor(() => expect(api.gateway).toHaveBeenCalledWith('recover-gateway'))
+  await waitFor(() => expect(changed).toHaveBeenCalled())
 })

@@ -81,6 +81,7 @@ type Server struct {
 	gatewayStatus         func(context.Context, config.Config) (gateway.Status, error)
 	doctor                *doctorController
 	mihomoRecovery        *mihomoRecoveryController
+	dnsHealth             *dnsHealthProbe
 	sleepPrevention       *sleepPreventionController
 	policyWorkspaceRunner PolicyWorkspaceRunner
 	policyWorkspaceLease  policyWorkspaceLease
@@ -236,6 +237,7 @@ func New(options Options) (*Server, error) {
 		},
 		doctor:          newDoctorController(doctor.Run),
 		mihomoRecovery:  newMihomoRecoveryController(),
+		dnsHealth:       newDNSHealthProbe(),
 		sleepPrevention: newSleepPreventionController(options.SleepRunner, configPath),
 		token:           token,
 		baseURL:         "http://" + options.Addr,
@@ -906,6 +908,9 @@ func (s *Server) handleGatewayAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if action == "restart-mihomo" || action == "recover-gateway" {
+		if s.dnsHealth != nil {
+			s.dnsHealth.reset()
+		}
 		s.mihomoRecovery.beginManual()
 	}
 	locked = false

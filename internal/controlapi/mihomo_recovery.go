@@ -20,9 +20,12 @@ const (
 	mihomoFailureControllerRefused = "controller_refused"
 	containerFailureDNSMissing     = "dns_missing"
 	containerFailureIncomplete     = "gateway_incomplete"
+	containerFailureDataPlaneMissing = "data_plane_missing"
+	containerFailureDNSUnresponsive  = "dns_unresponsive"
 
 	autoMihomoRecoveryInterval         = 5 * time.Second
 	mihomoRecoveryHealthyConfirmations = 2
+	mihomoRecoveryUnknownLimit         = 6
 )
 
 type mihomoRecoveryController struct {
@@ -32,6 +35,7 @@ type mihomoRecoveryController struct {
 	error           string
 	refusedCount    int
 	healthyCount    int
+	unknownCount    int
 	attempted       bool
 	operationActive bool
 }
@@ -52,6 +56,7 @@ func (c *mihomoRecoveryController) observeHealthy() {
 	if c.operationActive {
 		return
 	}
+	c.unknownCount = 0
 	if c.attempted {
 		c.healthyCount++
 		c.state = mihomoRecoveryRecovering
@@ -79,6 +84,13 @@ func (c *mihomoRecoveryController) observeUnknown() {
 	// future failure and health confirmations to be consecutive again.
 	c.healthyCount = 0
 	c.refusedCount = 0
+	if c.attempted && c.state == mihomoRecoveryRecovering {
+		c.unknownCount++
+		if c.unknownCount >= mihomoRecoveryUnknownLimit {
+			c.state = mihomoRecoveryFailed
+			c.error = "gateway health remained unconfirmed after recovery"
+		}
+	}
 }
 
 func (c *mihomoRecoveryController) observeFailure(reason string) bool {
@@ -88,11 +100,12 @@ func (c *mihomoRecoveryController) observeFailure(reason string) bool {
 		return false
 	}
 	c.healthyCount = 0
+	c.unknownCount = 0
 	if c.attempted && c.state == mihomoRecoveryRecovering {
 		c.state = mihomoRecoveryFailed
 		c.reason = reason
 		c.error = "mihomo remained unhealthy after restart"
-		if reason == containerFailureDNSMissing || reason == containerFailureIncomplete {
+		if reason == containerFailureDNSMissing || reason == containerFailureIncomplete || reason == containerFailureDataPlaneMissing || reason == containerFailureDNSUnresponsive {
 			c.error = "gateway remained unhealthy after full recovery"
 		}
 		return false
@@ -106,7 +119,7 @@ func (c *mihomoRecoveryController) observeFailure(reason string) bool {
 	}
 	c.state = mihomoRecoveryObserving
 	c.error = ""
-	if reason == mihomoFailureProcessMissing || reason == containerFailureDNSMissing || reason == containerFailureIncomplete {
+	if reason == mihomoFailureProcessMissing || reason == containerFailureDNSMissing || reason == containerFailureIncomplete || reason == containerFailureDataPlaneMissing || reason == containerFailureDNSUnresponsive {
 		return true
 	}
 	if reason == mihomoFailureControllerRefused {
@@ -127,6 +140,7 @@ func (c *mihomoRecoveryController) begin(reason string) bool {
 	c.error = ""
 	c.attempted = true
 	c.healthyCount = 0
+	c.unknownCount = 0
 	c.operationActive = true
 	return true
 }
@@ -138,6 +152,7 @@ func (c *mihomoRecoveryController) beginManual() {
 	c.error = ""
 	c.attempted = true
 	c.healthyCount = 0
+	c.unknownCount = 0
 	c.operationActive = true
 }
 
@@ -207,6 +222,15 @@ func (s *Server) evaluateMihomoRecovery(ctx context.Context) {
 	}
 
 	action, reason := automaticRecoveryAction(status, isContainer)
+	if isContainer && action == "restart-mihomo" && reason == "" && status.RuntimeState == "active" && status.Gateway == "running" && status.DNS == "running" && (status.LocalDNS == "running" || status.LocalDNS == "disabled") && s.dnsHealth != nil {
+		switch s.dnsHealth.sample(ctx, cfg) {
+		case dnsProbeUnavailable:
+			action, reason = "recover-gateway", containerFailureDNSUnresponsive
+		case dnsProbeUnknown:
+			s.mihomoRecovery.observeUnknown()
+			return
+		}
+	}
 	if action == "" {
 		s.mihomoRecovery.observeUnknown()
 		return
@@ -245,6 +269,11 @@ func (s *Server) evaluateMihomoRecovery(ctx context.Context) {
 		s.mihomoRecovery.finishAutomatic(err)
 		return
 	}
+	// A previous failed DNS socket sample must not mark a newly recovered
+	// gateway unhealthy before its dependencies can be probed afresh.
+	if s.dnsHealth != nil {
+		s.dnsHealth.reset()
+	}
 	go s.runOperationLocked(op, cfg.Gateway.Mode, recovery, nil, s.mihomoRecovery.finishAutomatic)
 }
 
@@ -265,6 +294,11 @@ func automaticRecoveryAction(status gateway.Status, isContainer bool) (string, s
 		}
 		if status.DNS == "stopped" || status.LocalDNS == "stopped" || status.DHCP == "stopped" {
 			return "recover-gateway", containerFailureDNSMissing
+		}
+		// Only confirmed data-plane failures trigger the destructive full
+		// recovery. Unknown observations under NAS I/O stalls are not proof.
+		if status.Routing == "missing" || status.TUN == "failed" || status.NFTables == "missing" || status.Forwarding == "disabled" {
+			return "recover-gateway", containerFailureDataPlaneMissing
 		}
 		// A missing/unknown DNS observation does not confirm a repaired engine.
 		if status.DNS != "running" && status.DNS != "legacy-dnsmasq" {

@@ -99,7 +99,7 @@ export type Operation = {
   phase?: string; phase_started_at?: string; notices?: string[]
   created_at?: string; updated_at?: string
 }
-export type MihomoRecoveryStatus = { state: 'idle' | 'observing' | 'recovering' | 'failed'; reason?: 'process_missing' | 'controller_refused' | 'dns_missing' | 'gateway_incomplete'; error?: string }
+export type MihomoRecoveryStatus = { state: 'idle' | 'observing' | 'recovering' | 'failed'; reason?: 'process_missing' | 'controller_refused' | 'dns_missing' | 'gateway_incomplete' | 'data_plane_missing' | 'dns_unresponsive'; error?: string }
 export type SleepPreventionStatus = { enabled: boolean; active: boolean; error?: string }
 export type ControlConfig = {
   schema_version: number; revision: string
