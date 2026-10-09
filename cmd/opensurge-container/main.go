@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"open-mihomo-gateway/internal/controlapi"
-	"open-mihomo-gateway/internal/gateway"
 	"open-mihomo-gateway/internal/linuxnetwork"
 	"open-mihomo-gateway/internal/qnaphost"
 	"open-mihomo-gateway/internal/webgateway"
@@ -66,15 +65,10 @@ func main() {
 			fmt.Println("OpenSurge gateway recovery: no data-plane restart required.")
 		}
 	case "health":
-		readiness, err := gateway.ReadinessConfig(ctx, *configPath)
-		if err != nil {
+		if err := checkWebReadiness(ctx, *webAddr); err != nil {
 			fatal(fmt.Errorf("gateway readiness check failed: %w", err))
 		}
-		if !readiness.Ready {
-			fmt.Fprintf(os.Stderr, "gateway not ready: desired_running=%t gateway=%s runtime_state=%s reason=%s\n", readiness.DesiredRunning, readiness.Gateway, readiness.RuntimeState, readiness.Reason)
-			os.Exit(1)
-		}
-		fmt.Printf("gateway ready: desired_running=%t gateway=%s runtime_state=%s\n", readiness.DesiredRunning, readiness.Gateway, readiness.RuntimeState)
+		fmt.Println("gateway ready")
 	case "control":
 		control, hostManager, err := newControl(*configPath, *storeDir, *controlAddr)
 		if err != nil {

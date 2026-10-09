@@ -140,6 +140,6 @@ EXPOSE 8080/tcp 61780/tcp 53/tcp 53/udp
 # healthy; when the persisted intent is running, Mihomo/DNS/TUN/policy routing
 # must all be active in the current container network namespace.
 HEALTHCHECK --interval=30s --timeout=8s --start-period=30s --retries=3 \
-  CMD /bin/sh -c '/usr/local/bin/opensurge-container --component health --config "${OPENSURGE_CONFIG:-/data/config/opensurge.yaml}" >/dev/null' || exit 1
+  CMD /bin/sh -c '/usr/local/bin/opensurge-container --component health --web-addr "${OPENSURGE_WEB_ADDR:-0.0.0.0:8080}" >/dev/null' || exit 1
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/opensurge-entrypoint"]

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"open-mihomo-gateway/internal/config"
 	"open-mihomo-gateway/internal/device"
@@ -43,6 +44,8 @@ type Status struct {
 }
 
 func (m Manager) Status(ctx context.Context) (Status, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	state, exists, err := runtime.LoadState(m.paths.StateFile)
 	if err != nil {
 		return Status{}, err
@@ -207,13 +210,16 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 	}
 	forwarding := "unknown"
 	if backend, err := m.backend(); err == nil {
-		if observed, err := backend.ObservedState(ctx); err == nil {
-			if observed.IPv4Forwarding {
+		if enabled, err := observeForwarding(ctx, backend); err == nil {
+			if enabled {
 				forwarding = "enabled"
 			} else {
 				forwarding = "disabled"
 			}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return Status{}, fmt.Errorf("gateway status probe did not complete: %w", err)
 	}
 
 	return Status{
@@ -240,6 +246,17 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 		TUNIPv6Requested: tunIPv6Requested,
 		IPv6Takeover:     ipv6Takeover,
 	}, nil
+}
+
+func observeForwarding(ctx context.Context, backend platform.NetworkBackend) (bool, error) {
+	if observer, ok := backend.(platform.ForwardingObserver); ok {
+		return observer.IPv4ForwardingEnabled(ctx)
+	}
+	observed, err := backend.ObservedState(ctx)
+	if err != nil {
+		return false, err
+	}
+	return observed.IPv4Forwarding, nil
 }
 
 type versionResult struct {

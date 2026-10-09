@@ -43,6 +43,12 @@ type NetworkBackend interface {
 
 var ErrUnsupported = errors.New("no network backend for this platform")
 
+// ForwardingObserver reads just the forwarding switch without a full network
+// inventory. Backends without this capability retain ObservedState semantics.
+type ForwardingObserver interface {
+	IPv4ForwardingEnabled(context.Context) (bool, error)
+}
+
 func Validate(b NetworkBackend) error {
 	if b == nil {
 		return errors.New("nil network backend")
