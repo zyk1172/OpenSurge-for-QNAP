@@ -133,13 +133,13 @@ func (m Manager) backend() (platform.NetworkBackend, error) {
 
 type noopSmartDNSService struct{}
 
-func (noopSmartDNSService) Check() error                                   { return nil }
-func (noopSmartDNSService) WriteConfig() error                             { return nil }
-func (noopSmartDNSService) ValidateWrittenConfig() error                   { return nil }
+func (noopSmartDNSService) Check() error                                       { return nil }
+func (noopSmartDNSService) WriteConfig() error                                 { return nil }
+func (noopSmartDNSService) ValidateWrittenConfig() error                       { return nil }
 func (noopSmartDNSService) ValidateWrittenConfigContext(context.Context) error { return nil }
-func (noopSmartDNSService) Start() (int, error)                            { return 0, nil }
-func (noopSmartDNSService) Stop(int) error                                  { return nil }
-func (noopSmartDNSService) Running(int) bool                                { return true }
+func (noopSmartDNSService) Start() (int, error)                                { return 0, nil }
+func (noopSmartDNSService) Stop(int) error                                     { return nil }
+func (noopSmartDNSService) Running(int) bool                                   { return true }
 
 func newSmartDNSService(deps gatewayDeps, cfg config.Config, paths runtime.Paths) smartDNSService {
 	if deps.newSmartDNS != nil {
@@ -189,6 +189,9 @@ func stopTrackedProcess(deps gatewayDeps, name string, pid int, fingerprint stri
 		return fmt.Errorf("verify %s pid %d before stop: %w", name, pid, err)
 	}
 	if !matches {
+		if process.IsAlive(pid) {
+			return fmt.Errorf("verify %s pid %d before stop: process identity changed; refusing to signal the PID", name, pid)
+		}
 		return nil
 	}
 	return stop(pid)

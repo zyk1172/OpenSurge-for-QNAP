@@ -87,13 +87,12 @@ func Fingerprint(pid int) (string, error) {
 }
 
 func linuxProcessIdentity(pid int) (string, error) {
-	return linuxProcessIdentityWithProc(pid, os.ReadFile, os.Readlink, IsAlive)
+	return linuxProcessIdentityWithProc(pid, os.ReadFile, IsAlive)
 }
 
 func linuxProcessIdentityWithProc(
 	pid int,
 	readProcFile func(string) ([]byte, error),
-	readProcLink func(string) (string, error),
 	isAlive func(int) bool,
 ) (string, error) {
 	statPath := fmt.Sprintf("/proc/%d/stat", pid)
@@ -118,50 +117,11 @@ func linuxProcessIdentityWithProc(
 		return "", fmt.Errorf("inspect pid %d identity from procfs stat: missing start time", pid)
 	}
 	startTime := statFields[19]
-
-	cmdlineData, err := readProcFile(fmt.Sprintf("/proc/%d/cmdline", pid))
-	if err != nil {
-		if !isAlive(pid) {
-			return "", nil
-		}
-		return "", fmt.Errorf("inspect pid %d identity from procfs cmdline: %w", pid, err)
-	}
-	cmdline := normalizeProcCmdline(cmdlineData)
-	if cmdline == "" {
-		// Userspace children managed by OpenSurge should have a cmdline. Fall back
-		// to comm rather than depending on ps if a process intentionally clears it.
-		openComm := strings.Index(statText, "(")
-		if openComm >= 0 && openComm < closeComm {
-			cmdline = strings.TrimSpace(statText[openComm+1 : closeComm])
-		}
-	}
-	if cmdline == "" {
-		if !IsAlive(pid) {
-			return "", nil
-		}
-		return "", fmt.Errorf("inspect pid %d identity from procfs: empty command", pid)
-	}
-
-	exe, err := readProcLink(fmt.Sprintf("/proc/%d/exe", pid))
-	if err != nil {
-		if !isAlive(pid) {
-			return "", nil
-		}
-		if !errors.Is(err, os.ErrPermission) {
-			return "", fmt.Errorf("inspect pid %d identity from procfs exe: %w", pid, err)
-		}
-		// Some Linux container kernels allow reading stat/cmdline but restrict
-		// /proc/<pid>/exe through ptrace access checks. Keep the kernel start time
-		// and command line as the process identity, and encode the unavailable exe
-		// explicitly so later checks use the same fallback without widening caps.
-		exe = "<permission-denied>"
-	}
-
-	return fmt.Sprintf("linux-proc-v1|start=%s|exe=%s|command=%s", startTime, exe, cmdline), nil
-}
-
-func normalizeProcCmdline(value []byte) string {
-	return strings.Join(strings.Fields(strings.ReplaceAll(string(value), "\x00", " ")), " ")
+	// Executable links and command lines can change or become unreadable when a
+	// managed daemon drops privileges. The kernel start time is stable for the
+	// lifetime of this PID and prevents those permission transitions from making
+	// an owned process appear to be a different process during cleanup.
+	return fmt.Sprintf("linux-proc-v2|pid=%d|start=%s", pid, startTime), nil
 }
 
 func psProcessIdentity(pid int) (string, error) {
