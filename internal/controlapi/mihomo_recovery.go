@@ -93,6 +93,16 @@ func (c *mihomoRecoveryController) observeUnknown() {
 	}
 }
 
+// observePending means the same throttled DNS sample is still awaiting a new
+// socket observation. It must not count as another independent unknown sample.
+func (c *mihomoRecoveryController) observePending() {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    if c.operationActive { return }
+    c.healthyCount = 0
+    c.refusedCount = 0
+}
+
 func (c *mihomoRecoveryController) observeFailure(reason string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -227,7 +237,7 @@ func (s *Server) evaluateMihomoRecovery(ctx context.Context) {
 		case dnsProbeUnavailable:
 			action, reason = "recover-gateway", containerFailureDNSUnresponsive
 		case dnsProbeUnknown:
-			s.mihomoRecovery.observeUnknown()
+			s.mihomoRecovery.observePending()
 			return
 		}
 	}

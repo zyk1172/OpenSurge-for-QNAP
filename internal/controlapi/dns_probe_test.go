@@ -2,7 +2,11 @@ package controlapi
 
 import (
     "context"
+    "encoding/binary"
+    "io"
+    "net"
     "testing"
+    "golang.org/x/net/dns/dnsmessage"
     "time"
 
     "open-mihomo-gateway/internal/config"

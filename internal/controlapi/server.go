@@ -959,6 +959,11 @@ func (s *Server) runOperationLocked(op Operation, topology string, recoveryBefor
 		}
 	}
 	_ = s.store.SaveOperation(op)
+    // The last DNS probe describes the old listener generation. Do not reuse
+    // it after any full lifecycle transition (including one that failed).
+    if s.dnsHealth != nil && (op.Kind == "start" || op.Kind == "stop" || op.Kind == "reload" || op.Kind == "recover-gateway") {
+        s.dnsHealth.reset()
+    }
 	if completed != nil {
 		completed(err)
 	} else if op.Kind == "restart-mihomo" || op.Kind == "recover-gateway" {

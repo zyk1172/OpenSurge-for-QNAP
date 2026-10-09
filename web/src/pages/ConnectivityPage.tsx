@@ -30,7 +30,7 @@ export function ConnectivityPage({ overview, onChanged }: { overview: Overview |
   const manualMihomoRecoveryNeeded = mihomoFailureDetected && (overview?.mihomo_recovery?.state ?? 'failed') === 'failed'
   // Manual recovery is deliberately independent of the automatic watchdog
   // failure state; a stuck status sample must not hide the fallback.
-  const allowManualGatewayRecovery = qnapBuild && overview?.status.desired_running === true && automaticMihomoRecoveryState !== 'recovering'
+  const allowManualGatewayRecovery = qnapBuild && overview?.status.desired_running === true
   const canProbe = running && !mihomoFailureDetected
 
   const loadCatalog = useCallback(async () => {
