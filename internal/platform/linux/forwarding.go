@@ -47,3 +47,11 @@ func (b *Backend) currentIPv4Forwarding() (string, error) {
 	}
 	return value, nil
 }
+
+func (b *Backend) IPv4ForwardingEnabled(ctx context.Context) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	value, err := b.currentIPv4Forwarding()
+	return value == "1", err
+}

@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,29 @@ import (
 	"open-mihomo-gateway/internal/platform"
 	"open-mihomo-gateway/internal/runtime"
 )
+
+type forwardingOnlyBackend struct{ fakeBackend }
+
+func (*forwardingOnlyBackend) IPv4ForwardingEnabled(context.Context) (bool, error) {
+	return true, nil
+}
+
+func (*forwardingOnlyBackend) ObservedState(context.Context) (*platform.ObservedState, error) {
+	panic("status must not run an entire network inventory to read ip_forward")
+}
+
+func TestStatusUsesForwardingOnlyObserver(t *testing.T) {
+	cfg := config.Default()
+	cfg.Runtime.Dir = t.TempDir()
+	manager := Manager{cfg: cfg, paths: runtime.NewPaths(cfg), deps: gatewayDeps{
+		geteuid:    func() int { return 0 },
+		newBackend: func() (platform.NetworkBackend, error) { return &forwardingOnlyBackend{}, nil },
+	}}
+	status, err := manager.Status(t.Context())
+	if err != nil || status.Forwarding != "enabled" {
+		t.Fatalf("status = %#v, %v", status, err)
+	}
+}
 
 func TestStatusFormatLabelsDNSOnlyMode(t *testing.T) {
 	status := Status{

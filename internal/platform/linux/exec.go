@@ -10,8 +10,10 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 
 	"open-mihomo-gateway/internal/platform"
+	"open-mihomo-gateway/internal/process"
 )
 
 // interfaceNamePattern is deliberately strict. Anything that reaches an
@@ -77,7 +79,19 @@ func newRunner() *runner {
 	return &runner{nftPath: nftPath, ipPath: ipPath}
 }
 
+// Shared across backend instances: status creates fresh backends, so a limit
+// attached to one runner would not bound stuck children across requests.
+var networkProbes = process.NewProbePool(4)
+
 func (r *runner) output(ctx context.Context, name string, args ...string) ([]byte, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	return networkProbes.Run(probeCtx, func() ([]byte, error) {
+		return r.commandOutput(probeCtx, name, args...)
+	})
+}
+
+func (r *runner) commandOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
 	if name == "" {
 		return nil, platform.NewError(platform.CodeInvalidArgument, "command name is empty")
 	}
@@ -96,7 +110,9 @@ func (r *runner) output(ctx context.Context, name string, args ...string) ([]byt
 }
 
 func (r *runner) run(ctx context.Context, name string, args ...string) error {
-	_, err := r.output(ctx, name, args...)
+	// Mutations must wait for the actual command result; only read-only probes
+	// may return while the kernel still holds the child.
+	_, err := r.commandOutput(ctx, name, args...)
 	return err
 }
 
