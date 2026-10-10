@@ -18,9 +18,14 @@ const (
 
 	mihomoFailureProcessMissing    = "process_missing"
 	mihomoFailureControllerRefused = "controller_refused"
+	containerFailureDNSMissing     = "dns_missing"
+	containerFailureIncomplete     = "gateway_incomplete"
+	containerFailureDataPlaneMissing = "data_plane_missing"
+	containerFailureDNSUnresponsive  = "dns_unresponsive"
 
 	autoMihomoRecoveryInterval         = 5 * time.Second
 	mihomoRecoveryHealthyConfirmations = 2
+	mihomoRecoveryUnknownLimit         = 6
 )
 
 type mihomoRecoveryController struct {
@@ -30,6 +35,7 @@ type mihomoRecoveryController struct {
 	error           string
 	refusedCount    int
 	healthyCount    int
+	unknownCount    int
 	attempted       bool
 	operationActive bool
 }
@@ -50,6 +56,7 @@ func (c *mihomoRecoveryController) observeHealthy() {
 	if c.operationActive {
 		return
 	}
+	c.unknownCount = 0
 	if c.attempted {
 		c.healthyCount++
 		c.state = mihomoRecoveryRecovering
@@ -77,6 +84,23 @@ func (c *mihomoRecoveryController) observeUnknown() {
 	// future failure and health confirmations to be consecutive again.
 	c.healthyCount = 0
 	c.refusedCount = 0
+	if c.attempted && c.state == mihomoRecoveryRecovering {
+		c.unknownCount++
+		if c.unknownCount >= mihomoRecoveryUnknownLimit {
+			c.state = mihomoRecoveryFailed
+			c.error = "gateway health remained unconfirmed after recovery"
+		}
+	}
+}
+
+// observePending means the same throttled DNS sample is still awaiting a new
+// socket observation. It must not count as another independent unknown sample.
+func (c *mihomoRecoveryController) observePending() {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    if c.operationActive { return }
+    c.healthyCount = 0
+    c.refusedCount = 0
 }
 
 func (c *mihomoRecoveryController) observeFailure(reason string) bool {
@@ -86,10 +110,14 @@ func (c *mihomoRecoveryController) observeFailure(reason string) bool {
 		return false
 	}
 	c.healthyCount = 0
+	c.unknownCount = 0
 	if c.attempted && c.state == mihomoRecoveryRecovering {
 		c.state = mihomoRecoveryFailed
 		c.reason = reason
 		c.error = "mihomo remained unhealthy after restart"
+		if reason == containerFailureDNSMissing || reason == containerFailureIncomplete || reason == containerFailureDataPlaneMissing || reason == containerFailureDNSUnresponsive {
+			c.error = "gateway remained unhealthy after full recovery"
+		}
 		return false
 	}
 	if c.attempted || c.state == mihomoRecoveryFailed {
@@ -101,7 +129,7 @@ func (c *mihomoRecoveryController) observeFailure(reason string) bool {
 	}
 	c.state = mihomoRecoveryObserving
 	c.error = ""
-	if reason == mihomoFailureProcessMissing {
+	if reason == mihomoFailureProcessMissing || reason == containerFailureDNSMissing || reason == containerFailureIncomplete || reason == containerFailureDataPlaneMissing || reason == containerFailureDNSUnresponsive {
 		return true
 	}
 	if reason == mihomoFailureControllerRefused {
@@ -122,6 +150,7 @@ func (c *mihomoRecoveryController) begin(reason string) bool {
 	c.error = ""
 	c.attempted = true
 	c.healthyCount = 0
+	c.unknownCount = 0
 	c.operationActive = true
 	return true
 }
@@ -133,6 +162,7 @@ func (c *mihomoRecoveryController) beginManual() {
 	c.error = ""
 	c.attempted = true
 	c.healthyCount = 0
+	c.unknownCount = 0
 	c.operationActive = true
 }
 
@@ -195,12 +225,26 @@ func (s *Server) evaluateMihomoRecovery(ctx context.Context) {
 		return
 	}
 	status, err := s.gatewayStatus(ctx, cfg)
-	if err != nil || status.RuntimeState != "active" {
+	isContainer := containerRecoveryRunner(s.runner)
+	if err != nil || !isContainer && status.RuntimeState != "active" {
 		s.mihomoRecovery.observeUnknown()
 		return
 	}
 
-	reason := mihomoFailureReason(status)
+	action, reason := automaticRecoveryAction(status, isContainer)
+	if isContainer && action == "restart-mihomo" && reason == "" && status.RuntimeState == "active" && status.Gateway == "running" && status.DNS == "running" && (status.LocalDNS == "running" || status.LocalDNS == "disabled") && s.dnsHealth != nil {
+		switch s.dnsHealth.sample(ctx, cfg) {
+		case dnsProbeUnavailable:
+			action, reason = "recover-gateway", containerFailureDNSUnresponsive
+		case dnsProbeUnknown:
+			s.mihomoRecovery.observePending()
+			return
+		}
+	}
+	if action == "" {
+		s.mihomoRecovery.observeUnknown()
+		return
+	}
 	if reason == "" {
 		s.mihomoRecovery.observeHealthy()
 		return
@@ -229,13 +273,52 @@ func (s *Server) evaluateMihomoRecovery(ctx context.Context) {
 		return
 	}
 
-	op := newOperation("auto-restart-mihomo-"+randomToken(8), "restart-mihomo")
+	op := newOperation("auto-"+action+"-"+randomToken(8), action)
 	if err := s.store.CreateOperation(op); err != nil {
 		s.lifecycleMu.Unlock()
 		s.mihomoRecovery.finishAutomatic(err)
 		return
 	}
+	// A previous failed DNS socket sample must not mark a newly recovered
+	// gateway unhealthy before its dependencies can be probed afresh.
+	if s.dnsHealth != nil {
+		s.dnsHealth.reset()
+	}
 	go s.runOperationLocked(op, cfg.Gateway.Mode, recovery, nil, s.mihomoRecovery.finishAutomatic)
+}
+
+// A cleanup journal, or a gateway missing a DNS dependency, cannot be healed
+// by restarting only the engine. Include the legacy partial-start format and
+// the state-less result of a successful rollback with running intent retained.
+func automaticRecoveryAction(status gateway.Status, isContainer bool) (string, string) {
+	if isContainer {
+		if !status.DesiredRunning {
+			return "", ""
+		}
+		switch status.RuntimeState {
+		case "none", "incomplete", "interrupted":
+			return "recover-gateway", containerFailureIncomplete
+		case "active":
+		default:
+			return "", ""
+		}
+		if status.DNS == "stopped" || status.LocalDNS == "stopped" || status.DHCP == "stopped" {
+			return "recover-gateway", containerFailureDNSMissing
+		}
+		// Only confirmed data-plane failures trigger the destructive full
+		// recovery. Unknown observations under NAS I/O stalls are not proof.
+		if status.Routing == "missing" || status.TUN == "failed" || status.NFTables == "missing" || status.Forwarding == "disabled" {
+			return "recover-gateway", containerFailureDataPlaneMissing
+		}
+		// A missing/unknown DNS observation does not confirm a repaired engine.
+		if status.DNS != "running" && status.DNS != "legacy-dnsmasq" {
+			return "", ""
+		}
+		if mihomoFailureReason(status) == "" && status.Gateway != "running" {
+			return "", ""
+		}
+	}
+	return "restart-mihomo", mihomoFailureReason(status)
 }
 
 func mihomoFailureReason(status gateway.Status) string {

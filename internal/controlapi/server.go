@@ -81,19 +81,20 @@ type Server struct {
 	gatewayStatus         func(context.Context, config.Config) (gateway.Status, error)
 	doctor                *doctorController
 	mihomoRecovery        *mihomoRecoveryController
+	dnsHealth             *dnsHealthProbe
 	sleepPrevention       *sleepPreventionController
 	policyWorkspaceRunner PolicyWorkspaceRunner
 	policyWorkspaceLease  policyWorkspaceLease
 	token                 string
 	baseURL               string
 
-	mu          sync.Mutex
-	lifecycleMu sync.Mutex
-	sessions    map[string]time.Time
+	mu                sync.Mutex
+	lifecycleMu       sync.Mutex
+	sessions          map[string]time.Time
 	bootstraps        map[string]bootstrapGrant
-	hostHostsSyncOnce  sync.Once
-	sourceRefreshOnce  sync.Once
-	sourceRefreshMu    sync.Mutex
+	hostHostsSyncOnce sync.Once
+	sourceRefreshOnce sync.Once
+	sourceRefreshMu   sync.Mutex
 }
 
 type bootstrapGrant struct {
@@ -236,6 +237,7 @@ func New(options Options) (*Server, error) {
 		},
 		doctor:          newDoctorController(doctor.Run),
 		mihomoRecovery:  newMihomoRecoveryController(),
+		dnsHealth:       newDNSHealthProbe(),
 		sleepPrevention: newSleepPreventionController(options.SleepRunner, configPath),
 		token:           token,
 		baseURL:         "http://" + options.Addr,
@@ -279,6 +281,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/gateway/stop", s.auth(http.HandlerFunc(s.handleGatewayAction)))
 	mux.Handle("POST /api/v1/gateway/reload", s.auth(http.HandlerFunc(s.handleGatewayAction)))
 	mux.Handle("POST /api/v1/gateway/restart-mihomo", s.auth(http.HandlerFunc(s.handleGatewayAction)))
+	mux.Handle("POST /api/v1/gateway/recover-gateway", s.auth(http.HandlerFunc(s.handleGatewayAction)))
 	mux.Handle("GET /api/v1/recovery", s.auth(http.HandlerFunc(s.handleRecovery)))
 	mux.Handle("POST /api/v1/recovery", s.auth(http.HandlerFunc(s.handleRecovery)))
 	mux.Handle("GET /api/v1/recovery/card", s.auth(http.HandlerFunc(s.handleRecoveryCard)))
@@ -799,8 +802,12 @@ func (s *Server) handleGatewayPlan(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGatewayAction(w http.ResponseWriter, r *http.Request) {
 	action := strings.TrimPrefix(r.URL.Path, "/api/v1/gateway/")
-	if action != "start" && action != "stop" && action != "reload" && action != "restart-mihomo" {
+	if action != "start" && action != "stop" && action != "reload" && action != "restart-mihomo" && action != "recover-gateway" {
 		writeError(w, http.StatusNotFound, "not_found", "unknown gateway action")
+		return
+	}
+	if action == "recover-gateway" && !containerRecoveryRunner(s.runner) {
+		writeError(w, http.StatusNotFound, "not_found", "full gateway recovery is only available in the NAS container")
 		return
 	}
 	id := r.Header.Get("Idempotency-Key")
@@ -900,7 +907,10 @@ func (s *Server) handleGatewayAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "operation_failed", err.Error())
 		return
 	}
-	if action == "restart-mihomo" {
+	if action == "restart-mihomo" || action == "recover-gateway" {
+		if s.dnsHealth != nil {
+			s.dnsHealth.reset()
+		}
 		s.mihomoRecovery.beginManual()
 	}
 	locked = false
@@ -949,9 +959,14 @@ func (s *Server) runOperationLocked(op Operation, topology string, recoveryBefor
 		}
 	}
 	_ = s.store.SaveOperation(op)
+    // The last DNS probe describes the old listener generation. Do not reuse
+    // it after any full lifecycle transition (including one that failed).
+    if s.dnsHealth != nil && (op.Kind == "start" || op.Kind == "stop" || op.Kind == "reload" || op.Kind == "recover-gateway") {
+        s.dnsHealth.reset()
+    }
 	if completed != nil {
 		completed(err)
-	} else if op.Kind == "restart-mihomo" {
+	} else if op.Kind == "restart-mihomo" || op.Kind == "recover-gateway" {
 		s.mihomoRecovery.finishManual(err)
 	}
 }

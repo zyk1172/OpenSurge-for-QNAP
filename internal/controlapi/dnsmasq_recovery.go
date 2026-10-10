@@ -134,7 +134,7 @@ func (s *Server) evaluateDNSMasqRecovery(ctx context.Context, controller *dnsmas
 		return
 	}
 	status, err := s.gatewayStatus(ctx, cfg)
-	if err != nil || status.RuntimeState != "active" {
+	if err != nil || status.RuntimeState != "active" || !status.DesiredRunning || status.DNS == "stopped" || status.LocalDNS == "stopped" {
 		controller.observeUnknown()
 		return
 	}

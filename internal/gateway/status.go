@@ -27,6 +27,7 @@ type Status struct {
 	DHCP             string `json:"dhcp"`
 	DHCPEnabled      bool   `json:"dhcp_enabled"`
 	DNS              string `json:"dns"`
+	LocalDNS         string `json:"local_dns,omitempty"`
 	Mihomo           string `json:"mihomo"`
 	MihomoError      string `json:"mihomo_error,omitempty"`
 	TUN              string `json:"tun"`
@@ -72,6 +73,10 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 		dhcpStatus = "stopped"
 	}
 	dnsStatus := "stopped"
+	localDNSStatus := "disabled"
+	if dhcp.ShouldRun(m.cfg) {
+		localDNSStatus = "stopped"
+	}
 	mihomoStatus := "stopped"
 	mihomoError := ""
 	tunStatus := "disabled"
@@ -116,6 +121,9 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 			runtimeState = "interrupted"
 		} else {
 			runtimeState = "active"
+			if state.Lifecycle != "" && state.Lifecycle != "running" {
+				runtimeState = "incomplete"
+			}
 			appliedCfg := m.cfg
 			mihomoRunning := false
 			mihomoManager := mihomo.New(appliedCfg, m.paths)
@@ -147,6 +155,9 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 			dnsmasqRunning := trackedProcessRunning(m.gatewayDeps(), state.PIDDNSMasq, state.DNSMasqProcessFingerprint, dhcpManager.Running)
 			dhcpReady := !m.cfg.DHCP.Enabled || dnsmasqRunning
 			localDNSReady := !dhcp.ShouldRun(m.cfg) || dnsmasqRunning
+			if dhcp.ShouldRun(m.cfg) && dnsmasqRunning {
+				localDNSStatus = "running"
+			}
 			if m.cfg.DHCP.Enabled && dnsmasqRunning {
 				dhcpStatus = "running"
 			}
@@ -166,7 +177,7 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 			// the already-running TUN data plane stopped. An explicit disabled
 			// response remains a real degraded condition.
 			tunReady := !m.cfg.Transparent.TUNEnabled() || tunStatus == "ready" || tunStatus == "unknown"
-			if dhcpReady && localDNSReady && dnsReady && mihomoRunning && tunReady {
+			if runtimeState == "active" && dhcpReady && localDNSReady && dnsReady && mihomoRunning && tunReady {
 				gatewayStatus = "running"
 			} else {
 				gatewayStatus = "degraded"
@@ -234,6 +245,7 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 		DHCP:             dhcpStatus,
 		DHCPEnabled:      m.cfg.DHCP.Enabled,
 		DNS:              dnsStatus,
+		LocalDNS:         localDNSStatus,
 		Mihomo:           mihomoStatus,
 		MihomoError:      mihomoError,
 		TUN:              tunStatus,

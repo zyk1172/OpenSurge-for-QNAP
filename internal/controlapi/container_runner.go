@@ -22,6 +22,20 @@ type ContainerRunner struct {
 }
 
 func (r ContainerRunner) Run(ctx context.Context, action, configPath string) error {
+	if action == "recover-gateway" {
+		cfg, err := config.LoadRuntime(configPath)
+		if err != nil {
+			return err
+		}
+		if err := validateContainerTopology(cfg.Gateway.Mode); err != nil {
+			return err
+		}
+		// This path rechecks persisted intent under the gateway lifecycle lock,
+		// finishes owned cleanup, and starts every service in dependency order.
+		// It must not turn a concurrent manual stop back into a start request.
+		_, err = RecoverContainerConfigAfterRestart(ctx, configPath, r.StoreDir)
+		return err
+	}
 	if action == "restart-dnsmasq" {
 		return gateway.RestartDNSMasqConfig(ctx, configPath)
 	}

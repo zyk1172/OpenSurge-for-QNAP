@@ -82,6 +82,27 @@ func TestAutoMihomoRecoveryObservationErrorsDoNotResetIncident(t *testing.T) {
 	}
 }
 
+func TestThrottledDNSUnknownDoesNotConsumeUnknownObservationBudget(t *testing.T) {
+  c := newMihomoRecoveryController()
+  c.beginManual()
+  c.finishManual(nil)
+  for i:=0;i<30;i++ { c.observePending() }
+  if got:=c.snapshot(); got.State!=mihomoRecoveryRecovering {
+    t.Fatalf("cached DNS unknown incorrectly failed recovery: %+v",got)
+  }
+}
+
+func TestRecoveryFailsClosedAfterRepeatedIndeterminateStatus(t *testing.T) {
+  c := newMihomoRecoveryController()
+  c.beginManual()
+  c.finishManual(nil)
+  for i:=0;i<mihomoRecoveryUnknownLimit-1;i++ { c.observeUnknown() }
+  if got:=c.snapshot(); got.State!=mihomoRecoveryRecovering { t.Fatalf("failed too early: %+v", got) }
+  c.observeUnknown()
+  if got:=c.snapshot(); got.State!=mihomoRecoveryFailed || got.Error=="" { t.Fatalf("indeterminate recovery did not offer manual fallback: %+v",got) }
+  if c.observeFailure(containerFailureDataPlaneMissing) { t.Fatal("failed incident retried automatically") }
+}
+
 func TestAutoMihomoRecoveryUnknownBreaksHealthyConfirmationSequence(t *testing.T) {
 	controller := newMihomoRecoveryController()
 	controller.beginManual()

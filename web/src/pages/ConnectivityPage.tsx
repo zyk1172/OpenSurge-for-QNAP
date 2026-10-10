@@ -24,9 +24,13 @@ export function ConnectivityPage({ overview, onChanged }: { overview: Overview |
   const mihomoControllerRefused = Boolean(overview?.status.mihomo_error?.includes('connection refused') || overview?.status.tun_error?.includes('connection refused') || overview?.warnings?.some(warning =>
     (warning.startsWith('mihomo policies unavailable:') || warning.startsWith('mihomo providers unavailable:') || warning.startsWith('mihomo TUN:')) &&
     warning.includes('connection refused')))
-  const mihomoFailureDetected = runtimeActive && (!mihomoRunning || mihomoControllerRefused)
+  const fullGatewayRecovery = qnapBuild && overview?.status.desired_running !== false && (runtimeActive || overview?.status.desired_running === true) && (overview?.mihomo_recovery?.reason === 'dns_missing' || overview?.mihomo_recovery?.reason === 'gateway_incomplete' || overview?.mihomo_recovery?.reason === 'data_plane_missing' || overview?.mihomo_recovery?.reason === 'dns_unresponsive' || overview?.status.routing === 'missing' || overview?.status.tun === 'failed' || overview?.status.nftables === 'missing' || overview?.status.forwarding === 'disabled' || overview?.status.runtime_state === 'incomplete' || overview?.status.dns === 'stopped' || overview?.status.local_dns === 'stopped')
+  const mihomoFailureDetected = fullGatewayRecovery || runtimeActive && (!mihomoRunning || mihomoControllerRefused)
   const automaticMihomoRecoveryState = overview?.mihomo_recovery?.state
   const manualMihomoRecoveryNeeded = mihomoFailureDetected && (overview?.mihomo_recovery?.state ?? 'failed') === 'failed'
+  // Manual recovery is deliberately independent of the automatic watchdog
+  // failure state; a stuck status sample must not hide the fallback.
+  const allowManualGatewayRecovery = qnapBuild && overview?.status.desired_running === true
   const canProbe = running && !mihomoFailureDetected
 
   const loadCatalog = useCallback(async () => {
@@ -75,10 +79,25 @@ export function ConnectivityPage({ overview, onChanged }: { overview: Overview |
 
   const recoverMihomo = async () => {
     if (!manualMihomoRecoveryNeeded || recovering) return
-    if (!window.confirm(t('这会验证当前 applied 配置并恢复 Mihomo。DHCP/DNS、PF、IPv4 forwarding 和 Mac 网络设置不会改变；现有代理连接会重新建立。继续吗？'))) return
+    if (!window.confirm(t(fullGatewayRecovery ? '这会清理未完成的网关状态，并恢复 DNS、Mihomo 和路由。现有连接会重新建立。继续吗？' : qnapBuild ? '这会校验配置并重启 Mihomo，现有代理连接会重新建立。继续吗？' : '这会验证当前 applied 配置并恢复 Mihomo。DHCP/DNS、PF、IPv4 forwarding 和 Mac 网络设置不会改变；现有代理连接会重新建立。继续吗？'))) return
     setRecovering(true); setError('')
     try {
-      const operation = await api.gateway('restart-mihomo')
+      const operation = await api.gateway(fullGatewayRecovery ? 'recover-gateway' : 'restart-mihomo')
+      await waitForOperation(operation.id)
+      await onChanged()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setRecovering(false)
+    }
+  }
+
+  const recoverFullGateway = async () => {
+    if (!allowManualGatewayRecovery || recovering) return
+    if (!window.confirm(t('这会清理未完成的网关状态，并恢复 DNS、Mihomo 和路由。现有连接会重新建立。继续吗？'))) return
+    setRecovering(true); setError('')
+    try {
+      const operation = await api.gateway('recover-gateway')
       await waitForOperation(operation.id)
       await onChanged()
     } catch (cause) {
@@ -103,9 +122,10 @@ export function ConnectivityPage({ overview, onChanged }: { overview: Overview |
     {overview?.drift && <div className="notice warn" role="status">{t(qnapBuild ? '存在未应用修改；当前仅检测运行中的配置。' : '当前存在未应用修改。本页只检测正在运行的 applied 配置；保存但未重载的规则不会反映在结果中。')}</div>}
     {!canProbe && !mihomoFailureDetected && !runtimeInterrupted && <div className="notice warn" role="status">{t(qnapBuild ? '网关和 Mihomo 运行后可执行检测。' : '启动网关和 mihomo 后才能执行策略路径检测。浏览器线路测试仍可通过上方 Net.Coffee 打开。')}</div>}
     {runtimeInterrupted && <div className="notice warn" role="status">{t(qnapBuild ? '运行状态被中断；请在“总览”安全清理后重新启动。' : '上一次网关运行已被系统重启中断。请先到“网络设置”安全清理旧 runtime，再重新启动完整网关；此时不能只重启 Mihomo。')}</div>}
-    {mihomoFailureDetected && automaticMihomoRecoveryState === 'observing' && <div className="notice warn" role="status"><strong>{t('正在确认 Mihomo 状态')}</strong><p>{t(qnapBuild ? '连续异常后会执行一次 Mihomo 恢复。' : '连续异常确认后会自动执行一次 Mihomo-only 恢复，不改动 DHCP/DNS、PF 或 IPv4 forwarding。')}</p></div>}
-    {mihomoFailureDetected && automaticMihomoRecoveryState === 'recovering' && <div className="notice actionable" role="status"><div><strong>{t('正在自动恢复 Mihomo')}</strong><p>{t(qnapBuild ? '正在校验配置并重建 Mihomo/TUN。' : 'OpenSurge 正在验证 applied 配置、归档旧日志并重建 Mihomo/TUN；无需手动操作。')}</p></div></div>}
-    {manualMihomoRecoveryNeeded && <div className="notice actionable" role="status"><div><strong>{t('Mihomo 自动恢复未成功')}</strong><p>{t(qnapBuild ? '可手动重试，不修改 NAS 宿主网络。' : '可以手动重试这条 Mihomo-only 恢复路径；不会停止 DHCP/DNS、卸载 PF 或修改 Mac 网络设置，旧 Mihomo 日志会先归档。')}</p></div><button className="primary" type="button" disabled={recovering || testing.size > 0} onClick={() => void recoverMihomo()}>{t(recovering ? '正在恢复…' : '恢复 Mihomo')}</button></div>}
+    {mihomoFailureDetected && automaticMihomoRecoveryState === 'observing' && <div className="notice warn" role="status"><strong>{t(fullGatewayRecovery ? '正在确认网关状态' : '正在确认 Mihomo 状态')}</strong><p>{t(fullGatewayRecovery ? '检测到 DNS 或网关启动不完整，将执行完整恢复。' : qnapBuild ? '连续异常后会执行一次 Mihomo 恢复。' : '连续异常确认后会自动执行一次 Mihomo-only 恢复，不改动 DHCP/DNS、PF 或 IPv4 forwarding。')}</p></div>}
+    {mihomoFailureDetected && automaticMihomoRecoveryState === 'recovering' && <div className="notice actionable" role="status"><div><strong>{t(fullGatewayRecovery ? '正在自动恢复完整网关' : '正在自动恢复 Mihomo')}</strong><p>{t(fullGatewayRecovery ? '正在清理旧状态，并依次恢复代理、路由和 DNS。' : qnapBuild ? '正在校验配置并重建 Mihomo/TUN。' : 'OpenSurge 正在验证 applied 配置、归档旧日志并重建 Mihomo/TUN；无需手动操作。')}</p></div></div>}
+    {manualMihomoRecoveryNeeded && <div className="notice actionable" role="status"><div><strong>{t(fullGatewayRecovery ? '完整网关自动恢复未成功' : 'Mihomo 自动恢复未成功')}</strong><p>{t(qnapBuild ? '可手动重试，不修改 NAS 宿主网络。' : '可以手动重试这条 Mihomo-only 恢复路径；不会停止 DHCP/DNS、卸载 PF 或修改 Mac 网络设置，旧 Mihomo 日志会先归档。')}</p></div><button className="primary" type="button" disabled={recovering || testing.size > 0} onClick={() => void recoverMihomo()}>{t(recovering ? '正在恢复…' : fullGatewayRecovery ? '恢复完整网关' : '恢复 Mihomo')}</button></div>}
+    {allowManualGatewayRecovery && <details className="notice warn"><summary>{t('高级恢复操作')}</summary><p>{t('自动恢复状态不可用时，可手动重新建立 NAS 容器内网关。不会更改 NAS 宿主网络或主动停止的运行意图。')}</p><button className="primary" type="button" disabled={recovering || testing.size > 0} onClick={() => void recoverFullGateway()}>{t(recovering ? '正在恢复…' : '手动恢复完整网关')}</button></details>}
     {error && <div className="error-banner" role="alert"><span>!</span><p>{error}</p><button type="button" onClick={() => void loadCatalog()}>{t('重试')}</button></div>}
     <section className="connectivity-overview">
       <div className="connectivity-score"><span className={`score-orb ${tested.length ? mismatches || reachable < tested.length ? 'mixed' : 'healthy' : ''}`}><strong>{tested.length ? `${reachable}/${tested.length}` : '—'}</strong><small>{t('可达')}</small></span><div><small>APPLIED ROUTING</small><h2>{tested.length ? mismatches ? t('{{count}} 项路径需要关注', { count: mismatches }) : t('当前分流符合所选基线') : t('等待首次检测')}</h2><p>{tested.length ? t('三轮探测 · 整体中位 {{median}} ms', { median: overallMedian || '—' }) : t('不会在打开页面时自动访问第三方服务')}</p></div></div>

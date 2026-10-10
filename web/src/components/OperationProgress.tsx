@@ -33,6 +33,7 @@ const phaseLabels: Record<string, string> = {
 
 const kindLabels: Record<string, string> = {
   start: '启动网关', stop: '停止网关', reload: '重载网关', 'restart-mihomo': '重启 Mihomo',
+  'recover-gateway': '恢复完整网关',
   'save-device-policy': '保存设备配置', 'apply-profile': '应用代理与规则源', 'apply-tailscale': '应用 Tailscale 配置',
 }
 

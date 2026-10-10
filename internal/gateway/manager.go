@@ -370,6 +370,7 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 	snapshot.Routing = &routingConfig
 
 	state := runtime.State{
+		Lifecycle:       "starting",
 		StartedAt:       deps.now(),
 		BootSessionID:   bootSession.ID,
 		ProfileDigest:   profileDigest,
@@ -492,6 +493,7 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 		}
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
+	state.Lifecycle = "running"
 	if err := deps.saveState(m.paths.StateFile, state); err != nil {
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
@@ -642,6 +644,17 @@ func (m Manager) restartMihomo(ctx context.Context) error {
 	}
 	if !state.BelongsToBoot(bootSession) {
 		return fmt.Errorf("gateway runtime was interrupted by a restart; run stop to recover it first")
+	}
+	if state.Lifecycle != "" && state.Lifecycle != "running" || state.DNSFrontend == "smartdns" && state.PIDSmartDNS <= 0 {
+		return fmt.Errorf("gateway startup or cleanup is incomplete; full gateway recovery is required before restarting mihomo")
+	}
+	if state.DNSFrontend == "smartdns" {
+		dns := newSmartDNSService(deps, m.cfg, m.paths)
+		localDNS := deps.newDHCP(m.cfg, m.paths)
+		if !trackedProcessRunning(deps, state.PIDSmartDNS, state.SmartDNSProcessFingerprint, dns.Running) ||
+			dhcp.ShouldRun(m.cfg) && !trackedProcessRunning(deps, state.PIDDNSMasq, state.DNSMasqProcessFingerprint, localDNS.Running) {
+			return fmt.Errorf("gateway DNS is not running; full gateway recovery is required before restarting mihomo")
+		}
 	}
 	desiredProfileDigest, err := config.MihomoProfileDigest(m.cfg)
 	if err != nil {
@@ -863,6 +876,10 @@ func (m Manager) stop(ctx context.Context) error {
 		if state.NetworkSnapshot == nil && (state.ForwardingApplied || state.NATApplied || state.RoutingApplied) {
 			return fmt.Errorf("runtime state records applied network changes but has no network snapshot; refusing blind cleanup")
 		}
+		state.Lifecycle = "stopping"
+		if err := deps.saveState(m.paths.StateFile, state); err != nil {
+			return fmt.Errorf("mark gateway teardown before stopping services: %w", err)
+		}
 		// Stop the LAN DNS front door first so no new client can receive an
 		// answer while the network data plane is being dismantled.
 		ReportProgress(ctx, "stopping_dns_frontend")
@@ -1013,6 +1030,8 @@ func (m Manager) rollback(ctx context.Context, cause error, state runtime.State,
 	ReportProgress(ctx, "rolling_back")
 	deps := m.gatewayDeps()
 	var cleanupErr error
+	state.Lifecycle = "cleanup"
+	cleanupErr = errors.Join(cleanupErr, deps.saveState(m.paths.StateFile, state))
 	cleanupErr = errors.Join(cleanupErr, stopTrackedProcess(deps, "smartdns", state.PIDSmartDNS, state.SmartDNSProcessFingerprint, smartDNSManager.Stop))
 	if state.NetworkSnapshot != nil {
 		cleanupErr = errors.Join(cleanupErr, backend.Restore(ctx, state.NetworkSnapshot))
