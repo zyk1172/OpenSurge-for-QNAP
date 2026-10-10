@@ -23,8 +23,7 @@ type DNSRuntime struct {
 
 func parseDNSRuntime(data []byte) DNSRuntime {
     snapshot:=DNSRuntime{Configured:true, ResolverUpstreams:[]string{}}
-    for _,line:=range strings.Split(string(data),"
-"){
+    for _,line:=range strings.Split(string(data),"\n"){
         parts:=strings.Fields(strings.TrimSpace(line))
         if len(parts)<2 || strings.HasPrefix(parts[0],"#"){continue}
         switch parts[0]{
