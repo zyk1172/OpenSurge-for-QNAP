@@ -200,6 +200,29 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     expect(main.querySelector('.mp-status-light')).toBeNull()
   })
 
+  it('does not confuse a host-only MagicDNS resolver with the applied SmartDNS upstream', async () => {
+    vi.mocked(api.networkDefaults).mockResolvedValueOnce({
+      ...networkDefaults,
+      snapshot: { ...networkDefaults.snapshot, dns: ['100.100.100.100', '127.0.0.11'] },
+    })
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNotify={() => {}} />)
+    const heading = await screen.findByRole('heading', { name: 'DNS 服务' })
+    const dnsSection = heading.closest('section') as HTMLElement
+    await waitFor(() => expect(within(dnsSection).getByText('192.168.2.1')).toBeTruthy())
+    expect(within(dnsSection).queryByText('100.100.100.100')).toBeNull()
+    expect(within(dnsSection).queryByText('127.0.0.11')).toBeNull()
+  })
+
+  it('shows the effective QTS DNS route instead of presenting the selected auto mode as an active redirect', async () => {
+    hostRouting = { ...hostRouting, desired: true, enabled: true, gateway_ready: true,
+      dns_mode: 'auto', effective_dns_mode: 'host', dns_preserved: true, dns_redirect: false }
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNotify={() => {}} />)
+    const takeover = await screen.findByRole('heading', { name: 'NAS 主机接管' })
+    const section = takeover.closest('section') as HTMLElement
+    expect(await within(section).findByText('经 QTS 路由')).toBeTruthy()
+    expect(within(section).queryByText('已透明接管')).toBeNull()
+  })
+
   it('renders DNS and Tailscale policy controls as matching compact cards', async () => {
     render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={() => {}} />)
 
