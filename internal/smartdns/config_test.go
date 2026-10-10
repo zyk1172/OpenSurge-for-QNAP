@@ -40,6 +40,21 @@ func TestDockerHostOnlyResolverFallsBackToRealUpstreamRouter(t *testing.T) {
 	}
 }
 
+func TestTailscaleDeviceLocalResolverNeverBecomesSmartDNSUpstream(t *testing.T) {
+    cfg:=config.Default()
+    cfg.Gateway.LANIP="192.168.2.241"
+    cfg.Gateway.UpstreamGateway="192.168.2.1"
+    cfg.DNS.Listen=cfg.Gateway.LANIP
+    values:=normalizeResolvers([]string{"100.100.100.100","127.0.0.11","192.168.2.1"},cfg)
+    if len(values)!=1 || values[0]!="192.168.2.1" {t.Fatalf("unsafe resolver list: %v",values)}
+    rendered,err:=RenderConfigWithResolvers(cfg,runtime.NewPaths(cfg),[]string{"100.100.100.100"})
+    if err!=nil {t.Fatal(err)}
+    if strings.Contains(rendered,"server 100.100.100.100 ") ||
+       !strings.Contains(rendered,"server 192.168.2.1 -group opensurge-resolver") {
+        t.Fatalf("Tailscale resolver leaked into isolated namespace:\n%s",rendered)
+    }
+}
+
 func TestNormalizeResolversRejectsNamespaceStubsAndOwnGatewayIP(t *testing.T) {
 	cfg := config.Default()
 	cfg.Gateway.LANIP = "192.168.2.241"

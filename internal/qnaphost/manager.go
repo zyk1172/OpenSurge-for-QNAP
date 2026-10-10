@@ -59,6 +59,8 @@ type Status struct {
 	GatewayIPv4              string                `json:"gateway_ipv4,omitempty"`
 	FallbackGateway          string                `json:"fallback_gateway,omitempty"`
 	DNSRedirect              bool                  `json:"dns_redirect"`
+	DNSPreserved             bool                  `json:"dns_preserved"`
+	EffectiveDNSMode         string                `json:"effective_dns_mode"`
 	DNSMode                  string                `json:"dns_mode"`
 	ProtectTailscale         bool                  `json:"protect_tailscale"`
 	TailscaleDetected        bool                  `json:"tailscale_detected"`
@@ -258,8 +260,8 @@ func (m *Manager) reconcile(ctx context.Context) {
 		return
 	}
 	status := m.statusLocked(ctx)
-	needsDNS := usesOpenSurgeDNS(state.DNSMode)
-	if !status.Enabled || (needsDNS && !status.DNSRedirect) {
+	needsDNS := usesOpenSurgeDNS(status.EffectiveDNSMode)
+	if !status.Enabled || (needsDNS && !status.DNSRedirect) || (!needsDNS && !status.DNSPreserved) {
 		_ = m.enableLocked(ctx)
 	}
 }
@@ -304,6 +306,7 @@ func (m *Manager) statusLocked(ctx context.Context) Status {
 		status.TailscaleDetected = true
 		status.TailscaleInterface = tailscaleInterface
 	}
+	status.EffectiveDNSMode = resolvedDNSMode(state.DNSMode, state.ProtectTailscale, status.TailscaleDetected)
 
 	priorities := m.hostPrioritiesLocked()
 	status.HostRulePriorities = &priorities
@@ -324,7 +327,7 @@ func (m *Manager) statusLocked(ctx context.Context) Status {
 		}
 	}
 
-	if usesOpenSurgeDNS(state.DNSMode) {
+	if usesOpenSurgeDNS(status.EffectiveDNSMode) {
 		containerRules, containerRulesErr := m.runContainer(ctx, nil, "ip", "-4", "rule", "show")
 		containerRoutes, containerRoutesErr := m.runContainer(ctx, nil, "ip", "-4", "route", "show", "table", containerDNSRouteTableID)
 		hostDNSRules := hostRulesErr == nil &&
@@ -346,6 +349,23 @@ func (m *Manager) statusLocked(ctx context.Context) Status {
 			}
 		}
 	}
+
+    if status.EffectiveDNSMode == DNSModeHost && hostRulesErr == nil {
+        status.DNSPreserved = ruleLineContains(hostRules, dnsUDP, hostSource, "iif lo", "ipproto udp", "dport 53", "lookup main") &&
+            ruleLineContains(hostRules, dnsTCP, hostSource, "iif lo", "ipproto tcp", "dport 53", "lookup main")
+        if status.DNSPreserved {
+            // A rule being installed does not mean an earlier VPN/host rule
+            // actually selects it. Confirm both transport paths escape the
+            // OpenSurge-only host route table.
+            for _, proto := range []string{"udp", "tcp"} {
+                route, err := m.runHost(ctx, nil, "ip", "-4", "route", "get", publicRouteProbeIPv4, "from", hostIP, "ipproto", proto, "dport", "53")
+                if err != nil || routeUsesGatewayTable(route, cfg.Gateway.LANIP, routeTableID) {
+                    status.DNSPreserved = false
+                    break
+                }
+            }
+        }
+    }
 
 	if status.TailscaleDetected {
 		status.TailscaleRoutesProtected = state.ProtectTailscale && hostRulesErr == nil && protectedHostRulesPrecedeOpenSurge(hostRules, priorities)
@@ -529,14 +549,16 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 	if err := m.writeIntentWithPrioritiesLocked(state.Enabled, priorities); err != nil {
 		return fmt.Errorf("persist selected NAS host policy priorities: %w", err)
 	}
-	needsDNS := usesOpenSurgeDNS(state.DNSMode)
+	_, tailscaleError := m.runHost(ctx, nil, "ip", "link", "show", "dev", tailscaleInterface)
+	effectiveDNS := resolvedDNSMode(state.DNSMode, state.ProtectTailscale, tailscaleError == nil)
+	needsDNS := usesOpenSurgeDNS(effectiveDNS)
 	if err := m.ensurePolicySlotsFreeLocked(ctx, needsDNS); err != nil {
 		return err
 	}
-	if needsDNS {
-		if err := m.preflightL4PolicyRoutingLocked(ctx); err != nil {
-			return err
-		}
+	// Both takeover and host-bypass modes require L4 rules. Fail closed if
+	// the NAS kernel cannot preserve the requested DNS behavior.
+	if err := m.preflightL4PolicyRoutingLocked(ctx); err != nil {
+		return err
 	}
 	if _, err := m.runContainer(ctx, nil, "ip", "link", "show", "dev", cfg.Transparent.TUNDevice); err != nil {
 		return fmt.Errorf("OpenSurge TUN device %s is unavailable: %w", cfg.Transparent.TUNDevice, err)
@@ -563,16 +585,21 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 		return fmt.Errorf("install NAS source-scoped local-origin policy rule: %w", err)
 	}
 	if needsDNS {
-		if err := m.installHostDNSPolicyLocked(ctx, hostIP); err != nil {
-			_ = m.disableLocked(ctx)
-			return err
-		}
-	}
+        if err := m.installHostDNSPolicyLocked(ctx, hostIP); err != nil {
+            _ = m.disableLocked(ctx)
+            return err
+        }
+    } else {
+        if err := m.installHostDNSBypassLocked(ctx, hostIP); err != nil {
+            _ = m.disableLocked(ctx)
+            return err
+        }
+    }
 
 	installed := m.statusLocked(ctx)
-	if !installed.Enabled || (needsDNS && !installed.DNSRedirect) {
+	if !installed.Enabled || (needsDNS && !installed.DNSRedirect) || (!needsDNS && !installed.DNSPreserved) {
 		_ = m.disableLocked(ctx)
-		return fmt.Errorf("verify NAS host takeover state: routing=%t dns=%t", installed.Enabled, installed.DNSRedirect)
+		return fmt.Errorf("verify NAS host takeover state: routing=%t dns_redirect=%t dns_preserved=%t", installed.Enabled, installed.DNSRedirect, installed.DNSPreserved)
 	}
 	if state.ProtectTailscale && installed.TailscaleDetected && (!installed.TailscaleDNSProtected || !installed.TailscaleRoutesProtected) {
 		_ = m.disableLocked(ctx)
@@ -607,6 +634,20 @@ func (m *Manager) installHostDNSPolicyLocked(ctx context.Context, hostIP string)
 		}
 	}
 	return nil
+}
+
+// Preserve the QTS resolver route even when normal host public IPv4 is taken
+// over. This is source-scoped: the second NIC and PT source IP are not touched.
+func (m *Manager) installHostDNSBypassLocked(ctx context.Context, hostIP string) error {
+    priorities := m.hostPrioritiesLocked()
+    dnsUDP, dnsTCP, _, _ := priorities.strings()
+    for _, rule := range []struct { priority, proto string }{{dnsUDP, "udp"}, {dnsTCP, "tcp"}} {
+        if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", rule.priority,
+            "from", hostIP+"/32", "iif", "lo", "ipproto", rule.proto, "dport", "53", "table", "main"); err != nil {
+            return fmt.Errorf("preserve NAS %s DNS using QTS main routing: %w", rule.proto, err)
+        }
+    }
+    return nil
 }
 
 func (m *Manager) installContainerDNSPolicyLocked(ctx context.Context, cfg config.Config, hostIP string) error {
@@ -655,10 +696,7 @@ func (m *Manager) ensurePolicySlotsFreeLocked(ctx context.Context, includeDNS bo
 	}
 	priorities := m.hostPrioritiesLocked()
 	dnsUDP, dnsTCP, mainPriority, proxyPriority := priorities.strings()
-	wanted := []string{mainPriority, proxyPriority}
-	if includeDNS {
-		wanted = append([]string{dnsUDP, dnsTCP}, wanted...)
-	}
+	wanted := []string{dnsUDP, dnsTCP, mainPriority, proxyPriority}
 	for _, line := range strings.Split(string(hostRules), "\n") {
 		line = strings.TrimSpace(line)
 		for _, priority := range wanted {
@@ -724,6 +762,8 @@ func (m *Manager) disableLocked(ctx context.Context) error {
 		dnsUDP, dnsTCP, mainPriority, proxyPriority := priorities.strings()
 		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", dnsUDP, "iif", "lo", "ipproto", "udp", "dport", "53", "table", routeTableID)
 		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", dnsTCP, "iif", "lo", "ipproto", "tcp", "dport", "53", "table", routeTableID)
+		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", dnsUDP, "iif", "lo", "ipproto", "udp", "dport", "53", "table", "main")
+		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", dnsTCP, "iif", "lo", "ipproto", "tcp", "dport", "53", "table", "main")
 		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", proxyPriority, "iif", "lo", "table", routeTableID)
 		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", mainPriority, "iif", "lo", "table", "main", "suppress_prefixlength", "0")
 	}
@@ -774,12 +814,22 @@ func validDNSMode(mode string) bool {
 }
 
 // usesOpenSurgeDNS defines the NAS-host side of the dual-DNS contract.
-// Auto/OpenSurge modes deliberately keep the existing L4 policy-routing path
-// straight into the TUN, where Mihomo dns-hijack provides Gateway-View
-// semantics. The NAS host therefore does not need to enter the LAN-facing
-// SmartDNS classifier. Host mode leaves QTS/host DNS untouched.
+// Auto switches to QTS DNS routing when a protected host Tailscale interface
+// is present. "opensurge" explicitly forces the TUN DNS path. "host" always
+// preserves the host's original DNS route, including its original resolver
+// address (which OpenSurge does not and must not rewrite).
+func resolvedDNSMode(mode string, protectTailscale, tailscaleDetected bool) string {
+    if mode == DNSModeAuto {
+        if protectTailscale && tailscaleDetected {
+            return DNSModeHost
+        }
+        return DNSModeOpenSurge
+    }
+    return mode
+}
+
 func usesOpenSurgeDNS(mode string) bool {
-	return mode == DNSModeAuto || mode == DNSModeOpenSurge
+    return mode == DNSModeOpenSurge
 }
 
 func defaultIntent() intent {

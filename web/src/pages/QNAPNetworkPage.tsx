@@ -19,6 +19,8 @@ type QNAPHostRoutingStatus = {
   gateway_ipv4?: string
   fallback_gateway?: string
   dns_redirect: boolean
+  dns_preserved?: boolean
+  effective_dns_mode?: HostDNSMode
   dns_mode: HostDNSMode
   protect_tailscale: boolean
   tailscale_detected: boolean
@@ -27,6 +29,14 @@ type QNAPHostRoutingStatus = {
   tailscale_routes_protected: boolean
   error?: string
   checked_at: string
+}
+
+type DNSRuntime = {
+  configured: boolean
+  listen?: string
+  default_view?: 'gateway' | 'resolver'
+  gateway_upstream?: string
+  resolver_upstreams: string[]
 }
 
 export function QNAPNetworkPage({
@@ -42,6 +52,7 @@ export function QNAPNetworkPage({
   const [draft, setDraft] = useState<ControlConfig | null>(null)
   const [actual, setActual] = useState<NetworkDefaults | null>(null)
   const [hostRouting, setHostRouting] = useState<QNAPHostRoutingStatus | null>(null)
+  const [dnsRuntime, setDNSRuntime] = useState<DNSRuntime | null>(null)
   const [dnsMode, setDNSMode] = useState<HostDNSMode>('auto')
   const [protectTailscale, setProtectTailscale] = useState(true)
   const [loading, setLoading] = useState(true)
@@ -58,14 +69,16 @@ export function QNAPNetworkPage({
     setLoading(true)
     setError('')
     try {
-      const [config, network, host] = await Promise.all([
+      const [config, network, host, dnsSnapshot] = await Promise.all([
         api.config(),
         api.networkDefaults('same_lan').catch(() => null),
         product.host_takeover ? request<QNAPHostRoutingStatus>('/api/v1/qnap-host-routing').catch(() => null) : Promise.resolve(null),
+        request<DNSRuntime>('/api/v1/network/dns-runtime').catch(() => null),
       ])
       setDraft(config)
       setActual(network)
       setHostRouting(host)
+      setDNSRuntime(dnsSnapshot)
       if (host) {
         setDNSMode(host.dns_mode || 'auto')
         setProtectTailscale(host.protect_tailscale !== false)
@@ -188,10 +201,12 @@ export function QNAPNetworkPage({
     : draft ? `${draft.gateway.lan_ip}/${draft.gateway.lan_prefix_len}` : '—'
   const router = actual?.snapshot.router || t('Docker 网络配置')
   const lanProxy = draft?.lan_proxy ?? { enabled: false, socks_port: 7891 }
-  const dnsListen = draft?.dns.listen || networkIPv4
-  const resolverUpstreams = (actual?.snapshot.dns || [])
-    .filter(value => value && value !== dnsListen && value !== '127.0.0.1')
-  const resolverUpstreamLabel = resolverUpstreams.length ? resolverUpstreams.join(' · ') : router
+  const dnsListen = dnsRuntime?.listen || `${draft?.dns.listen || networkIPv4}:53`
+  // Read the applied SmartDNS config, not raw Docker DNS which may contain
+  // 127.0.0.11 or the QNAP host's 100.100.100.100 MagicDNS resolver.
+  const resolverUpstreamLabel = dnsRuntime?.resolver_upstreams.length
+    ? dnsRuntime.resolver_upstreams.join(' · ')
+    : t('无已应用的上游记录')
   const dnsFrontendState = overview?.status.dns || (running ? 'unknown' : 'stopped')
   const dnsFrontendLabel = dnsFrontendState === 'running'
     ? t('运行中')
@@ -200,7 +215,14 @@ export function QNAPNetworkPage({
       : dnsFrontendState === 'stopped'
         ? t('已停止')
         : t('需要检查')
-  const defaultDNSView = draft?.gateway.mode === 'same_lan' ? 'Resolver View' : 'Gateway View'
+  const defaultDNSView = dnsRuntime?.default_view
+    ? (dnsRuntime.default_view === 'resolver' ? 'Resolver View' : 'Gateway View')
+    : t('未读取运行配置')
+  const effectiveHostDNSMode = hostRouting?.effective_dns_mode
+  const hostDNSStatus = !hostRouting?.enabled ? t('未接管')
+    : effectiveHostDNSMode === 'host' ? (hostRouting.dns_preserved ? t('经 QTS 路由') : t('需要检查'))
+    : effectiveHostDNSMode === 'opensurge' ? (hostRouting.dns_redirect ? t('经 Mihomo TUN') : t('需要检查'))
+    : t('需要检查')
   const defaultDNSViewNote = draft?.gateway.mode === 'same_lan'
     ? t('旁路由默认返回 Real-IP；设备策略可切换到 Gateway View。')
     : t('接管客户端默认进入 Fake-IP 视图。')
@@ -234,13 +256,13 @@ export function QNAPNetworkPage({
         </span>
         <span>
           <strong>{t('LAN 监听')}</strong>
-          <b>{dnsListen}:53</b>
+          <b>{dnsListen}</b>
           <small>UDP / TCP 53</small>
         </span>
         <span>
           <strong>Gateway View</strong>
           <b>Mihomo Fake-IP</b>
-          <small>127.0.0.1:1053</small>
+          <small>{dnsRuntime?.gateway_upstream || '127.0.0.1:1053'}</small>
         </span>
         <span>
           <strong>Resolver View</strong>
@@ -261,12 +283,12 @@ export function QNAPNetworkPage({
             <strong>{t('TUN DNS 劫持')}</strong>
             <small>{t('TUN 内的 53 端口查询交给 Mihomo DNS 处理。')}</small>
           </span>
-          <b>any:53</b>
+          <b>UDP any:53 · TCP any:53</b>
         </article>
       </div>
       <div className="notice qnap-dns-note">
-        <strong>{t('DNS 双视图已生效')}</strong>
-        <p>{t('Gateway View 使用 Mihomo Fake-IP DNS；Resolver View 使用真实 DNS。设备级 DNS 视图由设备策略决定。')}</p>
+        <strong>{t(dnsRuntime?.configured && dnsFrontendState === 'running' ? '已读取 SmartDNS 运行配置' : 'DNS 运行配置待确认')}</strong>
+        <p>{t('所列上游来自已写入的 SmartDNS 配置，不保证上游可达；NAS 宿主 DNS、qBittorrent 与此处的局域网 SmartDNS 可能是不同路径。')}</p>
       </div>
     </section>
 
@@ -277,7 +299,7 @@ export function QNAPNetworkPage({
           <span><strong>{t('NAS 主机')}</strong><br />{hostRouting.host_ipv4 || '—'}{hostRouting.host_interface ? ` · ${hostRouting.host_interface}` : ''}</span>
           <span><strong>{t('OpenSurge 下一跳')}</strong><br />{hostRouting.gateway_ipv4 || networkIPv4}</span>
           <span><strong>{t('QTS 回退网关')}</strong><br />{hostRouting.fallback_gateway || router}</span>
-          <span><strong>{t('IPv4 DNS')}</strong><br />{dnsMode === 'host' ? t('保留宿主 DNS') : hostRouting.dns_redirect ? t('已透明接管') : t('未接管')}</span>
+          <span><strong>{t('IPv4 DNS')}</strong><br />{hostDNSStatus}</span>
         </div>
 
         <div className="qnap-host-policy-grid">
@@ -285,10 +307,10 @@ export function QNAPNetworkPage({
             <span className="qnap-host-policy-copy">
               <strong>{t('NAS DNS 接管模式')}</strong>
               <small>{t(dnsMode === 'auto'
-                ? '普通 DNS 经 OpenSurge；保留宿主 VPN 的更高优先级。'
+                ? '自动：Tailscale 共存保护生效且检测到 Tailscale 时保留 QTS DNS 路由，否则经 Mihomo TUN。'
                 : dnsMode === 'opensurge'
-                  ? 'NAS DNS 经 OpenSurge；Tailscale 优先级由共存保护决定。'
-                  : '不接管 NAS DNS。')}</small>
+                  ? '强制将 NAS 的 UDP/TCP 53 端口查询交给 Mihomo TUN；不改变系统 DNS 地址。'
+                  : '通过 QTS 主路由处理 NAS 的 UDP/TCP 53；不会更改 QTS 设置的 DNS 地址。')}</small>
             </span>
             <select className="qnap-host-policy-select" aria-label={t('NAS DNS 接管模式')} value={dnsMode} disabled={hostRoutingBusy} onChange={event => { setDNSMode(event.target.value as HostDNSMode); setHostPolicyDirty(true) }}>
               <option value="auto">{t('自动（推荐）')}</option>
@@ -299,7 +321,7 @@ export function QNAPNetworkPage({
           <article className="qnap-host-policy-card qnap-host-tailscale-card">
             <span className="qnap-host-policy-copy">
               <strong>{t('Tailscale 共存保护')}</strong>
-              <small>{t('保留宿主 VPN 与 MagicDNS 的优先级。')}</small>
+              <small>{t('优先保留 Tailscale 的已有路由规则；不负责修改或修复 QTS 的系统 DNS。')}</small>
               <small>{t('仅在需要覆盖宿主 VPN 路由时关闭。')}</small>
             </span>
             <button className={`overlay-switch ${protectTailscale ? 'on' : ''}`} type="button" role="switch" aria-label={t('Tailscale 共存保护')} aria-checked={protectTailscale} disabled={hostRoutingBusy} onClick={() => { setProtectTailscale(current => !current); setHostPolicyDirty(true) }}><i aria-hidden="true" /><span>{t(protectTailscale ? '已启用' : '已停用')}</span></button>
@@ -323,6 +345,7 @@ export function QNAPNetworkPage({
           <button type="button" className={hostRouting.desired ? 'danger' : 'primary'} disabled={hostRoutingBusy || (!hostRouting.desired && (!hostRouting.supported || !running || !hostRouting.gateway_ready))} onClick={() => void toggleHostRouting()}>{t(hostRoutingBusy ? '正在切换…' : hostRouting.desired ? '停止 NAS 接管' : '让 NAS 使用 OpenSurge')}</button>
           <button type="button" disabled={hostRoutingBusy} onClick={() => void load()}>{t('刷新状态')}</button>
         </div>
+        <div className="notice">{t('仅对所显示的 NAS 主机源 IPv4 应用接管；不主动修改第二网卡的 PT 做种源地址。若 QTS 系统 DNS 已被 Tailscale 改为 100.100.100.100，仍需单独检查系统 DNS。')}</div>
       </> : <div className="empty">{t('正在读取 NAS 主机路由能力…')}</div>}
     </section> : <section className="section"><SectionTitle title="NAS 宿主网络" subtitle="macvlan 宿主隔离" /><p>{t('macvlan 默认隔离 NAS 宿主机与容器。请从另一台局域网设备访问 Web；当前适配不提供 NAS 主机接管。')}</p></section>}
 
@@ -336,8 +359,8 @@ export function QNAPNetworkPage({
         </article>
         <article className="source-import-card qnap-runtime-card">
           <strong className="qnap-runtime-title">TUN strict-route</strong>
-          <button className={`overlay-switch ${draft.transparent.strict_route ? 'on' : ''}`} type="button" role="switch" aria-label="TUN strict-route" aria-checked={draft.transparent.strict_route} onClick={() => patch({ transparent: { ...draft.transparent, strict_route: !draft.transparent.strict_route } })}><i aria-hidden="true" /><span>{t(draft.transparent.strict_route ? '已启用' : '已停用')}</span></button>
-          <small className="qnap-runtime-note">{t('严格接管 TUN 路由')}</small>
+          <button className={`overlay-switch ${draft.transparent.strict_route ? 'on' : ''}`} type="button" role="switch" aria-label="TUN strict-route" aria-checked={draft.transparent.strict_route} disabled title={t('QNAP 的 Linux 路由由 OpenSurge 管理，Mihomo auto-route 被强制禁用；此开关无路由控制效果。')}><i aria-hidden="true" /><span>{t(draft.transparent.strict_route ? '已启用' : '已停用')}</span></button>
+          <small className="qnap-runtime-note">{t('QNAP 由 OpenSurge 管理 Linux 路由；auto-route 禁用，此项不适用。')}</small>
         </article>
         <article className="source-import-card qnap-runtime-card qnap-runtime-card-wide qnap-runtime-socks-card">
           <strong className="qnap-runtime-title">LAN SOCKS5 / SOCKS5H</strong>

@@ -50,7 +50,7 @@ func RenderConfigWithResolvers(cfg config.Config, paths runtime.Paths, resolvers
 	}
 	resolvers = normalizeResolvers(resolvers, cfg)
 	if len(resolvers) == 0 {
-		if fallback := net.ParseIP(strings.TrimSpace(cfg.Gateway.UpstreamGateway)); fallback != nil && fallback.To4() != nil && fallback.String() != listen {
+		if fallback := net.ParseIP(strings.TrimSpace(cfg.Gateway.UpstreamGateway)); fallback != nil && fallback.To4() != nil && fallback.String() != listen && fallback.String() != "100.100.100.100" {
 			resolvers = []string{fallback.To4().String()}
 		}
 	}
@@ -168,9 +168,10 @@ func normalizeResolvers(values []string, cfg config.Config) []string {
 		value := ip.To4().String()
 		// Loopback resolvers belong to the current namespace. Docker's embedded
 		// 127.0.0.11 can forward to host-only DNS (for example Tailscale MagicDNS),
-		// which is unreachable from QNET/macvlan. Use the real upstream gateway
-		// fallback when no routable system resolver remains.
-		if ip.IsLoopback() || ip.IsUnspecified() || ip.IsMulticast() || value == self || value == strings.TrimSpace(cfg.Gateway.LANIP) || seen[value] {
+		// which is unreachable from QNET/macvlan. Tailscale 100.100.100.100
+		// is also device-local and must never be copied from host DNS to an
+		// isolated container resolver. Fall back to the real upstream router.
+		if ip.IsLoopback() || ip.IsUnspecified() || ip.IsMulticast() || value == "100.100.100.100" || value == self || value == strings.TrimSpace(cfg.Gateway.LANIP) || seen[value] {
 			continue
 		}
 		seen[value] = true

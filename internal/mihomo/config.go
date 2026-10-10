@@ -67,6 +67,7 @@ tun:
 {{- end }}
   dns-hijack:
     - any:53
+    - tcp://any:53
 {{- if .TUNRouteAddresses }}
   route-address:
 {{ .TUNRouteAddresses }}

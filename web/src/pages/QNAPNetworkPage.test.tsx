@@ -70,6 +70,8 @@ type HostRoutingFixture = {
   gateway_ipv4: string
   fallback_gateway: string
   dns_redirect: boolean
+  dns_preserved?: boolean
+  effective_dns_mode?: 'auto' | 'opensurge' | 'host'
   dns_mode: 'auto' | 'opensurge' | 'host'
   protect_tailscale: boolean
   tailscale_detected: boolean
@@ -131,6 +133,9 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     vi.mocked(api.gateway).mockImplementation(async action => ({ id: action, kind: action, state: 'running' }))
     vi.mocked(api.saveConfig).mockResolvedValue(config)
     vi.mocked(request).mockImplementation(async (path, init) => {
+      if (path === '/api/v1/network/dns-runtime') {
+        return { configured: true, listen: '192.168.2.241:53', default_view: 'resolver', gateway_upstream: '127.0.0.1:1053', resolver_upstreams: ['192.168.2.1'] }
+      }
       if (path === '/api/v1/qnap-host-routing') {
         if (init?.method === 'PUT') {
           const body = JSON.parse(String(init.body)) as { enabled: boolean; dns_mode: 'auto' | 'opensurge' | 'host'; protect_tailscale: boolean }
@@ -179,9 +184,11 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     expect(within(section).getByText('192.168.2.241:53')).toBeTruthy()
     expect(within(section).getByText('Mihomo Fake-IP')).toBeTruthy()
     expect(within(section).getByText('127.0.0.1:1053')).toBeTruthy()
+    expect(within(section).getByText('192.168.2.1')).toBeTruthy()
+    expect(screen.getByText('已读取 SmartDNS 运行配置')).toBeTruthy()
     expect(within(section).getByText('Real-IP')).toBeTruthy()
     expect(within(section).getAllByText('Resolver View').length).toBeGreaterThan(0)
-    expect(within(section).getByText('any:53')).toBeTruthy()
+    expect(within(section).getByText('UDP any:53 · TCP any:53')).toBeTruthy()
   })
 
   it('renders the NAS takeover status with the same compact card structure', async () => {
@@ -191,6 +198,29 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     expect(within(main).getByText('NAS 主机接管')).toBeTruthy()
     expect(within(main).getByText('未启用')).toBeTruthy()
     expect(main.querySelector('.mp-status-light')).toBeNull()
+  })
+
+  it('does not confuse a host-only MagicDNS resolver with the applied SmartDNS upstream', async () => {
+    vi.mocked(api.networkDefaults).mockResolvedValueOnce({
+      ...networkDefaults,
+      snapshot: { ...networkDefaults.snapshot, dns: ['100.100.100.100', '127.0.0.11'] },
+    })
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNotify={() => {}} />)
+    const heading = await screen.findByRole('heading', { name: 'DNS 服务' })
+    const dnsSection = heading.closest('section') as HTMLElement
+    await waitFor(() => expect(within(dnsSection).getByText('192.168.2.1')).toBeTruthy())
+    expect(within(dnsSection).queryByText('100.100.100.100')).toBeNull()
+    expect(within(dnsSection).queryByText('127.0.0.11')).toBeNull()
+  })
+
+  it('shows the effective QTS DNS route instead of presenting the selected auto mode as an active redirect', async () => {
+    hostRouting = { ...hostRouting, desired: true, enabled: true, gateway_ready: true,
+      dns_mode: 'auto', effective_dns_mode: 'host', dns_preserved: true, dns_redirect: false }
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNotify={() => {}} />)
+    const takeover = await screen.findByRole('heading', { name: 'NAS 主机接管' })
+    const section = takeover.closest('section') as HTMLElement
+    expect(await within(section).findByText('经 QTS 路由')).toBeTruthy()
+    expect(within(section).queryByText('已透明接管')).toBeNull()
   })
 
   it('renders DNS and Tailscale policy controls as matching compact cards', async () => {
@@ -233,6 +263,7 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     const storeCard = storeSwitch.closest('article') as HTMLElement
     expect(storeCard.querySelector(':scope > .qnap-runtime-title')?.textContent).toBe('Store fake-ip')
     expect(storeCard.children[1]).toBe(storeSwitch)
+    expect((screen.getByRole('switch', { name: 'TUN strict-route' }) as HTMLButtonElement).disabled).toBe(true)
     expect(storeCard.querySelector(':scope > .qnap-runtime-note')?.textContent).toBe('持久化 fake-ip 映射')
 
     const socksSwitch = screen.getByRole('switch', { name: 'LAN SOCKS5 / SOCKS5H' })
