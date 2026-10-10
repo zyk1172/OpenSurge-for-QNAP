@@ -73,12 +73,33 @@ func TestIntentPersistsOptInAndDefaultCoexistencePolicy(t *testing.T) {
 }
 
 
+func TestNASDNSModesHaveDistinctEffectiveRoutes(t *testing.T) {
+    for _, test := range []struct{
+        configured string
+        protect, tailscale bool
+        effective string
+        redirect bool
+    }{
+        {DNSModeAuto, false, false, DNSModeOpenSurge, true},
+        {DNSModeAuto, true, false, DNSModeOpenSurge, true},
+        {DNSModeAuto, true, true, DNSModeHost, false},
+        {DNSModeAuto, false, true, DNSModeOpenSurge, true},
+        {DNSModeOpenSurge, true, true, DNSModeOpenSurge, true},
+        {DNSModeHost, false, false, DNSModeHost, false},
+    } {
+        got := resolvedDNSMode(test.configured,test.protect,test.tailscale)
+        if got!=test.effective || usesOpenSurgeDNS(got)!=test.redirect {
+            t.Errorf("resolvedDNSMode(%q,%t,%t)=%q, want %q",test.configured,test.protect,test.tailscale,got,test.effective)
+        }
+    }
+}
+
 func TestNASDNSModesMapToDedicatedGatewayPath(t *testing.T) {
 	for _, test := range []struct {
 		mode string
 		want bool
 	}{
-		{mode: DNSModeAuto, want: true},
+		{mode: DNSModeAuto, want: false},
 		{mode: DNSModeOpenSurge, want: true},
 		{mode: DNSModeHost, want: false},
 	} {
@@ -225,6 +246,21 @@ func TestPreflightL4PolicyRoutingFailsBeforePersistentRoutingWhenKernelRejectsDP
 	if len(runner.calls) != 1 || strings.Contains(runner.calls[0], "route replace") {
 		t.Fatalf("preflight unexpectedly changed persistent routing: %#v", runner.calls)
 	}
+}
+
+func TestHostDNSBypassIsScopedToNASInterfaceSourceAndHasCleanup(t *testing.T) {
+    runner := &fakeRunner{}
+    manager := &Manager{netNSPath:"/run/test-host-netns",runner:runner}
+    if err:=manager.installHostDNSBypassLocked(context.Background(),"192.168.2.240");err!=nil{t.Fatal(err)}
+    joined:=strings.Join(runner.calls,"\n")
+    for _,proto:=range []string{"udp","tcp"}{
+        if !strings.Contains(joined,"from 192.168.2.240/32 iif lo ipproto "+proto+" dport 53 table main") {
+            t.Errorf("missing scoped QTS DNS bypass for %s: %s",proto,joined)
+        }
+    }
+    if strings.Contains(joined,"192.168.1.") || strings.Contains(joined,"nft") || strings.Contains(joined,"iptables") {
+        t.Errorf("bypass touched unrelated PT network or firewall: %s",joined)
+    }
 }
 
 func TestInstallDNSPolicyUsesHost20242AndContainerTUNTableWithoutNFTables(t *testing.T) {
