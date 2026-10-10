@@ -295,6 +295,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/recovery/keep-static", s.auth(http.HandlerFunc(s.handleKeepStaticFinish)))
 	mux.Handle("GET /api/v1/network/discovery", s.auth(http.HandlerFunc(s.handleNetworkDiscovery)))
 	mux.Handle("GET /api/v1/network/defaults", s.auth(http.HandlerFunc(s.handleNetworkDefaults)))
+	mux.Handle("GET /api/v1/network/dns-runtime", s.auth(http.HandlerFunc(s.handleDNSRuntime)))
 	mux.Handle("GET /api/v1/network/interfaces", s.auth(http.HandlerFunc(s.handleNetworkInterfaces)))
 	mux.Handle("POST /api/v1/network/apply-static", s.auth(http.HandlerFunc(s.handleApplyStatic)))
 	mux.Handle("POST /api/v1/network/dhcp-probe", s.auth(http.HandlerFunc(s.handleDHCPProbe)))
