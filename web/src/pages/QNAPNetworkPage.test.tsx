@@ -345,6 +345,42 @@ describe('SmartDNS custom upstream settings', () => {
     expect(persisted.dns.resolver_allow_plaintext || false).toBe(false)
     await screen.findByText('配置已保存。')
   })
+  it('saves domestic presets and both optional integrations through stop, persist, verify and start', async () => {
+    const user = userEvent.setup()
+    const order: string[] = []
+    let persisted = structuredClone(config)
+    vi.mocked(api.config).mockImplementation(async () => { order.push('read'); return persisted })
+    vi.mocked(api.saveConfig).mockImplementation(async next => { order.push('persist'); persisted = next; return next })
+    vi.mocked(api.gateway).mockImplementation(async kind => { order.push(kind); return { id: kind } as Awaited<ReturnType<typeof api.gateway>> })
+    render(<QNAPNetworkPage overview={{ ...overview, status: { ...overview.status, gateway: 'running' } }} onChanged={async () => {}} onNotify={() => {}} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Resolver View 上游来源' }), 'custom')
+    expect((screen.getByRole('checkbox', { name: '上游 DNS 查询经过 OpenSurge 代理' }) as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByRole('checkbox', { name: '用 SmartDNS 替换 Mihomo DNS 上游' }) as HTMLInputElement).checked).toBe(false)
+    await user.click(screen.getByRole('button', { name: '添加预设 · 阿里 DNS DoH' }))
+    await user.click(screen.getByRole('button', { name: '添加预设 · 腾讯 DNSPod DoH' }))
+    await user.click(screen.getByRole('checkbox', { name: '上游 DNS 查询经过 OpenSurge 代理' }))
+    await user.type(screen.getByRole('combobox', { name: 'DNS 代理节点或策略组' }), '节点选择')
+    await user.click(screen.getByRole('checkbox', { name: '用 SmartDNS 替换 Mihomo DNS 上游' }))
+    order.length = 0
+    await user.click(screen.getByRole('button', { name: '保存上游 DNS' }))
+    await screen.findByText('配置已保存并重启网关。')
+    expect(order.slice(0, 4)).toEqual(['stop', 'persist', 'read', 'start'])
+    expect(persisted.dns).toMatchObject({ resolver_proxy_enabled: true, resolver_proxy_target: '节点选择', mihomo_use_smartdns: true, resolver_upstreams: [
+      { address: 'https://dns.alidns.com/dns-query', bootstrap_ipv4: '223.5.5.5' },
+      { address: 'https://doh.pub/dns-query', bootstrap_ipv4: '1.12.12.12' },
+    ] })
+  })
+  it('rejects an empty DNS proxy target before stopping the gateway', async () => {
+    const user = userEvent.setup()
+    render(<QNAPNetworkPage overview={{ ...overview, status: { ...overview.status, gateway: 'running' } }} onChanged={async () => {}} onNotify={() => {}} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Resolver View 上游来源' }), 'custom')
+    await user.click(screen.getByRole('button', { name: '添加预设 · 阿里 DNS DoH' }))
+    await user.click(screen.getByRole('checkbox', { name: '上游 DNS 查询经过 OpenSurge 代理' }))
+    await user.click(screen.getByRole('button', { name: '保存上游 DNS' }))
+    await screen.findByText('请选择代理节点或策略组作为 DNS 出口。')
+    expect(api.gateway).not.toHaveBeenCalled()
+    expect(api.saveConfig).not.toHaveBeenCalled()
+  })
   it('rejects an empty custom list before stopping the running gateway', async () => {
     const user = userEvent.setup()
     render(<QNAPNetworkPage overview={{ ...overview, status: { ...overview.status, gateway: 'running' } }} onChanged={async () => {}} onNotify={() => {}} />)

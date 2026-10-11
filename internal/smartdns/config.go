@@ -71,6 +71,9 @@ func RenderConfigWithResolvers(cfg config.Config, paths runtime.Paths, resolvers
 
 	var out strings.Builder
 	out.WriteString("server-name opensurge\n")
+	if cfg.DNS.ResolverProxyEnabled {
+		fmt.Fprintf(&out, "proxy-server socks5://127.0.0.1:%d -name opensurge-dns\n", config.SmartDNSProxyPort)
+	}
 	for _, upstream := range cfg.DNS.ResolverUpstreams {
 		endpoint, _ := config.ParseResolverUpstream(upstream, cfg)
 		if cfg.DNS.ResolverMode == "custom" && endpoint.Encrypted {
@@ -99,8 +102,14 @@ func RenderConfigWithResolvers(cfg config.Config, paths runtime.Paths, resolvers
 	out.WriteString("serve-expired yes\n")
 	out.WriteString("serve-expired-ttl 600\n")
 	out.WriteString("serve-expired-reply-ttl 3\n")
-	out.WriteString("speed-check-mode tcp:443,tcp:80\n")
-	out.WriteString("response-mode fastest-ip\n")
+	if cfg.DNS.ResolverProxyEnabled {
+		// Direct IP probes measure the NAS path, not the chosen proxy's path.
+		out.WriteString("speed-check-mode none\n")
+		out.WriteString("response-mode fastest-response\n")
+	} else {
+		out.WriteString("speed-check-mode tcp:443,tcp:80\n")
+		out.WriteString("response-mode fastest-ip\n")
+	}
 	out.WriteString("dualstack-ip-selection no\n")
 	out.WriteString("group-end\n")
 
@@ -111,6 +120,12 @@ func RenderConfigWithResolvers(cfg config.Config, paths runtime.Paths, resolvers
 	}
 	fmt.Fprintf(&out, "bind %s %s\n", listenTarget, defaultOptions)
 	fmt.Fprintf(&out, "bind-tcp %s %s\n", listenTarget, defaultOptions)
+	if cfg.DNS.MihomoUseSmartDNS {
+		// Feeding Mihomo from the LAN bind would recurse in Gateway View.
+		// The private listener always obtains real answers from Resolver View.
+		fmt.Fprintf(&out, "bind %s %s\n", config.SmartDNSResolverAddr, resolverOptions())
+		fmt.Fprintf(&out, "bind-tcp %s %s\n", config.SmartDNSResolverAddr, resolverOptions())
+	}
 
 	fmt.Fprintf(&out, "server %s -group %s -exclude-default-group\n", mihomoDNS, GatewayGroup)
 	if cfg.DNS.ResolverMode == "custom" {
@@ -129,6 +144,9 @@ func RenderConfigWithResolvers(cfg config.Config, paths runtime.Paths, resolvers
 				// Plaintext is a user-authorized fallback, never a faster competitor to
 				// a working encrypted resolver. Do not add system/router fallbacks.
 				out.WriteString(" -fallback")
+			}
+			if cfg.DNS.ResolverProxyEnabled {
+				out.WriteString(" -proxy opensurge-dns")
 			}
 			out.WriteString("\n")
 		}

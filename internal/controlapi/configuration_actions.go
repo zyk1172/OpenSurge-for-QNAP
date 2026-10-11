@@ -649,6 +649,15 @@ func applyControlConfig(configPath, revision string, payload []byte) (string, er
 	if input.DNS.ResolverAllowPlaintext != nil {
 		cfg.DNS.ResolverAllowPlaintext = *input.DNS.ResolverAllowPlaintext
 	}
+	if input.DNS.ResolverProxyEnabled != nil {
+		cfg.DNS.ResolverProxyEnabled = *input.DNS.ResolverProxyEnabled
+	}
+	if input.DNS.ResolverProxyTarget != nil {
+		cfg.DNS.ResolverProxyTarget = *input.DNS.ResolverProxyTarget
+	}
+	if input.DNS.MihomoUseSmartDNS != nil {
+		cfg.DNS.MihomoUseSmartDNS = *input.DNS.MihomoUseSmartDNS
+	}
 	if input.Mihomo.StoreFakeIP != nil {
 		cfg.Mihomo.StoreFakeIP = *input.Mihomo.StoreFakeIP
 	}
@@ -699,6 +708,16 @@ func applyControlConfig(configPath, revision string, payload []byte) (string, er
 			_ = os.Remove(createdPolicy)
 		}
 		return "", err
+	}
+	// Resolve the selected DNS proxy against the effective profile before
+	// persisting it; otherwise an unknown target would fail only at restart.
+	if cfg.DNS.ResolverProxyEnabled || cfg.DNS.MihomoUseSmartDNS {
+		if _, err := mihomo.RenderConfig(cfg); err != nil {
+			if createdPolicy != "" {
+				_ = os.Remove(createdPolicy)
+			}
+			return "", err
+		}
 	}
 	if err := writeAtomic(configPath, []byte(config.Render(cfg)), 0o640); err != nil {
 		if createdPolicy != "" {

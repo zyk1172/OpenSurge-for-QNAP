@@ -172,6 +172,18 @@ func applyValue(cfg *Config, section, key, value string) error {
 		cfg.DNS.Port = port
 	case "dns.resolver_mode":
 		cfg.DNS.ResolverMode = value
+	case "dns.resolver_proxy_enabled", "dns.mihomo_use_smartdns":
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("dns.%s must be a boolean", key)
+		}
+		if key == "resolver_proxy_enabled" {
+			cfg.DNS.ResolverProxyEnabled = enabled
+		} else {
+			cfg.DNS.MihomoUseSmartDNS = enabled
+		}
+	case "dns.resolver_proxy_target":
+		cfg.DNS.ResolverProxyTarget = value
 	case "dns.resolver_allow_plaintext":
 		enabled, err := strconv.ParseBool(value)
 		if err != nil {

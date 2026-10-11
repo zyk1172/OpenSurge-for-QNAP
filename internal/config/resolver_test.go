@@ -11,6 +11,9 @@ func TestResolverSettingsRoundTrip(t *testing.T) {
 	cfg := Default()
 	cfg.DNS.ResolverMode = "custom"
 	cfg.DNS.ResolverAllowPlaintext = true
+	cfg.DNS.ResolverProxyEnabled = true
+	cfg.DNS.ResolverProxyTarget = "节点选择"
+	cfg.DNS.MihomoUseSmartDNS = true
 	cfg.DNS.ResolverUpstreams = []ResolverUpstream{{Address: "https://cloudflare-dns.com/dns-query", BootstrapIPv4: "1.1.1.1"}, {Address: "tls://dns.google:853", BootstrapIPv4: "8.8.8.8"}, {Address: "tcp://9.9.9.9:53"}}
 	path := filepath.Join(t.TempDir(), "opensurge.yaml")
 	if err := os.WriteFile(path, []byte(Render(cfg)), 0600); err != nil {
@@ -20,8 +23,40 @@ func TestResolverSettingsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.DNS.ResolverMode != "custom" || !loaded.DNS.ResolverAllowPlaintext || !reflect.DeepEqual(loaded.DNS.ResolverUpstreams, cfg.DNS.ResolverUpstreams) {
+	if !reflect.DeepEqual(loaded.DNS, cfg.DNS) {
 		t.Fatalf("settings lost: %#v", loaded.DNS)
+	}
+}
+
+func TestSmartDNSIntegrationRejectsCyclesAndDirectProxyBypass(t *testing.T) {
+	for _, mutate := range []func(*Config){
+		func(c *Config) { c.DNS.ResolverMode = "system" },
+		func(c *Config) { c.DNS.ResolverProxyTarget = "" },
+		func(c *Config) { c.DNS.ResolverProxyTarget = "DIRECT" },
+		func(c *Config) { c.DNS.ResolverProxyTarget = "node\nproxy: DIRECT" },
+		func(c *Config) { c.DNS.ResolverProxyTarget = `node\"name` },
+		func(c *Config) {
+			c.DNS.ResolverUpstreams = []ResolverUpstream{{Address: "8.8.8.8"}}
+			c.DNS.ResolverAllowPlaintext = true
+		},
+		func(c *Config) {
+			c.DNS.ResolverUpstreams = append(c.DNS.ResolverUpstreams, ResolverUpstream{Address: "udp://8.8.8.8"})
+			c.DNS.ResolverAllowPlaintext = true
+		},
+		func(c *Config) { c.DNS.ResolverUpstreams[0].Address += "?token=unsupported" },
+		func(c *Config) { c.Mihomo.MixedPort = SmartDNSProxyPort },
+		func(c *Config) { c.DNS.Port = 5354 },
+	} {
+		cfg := Default()
+		cfg.DNS.ResolverMode = "custom"
+		cfg.DNS.ResolverUpstreams = []ResolverUpstream{{Address: "https://doh.pub/dns-query", BootstrapIPv4: "1.12.12.12"}}
+		cfg.DNS.ResolverProxyEnabled = true
+		cfg.DNS.ResolverProxyTarget = "节点选择"
+		cfg.DNS.MihomoUseSmartDNS = true
+		mutate(&cfg)
+		if err := ValidateResolverConfig(cfg); err == nil {
+			t.Fatalf("accepted unsupported integration: %#v", cfg.DNS)
+		}
 	}
 }
 

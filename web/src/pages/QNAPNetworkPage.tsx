@@ -38,6 +38,8 @@ type DNSRuntime = {
   default_view?: 'gateway' | 'resolver'
   gateway_upstream?: string
   resolver_upstreams: string[]
+  resolver_proxy?: string
+  mihomo_resolver_listen?: string
 }
 
 export function QNAPNetworkPage({
@@ -182,6 +184,9 @@ export function QNAPNetworkPage({
       const resolverSnapshot = (cfg: ControlConfig) => JSON.stringify({
         mode: cfg.dns.resolver_mode || 'system',
         allow: cfg.dns.resolver_allow_plaintext || false,
+        proxy: cfg.dns.resolver_proxy_enabled || false,
+        target: cfg.dns.resolver_proxy_target?.trim() || '',
+        mihomo: cfg.dns.mihomo_use_smartdns || false,
         upstreams: (cfg.dns.resolver_upstreams || []).map(upstream => ({ address: upstream.address.trim(), bootstrap_ipv4: upstream.bootstrap_ipv4?.trim() || '' })),
       })
       if (resolverSnapshot(ipv4OnlyDraft) !== resolverSnapshot(reread)) throw new Error(t('上游 DNS 保存后校验失败，请重新读取配置。'))
@@ -294,6 +299,10 @@ export function QNAPNetworkPage({
       </div>
       <div className="qnap-dns-detail-grid">
         <article className="qnap-dns-detail-card">
+          <span><strong>{t('Resolver View 查询出口')}</strong><small>{t('来自已写入的 SmartDNS 配置')}</small></span>
+          <b>{dnsRuntime?.configured ? t(dnsRuntime.resolver_proxy ? 'OpenSurge 代理' : '直连上游') : t('未读取运行配置')}</b>
+        </article>
+        <article className="qnap-dns-detail-card">
           <span>
             <strong>{t('默认 DNS 视图')}</strong>
             <small>{defaultDNSViewNote}</small>
@@ -317,14 +326,14 @@ export function QNAPNetworkPage({
         <p className="muted">{t('先选择可信的上游，再比较连接速度。加密 DNS 可防止传输途中被篡改，但不能保证服务商的答案没有污染。')}</p>
         <label>
           <span>{t('Resolver View 上游来源')}</span>
-          <select aria-label={t('Resolver View 上游来源')} value={resolverMode} disabled={saving} onChange={event => patch({ dns: { ...draft.dns, resolver_mode: event.target.value as 'system' | 'custom' } })}>
+          <select aria-label={t('Resolver View 上游来源')} value={resolverMode} disabled={saving} onChange={event => patch({ dns: { ...draft.dns, resolver_mode: event.target.value as 'system' | 'custom', ...(event.target.value === 'system' ? { resolver_proxy_enabled: false, mihomo_use_smartdns: false } : {}) } })}>
             <option value="custom">{t('自定义（推荐：加密优先）')}</option>
             <option value="system">{t('系统 DNS（兼容旧配置）')}</option>
           </select>
         </label>
         {resolverMode === 'system' ? <p className="muted">{t('当前继承系统 DNS，过滤不可用地址后可能回退到主路由；此模式不保证上游可信。选择自定义后只使用你填写的上游。')}</p> : <>
           <div className="source-actions">
-            {resolverPresets.map(preset => <button key={preset.name} type="button" disabled={saving || resolverUpstreams.length >= 16} onClick={() => addResolver(preset)}>{t('添加预设')} · {preset.name} DoH</button>)}
+            {resolverPresets.map(preset => <button key={preset.name} type="button" disabled={saving || resolverUpstreams.length >= 16} onClick={() => addResolver(preset)}>{t('添加预设')} · {t(preset.name)} DoH</button>)}
             <button type="button" disabled={saving || resolverUpstreams.length >= 16} onClick={() => addResolver()}>{t('添加自定义上游')}</button>
           </div>
           <p className="muted">{t('预设只是配置示例，不是无污染认证。请选择你信任且在当前网络可达的服务商；Quad9 会过滤已知恶意域名。')}</p>
@@ -342,12 +351,33 @@ export function QNAPNetworkPage({
             </article>)}
           </div>
           <p className="muted">{t('DoH：https://域名/dns-query；DoT：tls://域名:853。固定连接 IPv4 只用于连接，TLS 仍严格验证域名和证书；不依赖系统 DNS 引导。')}</p>
-          <label>
+          <label className="checkbox-field smartdns-toggle">
             <input type="checkbox" aria-label={t('允许明文 DNS')} checked={draft.dns.resolver_allow_plaintext || false} disabled={saving} onChange={event => patch({ dns: { ...draft.dns, resolver_allow_plaintext: event.target.checked } })} />
             <span>{t('允许明文 DNS')}</span>
           </label>
           <p className="muted">{t('明确允许后可填写 IPv4、udp://IPv4:53 或 tcp://IPv4:53。有加密上游时，明文只作为加密上游全部失败后的备选；仅填明文时无法防止途中污染。')}</p>
-          <div className="notice">{t('自定义模式不会自动回退到系统或主路由 DNS。SmartDNS 只在所选可信上游内优化连接；这些设置用于 Resolver View，不替换 Gateway View 的 Mihomo DNS。')}</div>
+          <div className="source-import-grid">
+            <article className="source-import-card smartdns-option-card">
+              <label className="checkbox-field smartdns-toggle">
+                <input type="checkbox" aria-label={t('上游 DNS 查询经过 OpenSurge 代理')} checked={draft.dns.resolver_proxy_enabled || false} disabled={saving} onChange={event => patch({ dns: { ...draft.dns, resolver_proxy_enabled: event.target.checked } })} />
+                <span>{t('上游 DNS 查询经过 OpenSurge 代理')}</span>
+              </label>
+              {draft.dns.resolver_proxy_enabled && <label>
+                <span>{t('DNS 代理节点或策略组')}</span>
+                <input aria-label={t('DNS 代理节点或策略组')} list="smartdns-proxy-targets" value={draft.dns.resolver_proxy_target || ''} disabled={saving} placeholder={t('填写当前配置中的名称')} onChange={event => patch({ dns: { ...draft.dns, resolver_proxy_target: event.target.value } })} />
+                <datalist id="smartdns-proxy-targets">{(overview?.policies || []).filter(group => !group.name.startsWith('open-surge/') && !/^(DIRECT|REJECT|REJECT-DROP|REJECT-TINYGIF|PASS|COMPATIBLE|GLOBAL)$/i.test(group.name)).map(group => <option key={group.name} value={group.name} />)}</datalist>
+              </label>}
+              <p className="muted">{t('通过所选节点或策略组查询 DoH、DoT 或 TCP 上游，故障时不绕过代理直连。请选择使用代理节点的策略组；组内出口选择仍会影响实际路径。代理模式按可信上游的查询延迟选择答案，不使用 NAS 直连测速。')}</p>
+            </article>
+            <article className="source-import-card smartdns-option-card">
+              <label className="checkbox-field smartdns-toggle">
+                <input type="checkbox" aria-label={t('用 SmartDNS 替换 Mihomo DNS 上游')} checked={draft.dns.mihomo_use_smartdns || false} disabled={saving} onChange={event => patch({ dns: { ...draft.dns, mihomo_use_smartdns: event.target.checked } })} />
+                <span>{t('用 SmartDNS 替换 Mihomo DNS 上游')}</span>
+              </label>
+              <p className="muted">{t('覆盖订阅中的普通解析、直连解析和备用 DNS 上游，使用 SmartDNS 的真实解析结果；保留 Fake-IP、过滤规则、hosts 和 TUN DNS 劫持。关闭后恢复配置文件的 DNS 设置。')}</p>
+            </article>
+          </div>
+          <div className="notice">{t('两个开关默认关闭，互相独立。启用任一项后，代理节点域名通过所选加密上游直接解析，并使用固定连接 IPv4 引导，以避免启动时的解析循环；普通查询是否经过代理由第一个开关决定。自定义模式不自动回退到系统或主路由 DNS。')}</div>
         </>}
         <div className="source-actions"><button className="primary" type="button" aria-label={t('保存上游 DNS')} disabled={saving} onClick={() => void saveRuntime()}>{saving ? t('正在保存…') : t(running ? '保存并重启网关' : '保存上游 DNS')}</button></div>
       </div>}

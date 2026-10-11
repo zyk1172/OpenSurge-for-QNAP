@@ -42,7 +42,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 cleanup
 
-for tool in ip nft ping dnsmasq dig smartdns; do
+for tool in ip nft ping dnsmasq dig smartdns mihomo; do
   command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
 done
 
@@ -65,7 +65,7 @@ if [[ ! -x "$SMARTDNS_TEST_BIN" ]]; then
 fi
 
 log "validating project-generated SmartDNS config with the pinned runtime"
-OPEN_SURGE_SMARTDNS_INTEGRATION_TESTS=1 "$SMARTDNS_TEST_BIN" -test.v -test.run '^Test(RenderedConfigLoadsInPinnedSmartDNS|EncryptedResolversInPinnedSmartDNS)$'
+OPEN_SURGE_SMARTDNS_INTEGRATION_TESTS=1 "$SMARTDNS_TEST_BIN" -test.v -test.run '^Test(RenderedConfigLoadsInPinnedSmartDNS|EncryptedResolversInPinnedSmartDNS|SmartDNSProxyWithPinnedMihomo)$'
 
 log "creating isolated client -> gateway -> upstream topology"
 sudo ip netns add "$CLIENT_NS"

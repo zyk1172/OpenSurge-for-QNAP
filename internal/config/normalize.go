@@ -39,6 +39,7 @@ func Normalize(cfg *Config) error {
 	if cfg.DNS.ResolverMode == "" {
 		cfg.DNS.ResolverMode = "system"
 	}
+	cfg.DNS.ResolverProxyTarget = strings.TrimSpace(cfg.DNS.ResolverProxyTarget)
 	for index := range cfg.DNS.ResolverUpstreams {
 		cfg.DNS.ResolverUpstreams[index].Address = strings.TrimSpace(cfg.DNS.ResolverUpstreams[index].Address)
 		cfg.DNS.ResolverUpstreams[index].BootstrapIPv4 = strings.TrimSpace(cfg.DNS.ResolverUpstreams[index].BootstrapIPv4)

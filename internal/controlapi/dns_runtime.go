@@ -14,11 +14,13 @@ import (
 // gateway. It is not derived from Docker's current resolv.conf and does not
 // claim that its upstream servers are reachable.
 type DNSRuntime struct {
-	Configured        bool     `json:"configured"`
-	Listen            string   `json:"listen,omitempty"`
-	DefaultView       string   `json:"default_view,omitempty"`
-	GatewayUpstream   string   `json:"gateway_upstream,omitempty"`
-	ResolverUpstreams []string `json:"resolver_upstreams"`
+	Configured           bool     `json:"configured"`
+	Listen               string   `json:"listen,omitempty"`
+	DefaultView          string   `json:"default_view,omitempty"`
+	GatewayUpstream      string   `json:"gateway_upstream,omitempty"`
+	ResolverUpstreams    []string `json:"resolver_upstreams"`
+	ResolverProxy        string   `json:"resolver_proxy,omitempty"`
+	MihomoResolverListen string   `json:"mihomo_resolver_listen,omitempty"`
 }
 
 func parseDNSRuntime(data []byte) DNSRuntime {
@@ -30,6 +32,10 @@ func parseDNSRuntime(data []byte) DNSRuntime {
 		}
 		switch parts[0] {
 		case "bind":
+			if parts[1] == config.SmartDNSResolverAddr {
+				snapshot.MihomoResolverListen = parts[1]
+				continue
+			}
 			snapshot.Listen = parts[1]
 			if containsGroup(parts, "opensurge-resolver") {
 				snapshot.DefaultView = "resolver"
@@ -49,6 +55,10 @@ func parseDNSRuntime(data []byte) DNSRuntime {
 					address = "tls://" + address
 				}
 				snapshot.ResolverUpstreams = append(snapshot.ResolverUpstreams, address)
+			}
+		case "proxy-server":
+			if len(parts) == 4 && parts[2] == "-name" && parts[3] == "opensurge-dns" {
+				snapshot.ResolverProxy = parts[1]
 			}
 		}
 	}

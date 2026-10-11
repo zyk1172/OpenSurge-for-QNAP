@@ -12,6 +12,40 @@ import (
 	"open-mihomo-gateway/internal/runtime"
 )
 
+func TestSmartDNSProxyAndPrivateResolverAvoidGatewayRecursion(t *testing.T) {
+	cfg := config.Default()
+	cfg.DNS.ResolverMode = "custom"
+	cfg.DNS.ResolverUpstreams = []config.ResolverUpstream{{Address: "https://dns.alidns.com/dns-query", BootstrapIPv4: "223.5.5.5"}, {Address: "tls://doh.pub:853", BootstrapIPv4: "1.12.12.12"}, {Address: "tcp://223.6.6.6:53"}}
+	cfg.DNS.ResolverAllowPlaintext = true
+	cfg.DNS.ResolverProxyEnabled = true
+	cfg.DNS.ResolverProxyTarget = "open-surge-egress"
+	cfg.DNS.MihomoUseSmartDNS = true
+	cfg.UpstreamProxy.Enabled = true
+	rendered, err := RenderConfigWithResolvers(cfg, runtime.NewPaths(cfg), []string{"192.168.2.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"proxy-server socks5://127.0.0.1:7854 -name opensurge-dns",
+		"bind 127.0.0.1:5354 -group opensurge-resolver",
+		"bind-tcp 127.0.0.1:5354 -group opensurge-resolver",
+		"server-tcp 223.6.6.6:53 -group opensurge-resolver -exclude-default-group -fallback -proxy opensurge-dns",
+		"response-mode fastest-response",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("missing %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "server 192.168.2.1") || strings.Contains(rendered, "speed-check-mode tcp:") {
+		t.Fatal("proxy DNS used system fallback or direct IP probes")
+	}
+	for _, line := range strings.Split(rendered, "\n") {
+		if strings.Contains(line, "-group opensurge-resolver -exclude-default-group") && !strings.Contains(line, "-proxy opensurge-dns") {
+			t.Fatalf("unproxied resolver: %s", line)
+		}
+	}
+}
+
 func TestDockerHostOnlyResolverFallsBackToRealUpstreamRouter(t *testing.T) {
 	cfg := config.Default()
 	cfg.Gateway.LANIP = "192.168.2.241"

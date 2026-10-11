@@ -976,6 +976,28 @@ dialog.reload-dialog>.dialog-actions{
   font-size:var(--ui-font-card)!important;
   white-space:nowrap!important;
 }
+.qnap-dns-section .smartdns-option-card{align-content:start}
+.qnap-dns-section .source-import-card>label.smartdns-toggle{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-height:44px;
+  cursor:pointer;
+}
+.qnap-dns-section label.smartdns-toggle>input{
+  flex:0 0 18px;
+  width:18px;
+  height:18px;
+  min-height:18px;
+  margin:0;
+  padding:0;
+  accent-color:var(--ui-accent);
+}
+.qnap-dns-section label.smartdns-toggle>span{
+  color:var(--ui-text);
+  font-size:var(--ui-font-body);
+  line-height:1.4;
+}
 .qnap-dns-note{
   margin-top:var(--ui-space-3)!important;
 }

@@ -71,6 +71,9 @@ type DNSConfig struct {
 	ResolverMode           string
 	ResolverUpstreams      []ResolverUpstream
 	ResolverAllowPlaintext bool
+	ResolverProxyEnabled   bool
+	ResolverProxyTarget    string
+	MihomoUseSmartDNS      bool
 	Listen                 string
 	Port                   int
 	Upstream               string
