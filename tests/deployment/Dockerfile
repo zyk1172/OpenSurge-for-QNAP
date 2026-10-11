@@ -4,4 +4,5 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends iproute2 nftables util-linux netbase \
  && rm -rf /var/lib/apt/lists/*
 COPY network.test /network.test
+COPY qnaphost.test /qnaphost.test
 COPY kernel-probe.sh /kernel-probe.sh

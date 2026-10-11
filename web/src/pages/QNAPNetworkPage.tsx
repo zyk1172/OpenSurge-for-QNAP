@@ -201,7 +201,7 @@ export function QNAPNetworkPage({
     : draft ? `${draft.gateway.lan_ip}/${draft.gateway.lan_prefix_len}` : '—'
   const router = actual?.snapshot.router || t('Docker 网络配置')
   const lanProxy = draft?.lan_proxy ?? { enabled: false, socks_port: 7891 }
-  const dnsListen = dnsRuntime?.listen || `${draft?.dns.listen || networkIPv4}:53`
+  const dnsListen = dnsRuntime?.listen || t('未读取运行配置')
   // Read the applied SmartDNS config, not raw Docker DNS which may contain
   // 127.0.0.11 or the QNAP host's 100.100.100.100 MagicDNS resolver.
   const resolverUpstreamLabel = dnsRuntime?.resolver_upstreams.length
@@ -262,7 +262,7 @@ export function QNAPNetworkPage({
         <span>
           <strong>Gateway View</strong>
           <b>Mihomo Fake-IP</b>
-          <small>{dnsRuntime?.gateway_upstream || '127.0.0.1:1053'}</small>
+          <small>{dnsRuntime?.gateway_upstream || t('未读取运行配置')}</small>
         </span>
         <span>
           <strong>Resolver View</strong>

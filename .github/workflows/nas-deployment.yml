@@ -3,9 +3,9 @@ name: Multi-NAS deployment
 on:
   push:
     branches: [master]
-    paths: ['deploy/**', 'tests/deployment/**', 'web/**', 'docker/**', 'internal/webgateway/**', 'internal/platform/**', 'cmd/opensurge-container/**', '.github/workflows/nas-deployment.yml']
+    paths: ['deploy/**', 'tests/deployment/**', 'web/**', 'docker/**', 'internal/webgateway/**', 'internal/platform/**', 'internal/qnaphost/**', 'cmd/opensurge-container/**', '.github/workflows/nas-deployment.yml']
   pull_request:
-    paths: ['deploy/**', 'tests/deployment/**', 'web/**', 'docker/**', 'internal/webgateway/**', 'internal/platform/**', 'cmd/opensurge-container/**', '.github/workflows/nas-deployment.yml']
+    paths: ['deploy/**', 'tests/deployment/**', 'web/**', 'docker/**', 'internal/webgateway/**', 'internal/platform/**', 'internal/qnaphost/**', 'cmd/opensurge-container/**', '.github/workflows/nas-deployment.yml']
 
 permissions:
   contents: read
@@ -55,6 +55,7 @@ jobs:
         run: |
           mkdir -p /tmp/opensurge-nas-kernel
           CGO_ENABLED=0 go test -c -o /tmp/opensurge-nas-kernel/network.test ./internal/platform/linux
+          CGO_ENABLED=0 go test -c -o /tmp/opensurge-nas-kernel/qnaphost.test ./internal/qnaphost
           cp deploy/nas/kernel-probe.sh /tmp/opensurge-nas-kernel/
           docker build -f tests/deployment/Dockerfile -t opensurge-nas-kernel-check /tmp/opensurge-nas-kernel
       - name: Verify macvlan, real TUN and TCP/UDP routing in a disposable namespace
@@ -69,6 +70,7 @@ jobs:
             --sysctl net.ipv6.conf.all.disable_ipv6=1 \
             opensurge-nas-kernel-check sh -ec '
               sh /kernel-probe.sh
+              OPEN_SURGE_QNAPHOST_NETWORK_TESTS=1 /qnaphost.test -test.v -test.run "^TestHostDNSBypassKernelRouting$"
               OPEN_SURGE_NETWORK_TESTS=1 /network.test -test.v -test.run "^TestNetworkIngressInterface"
             ' | tee /tmp/opensurge-nas-kernel.log
           ! grep -q -- '--- SKIP:' /tmp/opensurge-nas-kernel.log

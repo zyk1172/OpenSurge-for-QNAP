@@ -350,22 +350,22 @@ func (m *Manager) statusLocked(ctx context.Context) Status {
 		}
 	}
 
-    if status.EffectiveDNSMode == DNSModeHost && hostRulesErr == nil {
-        status.DNSPreserved = ruleLineContains(hostRules, dnsUDP, hostSource, "iif lo", "ipproto udp", "dport 53", "lookup main") &&
-            ruleLineContains(hostRules, dnsTCP, hostSource, "iif lo", "ipproto tcp", "dport 53", "lookup main")
-        if status.DNSPreserved {
-            // A rule being installed does not mean an earlier VPN/host rule
-            // actually selects it. Confirm both transport paths escape the
-            // OpenSurge-only host route table.
-            for _, proto := range []string{"udp", "tcp"} {
-                route, err := m.runHost(ctx, nil, "ip", "-4", "route", "get", publicRouteProbeIPv4, "from", hostIP, "ipproto", proto, "dport", "53")
-                if err != nil || routeUsesGatewayTable(route, cfg.Gateway.LANIP, routeTableID) {
-                    status.DNSPreserved = false
-                    break
-                }
-            }
-        }
-    }
+	if status.EffectiveDNSMode == DNSModeHost && hostRulesErr == nil {
+		status.DNSPreserved = ruleLineContains(hostRules, dnsUDP, hostSource, "iif lo", "ipproto udp", "dport 53", "lookup main") &&
+			ruleLineContains(hostRules, dnsTCP, hostSource, "iif lo", "ipproto tcp", "dport 53", "lookup main")
+		if status.DNSPreserved {
+			// A rule being installed does not mean an earlier VPN/host rule
+			// actually selects it. Confirm both transport paths escape the
+			// OpenSurge-only host route table.
+			for _, proto := range []string{"udp", "tcp"} {
+				route, err := m.runHost(ctx, nil, "ip", "-4", "route", "get", publicRouteProbeIPv4, "from", hostIP, "ipproto", proto, "dport", "53")
+				if err != nil || routeUsesGatewayTable(route, cfg.Gateway.LANIP, routeTableID) {
+					status.DNSPreserved = false
+					break
+				}
+			}
+		}
+	}
 
 	if status.TailscaleDetected {
 		status.TailscaleRoutesProtected = state.ProtectTailscale && hostRulesErr == nil && protectedHostRulesPrecedeOpenSurge(hostRules, priorities)
@@ -585,16 +585,16 @@ func (m *Manager) enableLocked(ctx context.Context) error {
 		return fmt.Errorf("install NAS source-scoped local-origin policy rule: %w", err)
 	}
 	if needsDNS {
-        if err := m.installHostDNSPolicyLocked(ctx, hostIP); err != nil {
-            _ = m.disableLocked(ctx)
-            return err
-        }
-    } else {
-        if err := m.installHostDNSBypassLocked(ctx, hostIP); err != nil {
-            _ = m.disableLocked(ctx)
-            return err
-        }
-    }
+		if err := m.installHostDNSPolicyLocked(ctx, hostIP); err != nil {
+			_ = m.disableLocked(ctx)
+			return err
+		}
+	} else {
+		if err := m.installHostDNSBypassLocked(ctx, hostIP); err != nil {
+			_ = m.disableLocked(ctx)
+			return err
+		}
+	}
 
 	installed := m.statusLocked(ctx)
 	if !installed.Enabled || (needsDNS && !installed.DNSRedirect) || (!needsDNS && !installed.DNSPreserved) {
@@ -639,15 +639,15 @@ func (m *Manager) installHostDNSPolicyLocked(ctx context.Context, hostIP string)
 // Preserve the QTS resolver route even when normal host public IPv4 is taken
 // over. This is source-scoped: the second NIC and PT source IP are not touched.
 func (m *Manager) installHostDNSBypassLocked(ctx context.Context, hostIP string) error {
-    priorities := m.hostPrioritiesLocked()
-    dnsUDP, dnsTCP, _, _ := priorities.strings()
-    for _, rule := range []struct { priority, proto string }{{dnsUDP, "udp"}, {dnsTCP, "tcp"}} {
-        if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", rule.priority,
-            "from", hostIP+"/32", "iif", "lo", "ipproto", rule.proto, "dport", "53", "table", "main"); err != nil {
-            return fmt.Errorf("preserve NAS %s DNS using QTS main routing: %w", rule.proto, err)
-        }
-    }
-    return nil
+	priorities := m.hostPrioritiesLocked()
+	dnsUDP, dnsTCP, _, _ := priorities.strings()
+	for _, rule := range []struct{ priority, proto string }{{dnsUDP, "udp"}, {dnsTCP, "tcp"}} {
+		if _, err := m.runHost(ctx, nil, "ip", "-4", "rule", "add", "pref", rule.priority,
+			"from", hostIP+"/32", "iif", "lo", "ipproto", rule.proto, "dport", "53", "table", "main"); err != nil {
+			return fmt.Errorf("preserve NAS %s DNS using QTS main routing: %w", rule.proto, err)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) installContainerDNSPolicyLocked(ctx context.Context, cfg config.Config, hostIP string) error {
@@ -752,6 +752,7 @@ func (m *Manager) disableLocked(ctx context.Context) error {
 	if _, err := os.Stat(m.netNSPath); err != nil {
 		return nil
 	}
+	hostRules, hostRulesErr := m.runHost(ctx, nil, "ip", "-4", "rule", "show")
 	sets := []hostPolicyPriorities{m.hostPrioritiesLocked(), legacyHostPriorities()}
 	seen := make(map[hostPolicyPriorities]bool)
 	for _, priorities := range sets {
@@ -762,8 +763,9 @@ func (m *Manager) disableLocked(ctx context.Context) error {
 		dnsUDP, dnsTCP, mainPriority, proxyPriority := priorities.strings()
 		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", dnsUDP, "iif", "lo", "ipproto", "udp", "dport", "53", "table", routeTableID)
 		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", dnsTCP, "iif", "lo", "ipproto", "tcp", "dport", "53", "table", routeTableID)
-		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", dnsUDP, "iif", "lo", "ipproto", "udp", "dport", "53", "table", "main")
-		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", dnsTCP, "iif", "lo", "ipproto", "tcp", "dport", "53", "table", "main")
+		if hostRulesErr == nil {
+			m.cleanupHostDNSBypassLocked(ctx, hostRules, priorities)
+		}
 		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", proxyPriority, "iif", "lo", "table", routeTableID)
 		_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", mainPriority, "iif", "lo", "table", "main", "suppress_prefixlength", "0")
 	}
@@ -773,6 +775,33 @@ func (m *Manager) disableLocked(ctx context.Context) error {
 	_, _ = m.runContainer(ctx, nil, "ip", "-4", "rule", "del", "pref", containerDNSTCPRulePriority, "ipproto", "tcp", "dport", "53", "table", containerDNSRouteTableID)
 	_, _ = m.runContainer(ctx, nil, "ip", "-4", "route", "flush", "table", containerDNSRouteTableID, "proto", containerDNSRouteProtocol)
 	return nil
+}
+
+// Main-table DNS rules are not unique to OpenSurge. Only remove a /32
+// source that is also recorded by our matching source-scoped takeover rule.
+// Read installed rules rather than detecting the current address, which may
+// have changed since installation.
+func (m *Manager) cleanupHostDNSBypassLocked(ctx context.Context, rules []byte, priorities hostPolicyPriorities) {
+	dnsUDP, dnsTCP, _, proxyPriority := priorities.strings()
+	for _, line := range strings.Split(string(rules), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 || fields[0] != proxyPriority+":" || fields[1] != "from" {
+			continue
+		}
+		source := strings.TrimSuffix(fields[2], "/32")
+		if strings.Contains(source, "/") {
+			continue
+		}
+		ip := net.ParseIP(source)
+		if ip == nil || ip.To4() == nil || !ruleLineContains([]byte(line), proxyPriority, "iif lo", "lookup "+routeTableID) {
+			continue
+		}
+		for _, rule := range []struct{ priority, proto string }{{dnsUDP, "udp"}, {dnsTCP, "tcp"}} {
+			if ruleLineContains(rules, rule.priority, "from "+fields[2]+" ", "iif lo", "ipproto "+rule.proto, "dport 53", "lookup main") {
+				_, _ = m.runHost(ctx, nil, "ip", "-4", "rule", "del", "pref", rule.priority, "from", source+"/32", "iif", "lo", "ipproto", rule.proto, "dport", "53", "table", "main")
+			}
+		}
+	}
 }
 
 func (m *Manager) detectHostLocked(ctx context.Context, gatewayIP string) (string, string, error) {
@@ -819,17 +848,17 @@ func validDNSMode(mode string) bool {
 // preserves the host's original DNS route, including its original resolver
 // address (which OpenSurge does not and must not rewrite).
 func resolvedDNSMode(mode string, protectTailscale, tailscaleDetected bool) string {
-    if mode == DNSModeAuto {
-        if protectTailscale && tailscaleDetected {
-            return DNSModeHost
-        }
-        return DNSModeOpenSurge
-    }
-    return mode
+	if mode == DNSModeAuto {
+		if protectTailscale && tailscaleDetected {
+			return DNSModeHost
+		}
+		return DNSModeOpenSurge
+	}
+	return mode
 }
 
 func usesOpenSurgeDNS(mode string) bool {
-    return mode == DNSModeOpenSurge
+	return mode == DNSModeOpenSurge
 }
 
 func defaultIntent() intent {

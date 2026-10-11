@@ -191,6 +191,21 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     expect(within(section).getByText('UDP any:53 · TCP any:53')).toBeTruthy()
   })
 
+  it('does not invent applied DNS addresses when the runtime API is unavailable', async () => {
+    const original = vi.mocked(request).getMockImplementation()!
+    vi.mocked(request).mockImplementation(async (path, init) => {
+      if (path === '/api/v1/network/dns-runtime') throw new Error('unavailable')
+      return original(path, init)
+    })
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNotify={() => {}} />)
+    const heading = await screen.findByRole('heading', { name: 'DNS 服务' })
+    const section = heading.closest('section') as HTMLElement
+    expect(within(section).queryByText('192.168.2.241:53')).toBeNull()
+    expect(within(section).queryByText('127.0.0.1:1053')).toBeNull()
+    expect(within(section).getAllByText('未读取运行配置').length).toBeGreaterThan(0)
+    expect(screen.getByText('DNS 运行配置待确认')).toBeTruthy()
+  })
+
   it('renders the NAS takeover status with the same compact card structure', async () => {
     render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNavigate={() => {}} onNotify={() => {}} />)
     const statusPanel = await screen.findByLabelText('NAS 主机接管与 Tailscale 状态')
