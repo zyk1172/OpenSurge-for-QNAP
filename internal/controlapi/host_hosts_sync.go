@@ -20,20 +20,20 @@ import (
 
 const (
 	defaultHostHostsPath = "/run/opensurge/host-hosts"
-	hostHostsBegin        = "# >>> OPENSURGE QNAP HOST HOSTS >>>"
-	hostHostsEnd          = "# <<< OPENSURGE QNAP HOST HOSTS <<<"
+	hostHostsBegin       = "# >>> OPENSURGE QNAP HOST HOSTS >>>"
+	hostHostsEnd         = "# <<< OPENSURGE QNAP HOST HOSTS <<<"
 )
 
 type hostHostsSyncSettings struct {
-	SchemaVersion    int    `json:"schema_version"`
-	Enabled          bool   `json:"enabled"`
-	AutoUpdate       bool   `json:"auto_update"`
-	IntervalMinutes  int    `json:"interval_minutes"`
-	Path             string `json:"path"`
-	LastSyncAt       string `json:"last_sync_at,omitempty"`
-	LastDigest       string `json:"last_digest,omitempty"`
-	LastEntries      int    `json:"last_entries"`
-	LastError        string `json:"last_error,omitempty"`
+	SchemaVersion   int    `json:"schema_version"`
+	Enabled         bool   `json:"enabled"`
+	AutoUpdate      bool   `json:"auto_update"`
+	IntervalMinutes int    `json:"interval_minutes"`
+	Path            string `json:"path"`
+	LastSyncAt      string `json:"last_sync_at,omitempty"`
+	LastDigest      string `json:"last_digest,omitempty"`
+	LastEntries     int    `json:"last_entries"`
+	LastError       string `json:"last_error,omitempty"`
 }
 
 type hostHostsSyncView struct {
@@ -295,7 +295,7 @@ func (s *Server) restoreLegacyHostHostsOverlay(migration hostHostsOverlayMigrati
 	return s.store.SaveProfileOverlay(migration.Previous)
 }
 
-func (s *Server) reconcileHostHostsProfile(ctx context.Context) error {
+func (s *Server) reconcileHostHostsProfile(ctx context.Context) (applyErr error) {
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
 
@@ -306,6 +306,21 @@ func (s *Server) reconcileHostHostsProfile(ctx context.Context) error {
 	if candidate == nil {
 		return nil
 	}
+	// These background transitions used to leave only generic stop/start logs.
+	// Preserve the trigger, phases and terminal error just like Web operations.
+	op := newOperation("auto-host-hosts-"+randomToken(8), "sync-host-hosts")
+	if err := s.store.CreateOperation(op); err != nil {
+		return err
+	}
+	ctx = s.observeOperation(ctx, &op)
+	defer func() {
+		op.UpdatedAt = time.Now().UTC()
+		op.State = "succeeded"
+		if applyErr != nil {
+			op.State, op.Error = "failed", applyErr.Error()
+		}
+		_ = s.store.SaveOperation(op)
+	}()
 	if s.configRunner == nil {
 		return fmt.Errorf("configuration runner is unavailable")
 	}

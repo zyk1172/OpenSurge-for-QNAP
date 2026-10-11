@@ -98,9 +98,11 @@ type UIPreferences struct {
 }
 
 type MihomoRecoveryStatus struct {
-	State  string `json:"state"`
-	Reason string `json:"reason,omitempty"`
-	Error  string `json:"error,omitempty"`
+	State         string `json:"state"`
+	Reason        string `json:"reason,omitempty"`
+	Error         string `json:"error,omitempty"`
+	NextRetryAt   string `json:"next_retry_at,omitempty"`
+	RetryAttempts int    `json:"retry_attempts,omitempty"`
 }
 
 type SleepPreventionStatus struct {

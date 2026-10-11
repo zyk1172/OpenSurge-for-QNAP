@@ -234,6 +234,25 @@ jobs:
           docker exec opensurge-ci grep -q 'lan_cidr: "10.55.0.0/24"' /data/config/opensurge.yaml
           docker exec opensurge-ci grep -q 'upstream_gateway: "10.55.0.1"' /data/config/opensurge.yaml
           docker exec opensurge-ci grep -q 'interface: "eth0"' /data/config/opensurge.yaml
+      - name: Verify versioned runtime image cache in a private container mount namespace
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/opensurge-ci-cache
+          docker run --rm --name opensurge-runtime-cache-ci \
+            --cap-add SYS_ADMIN --security-opt apparmor=unconfined \
+            -v /tmp/opensurge-ci-cache:/data \
+            --entrypoint /bin/sh opensurge-qnap:ci -ec '
+              /usr/local/bin/opensurge-runtime-cache prepare
+              test "$(stat -c %d /usr)" = "$(stat -c %d /data)"
+              if touch /usr/opensurge-cache-write-test; then exit 1; fi
+              /usr/local/bin/opensurge-container --help >/dev/null
+              /usr/local/bin/mihomo -v
+              /usr/local/bin/dnsmasq --version
+              ip link show >/dev/null
+              setpriv --reuid=1000 --regid=100 --clear-groups --bounding-set=-all \
+                /usr/local/bin/opensurge-container --component platform
+              /usr/local/bin/opensurge-runtime-cache prepare
+            '
       - name: Verify QNAP image and privilege split
         run: |
           set -euo pipefail

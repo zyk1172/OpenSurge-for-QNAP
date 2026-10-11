@@ -7,6 +7,16 @@ ROLE="${OPENSURGE_ROLE:-gateway}"
   exit 1
 }
 
+# Opt-in for an SSD-backed /data when Docker image layers live on busy HDDs.
+# Use this image's verified complete /usr, including ELF loaders/libraries;
+# copying only Mihomo leaves ip/nft/DNS/Control vulnerable to image-page stalls.
+# The mount stays inside this container and is replaced on every image upgrade.
+case "${OPENSURGE_RUNTIME_IMAGE_CACHE:-false}" in
+  true) /usr/local/bin/opensurge-runtime-cache prepare ;;
+  false) ;;
+  *) echo "OPENSURGE_RUNTIME_IMAGE_CACHE must be true or false" >&2; exit 1 ;;
+esac
+
 DATA_DIR="${OPENSURGE_DATA_DIR:-/data}"
 CONFIG_PATH="${OPENSURGE_CONFIG:-${DATA_DIR}/config/opensurge.yaml}"
 STORE_DIR="${OPENSURGE_STORE:-${DATA_DIR}/control}"

@@ -4,6 +4,23 @@
 
 当前支持范围：**IPv4 + QNET + Same-LAN**。
 
+### Docker 镜像位于繁忙机械盘时
+
+如果已确认网关启动程序因镜像层读取受阻，而 `/data` 位于 SSD，可以为已有
+Host Takeover 部署增加 `OPENSURGE_RUNTIME_IMAGE_CACHE=true` 环境变量。
+该选项默认关闭，需要容器已有 `SYS_ADMIN`，且安全配置允许容器内部 bind mount。
+不要因此使用 privileged 或挂载 Docker Socket；不具备该权限的默认部署保持关闭。
+
+启动时会依据镜像自带的文件摘要，在 `/data/runtime-image-cache/<摘要>/usr`
+保存并验证完整运行文件，然后在容器自己的 mount namespace 中只读挂载到 `/usr`。
+首次复制需要约数百 MB SSD 空间，可能增加启动时间；每次重启核验全部文件。
+升级镜像自动使用新摘要目录，不复用旧程序，损坏缓存会报告错误并停止启动。
+旧缓存保留，不自动清理；配置、订阅仍保存在原 `/data`。这不能解决宿主整体失效、
+内存不足或 Docker 初始启动读取受阻，长期稳定性仍需实机观察。
+
+故障证据与恢复重试规则见
+[存储阻塞与恢复诊断](../../docs/diagnostics/2026-10-11-storage-coupled-gateway-recovery.zh-CN.md)。
+
 ## 一、准备条件
 
 需要：

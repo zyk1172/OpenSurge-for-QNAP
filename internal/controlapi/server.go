@@ -911,11 +911,15 @@ func (s *Server) handleGatewayAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "operation_failed", err.Error())
 		return
 	}
-	if action == "restart-mihomo" || action == "recover-gateway" {
+	if action == "restart-mihomo" || action == "recover-gateway" || action == "start" && containerRecoveryRunner(s.runner) {
 		if s.dnsHealth != nil {
 			s.dnsHealth.reset()
 		}
-		s.mihomoRecovery.beginManual()
+		if containerRecoveryRunner(s.runner) && (action == "recover-gateway" || action == "start") {
+			s.mihomoRecovery.beginManual(containerFailureIncomplete)
+		} else {
+			s.mihomoRecovery.beginManual()
+		}
 	}
 	locked = false
 	go s.runOperationLocked(op, cfg.Gateway.Mode, recovery, startWorkspace, nil)
@@ -970,7 +974,7 @@ func (s *Server) runOperationLocked(op Operation, topology string, recoveryBefor
 	}
 	if completed != nil {
 		completed(err)
-	} else if op.Kind == "restart-mihomo" || op.Kind == "recover-gateway" {
+	} else if op.Kind == "restart-mihomo" || op.Kind == "recover-gateway" || op.Kind == "start" && containerRecoveryRunner(s.runner) {
 		s.mihomoRecovery.finishManual(err)
 	}
 }
