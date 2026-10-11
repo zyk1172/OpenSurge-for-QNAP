@@ -212,7 +212,7 @@ QNAP 的 Same-LAN 模式可以使用 TUN + Linux policy routing 工作，不要�
 
 ## SmartDNS 上游 DNS
 
-在 **网络设置 → DNS 服务 → SmartDNS 上游 DNS 设置** 中选择“自定义（推荐：加密优先）”，添加你信任的上游。提供国内与海外的 DoH 预设，也可以填写自己的服务。
+在 **网络设置 → DNS 服务 → SmartDNS 上游 DNS 设置** 中选择“自定义（推荐：加密优先）”，从“上游 DNS 预设”选择服务商后点击“添加预设”，或添加自定义上游。已添加的预设会禁用重复添加，移除后可以重新添加。提供国内与海外的 DoH 预设。
 
 | 预设 | DoH 地址 | 固定连接 IPv4 |
 | --- | --- | --- |
@@ -230,6 +230,8 @@ QNAP 的 Same-LAN 模式可以使用 TUN + Linux policy routing 工作，不要�
 自定义模式只使用你填写的上游，不自动回退到系统 DNS 或主路由。先选择可信的解析服务，再让 SmartDNS 在所选上游的结果中进行连接速度选择。DoH/DoT 可防止传输途中篡改，但不能证明服务商的答案没有污染；预设不是无污染认证，Quad9 还会过滤已知恶意域名。
 
 点击“保存上游 DNS”后，Web 会重新读取并核对持久化设置。运行中的网关会先停止、保存并验证，再重新启动；停止状态下保存则在下次启动生效。上方运行状态卡显示实际已写入的配置，上游列表表单显示下一次应用的设置，两者可能在网关停止时不同。
+
+解析缓存参考 [SmartDNS 官方配置](https://github.com/pymumu/smartdns/blob/21c940edc65520849ba03544c5cf8d9cf326e680/etc/smartdns/smartdns.conf)和 [LuCI 集成](https://github.com/pymumu/luci-app-smartdns/blob/581e5e816d92d3a663b1b2e331e3f21685968cf1/htdocs/luci-static/resources/view/smartdns/smartdns.js)：保留预取与最多 600 秒的过期缓存（过期答案 TTL 为 3 秒）；仅在自定义加密模式且不允许明文时，将真实解析缓存持久化到 `/data/runtime/smartdns-cache`，退出时保存、每小时检查点保存。同一配置重启后可复用缓存，修改上游、解析规则或代理配置会使用新缓存，启动时只清理 OpenSurge 自己的旧缓存文件。Gateway View 的 Fake-IP 和 DHCP 本地域名不缓存；配置校验使用独立的临时缓存，不读取或改写当前缓存。允许明文与系统模式不持久化缓存。策略组内临时切换节点仍遵循原答案 TTL，不等同于修改代理配置。
 
 基础设置用于 **Resolver View 的真实 IP 解析**。还可以独立开启以下功能，两个开关默认关闭：
 

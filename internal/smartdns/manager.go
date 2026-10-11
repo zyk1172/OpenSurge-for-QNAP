@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,7 +31,45 @@ func (m Manager) WriteConfig() error {
 	if err != nil {
 		return err
 	}
+	if err := os.MkdirAll(m.cacheDir(), 0o700); err != nil {
+		return fmt.Errorf("prepare SmartDNS cache directory: %w", err)
+	}
 	return os.WriteFile(m.paths.SmartDNSConf, []byte(rendered), 0o640)
+}
+
+func (m Manager) cacheDir() string { return filepath.Join(m.paths.Dir, "smartdns-cache") }
+
+var ownedCacheName = regexp.MustCompile(`^resolver-[a-f0-9]{64}\.cache(?:\.tmp)?$`)
+
+// Prune only our regular cache files. Leave unrelated files, directories and
+// symlinks alone. Removing old policies also bounds storage across edits.
+func (m Manager) pruneResolverCaches(content string) error {
+	keep := ""
+	for _, line := range strings.Split(content, "\n") {
+		if value, ok := strings.CutPrefix(line, "cache-file "); ok {
+			path, err := strconv.Unquote(strings.TrimSpace(value))
+			if err != nil || filepath.Dir(path) != m.cacheDir() || !ownedCacheName.MatchString(filepath.Base(path)) {
+				return fmt.Errorf("SmartDNS cache path is outside the managed cache directory")
+			}
+			keep = filepath.Base(path)
+		}
+	}
+	entries, err := os.ReadDir(m.cacheDir())
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || !ownedCacheName.MatchString(entry.Name()) || entry.Name() == keep {
+			continue
+		}
+		if err := os.Remove(filepath.Join(m.cacheDir(), entry.Name())); err != nil {
+			return fmt.Errorf("remove obsolete SmartDNS cache: %w", err)
+		}
+	}
+	return nil
 }
 
 func (m Manager) Check() error {
@@ -59,9 +99,22 @@ func (m Manager) ValidateWrittenConfigContext(ctx context.Context) error {
 	}
 	validationPath := filepath.Join(filepath.Dir(m.paths.SmartDNSConf), "smartdns.validate.conf")
 	validationLog := filepath.Join(filepath.Dir(m.paths.SmartDNSConf), "smartdns.validate.log")
+	validationCache := filepath.Join(filepath.Dir(m.paths.SmartDNSConf), "smartdns.validate.cache")
 	defer os.Remove(validationPath)
 	defer os.Remove(validationLog)
-	if err := os.WriteFile(validationPath, []byte(rewriteValidationBinds(string(data), port)), 0o600); err != nil {
+	defer os.Remove(validationCache)
+	// Validation must neither load the live cache nor checkpoint it, and must
+	// not prefetch cached domains through a proxy that may not be running yet.
+	validation := strings.ReplaceAll(string(data), "cache-persist yes", "cache-persist no")
+	validation = strings.ReplaceAll(validation, "prefetch-domain yes", "prefetch-domain no")
+	lines := strings.Split(validation, "\n")
+	for index, line := range lines {
+		if strings.HasPrefix(line, "cache-file ") {
+			lines[index] = fmt.Sprintf("cache-file %q", validationCache)
+		}
+	}
+	validation = strings.Join(lines, "\n")
+	if err := os.WriteFile(validationPath, []byte(rewriteValidationBinds(validation, port)), 0o600); err != nil {
 		return fmt.Errorf("write smartdns validation config: %w", err)
 	}
 	if err := os.WriteFile(validationLog, nil, 0o600); err != nil {
@@ -137,8 +190,12 @@ func (m Manager) Start() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if _, err := os.Stat(m.paths.SmartDNSConf); err != nil {
+	data, err := os.ReadFile(m.paths.SmartDNSConf)
+	if err != nil {
 		return 0, fmt.Errorf("smartdns config is unavailable: %w", err)
+	}
+	if err := m.pruneResolverCaches(string(data)); err != nil {
+		return 0, err
 	}
 	if err := os.WriteFile(m.paths.SmartDNSLog, nil, 0o640); err != nil {
 		return 0, err

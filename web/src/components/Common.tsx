@@ -35,6 +35,10 @@ export function ActionBar({ status, children, className = '' }: { status?: React
   return <div className={`ui-action-bar ${className}`.trim()}>{status != null && <span>{status}</span>}{children}</div>
 }
 
+export function Switch({ label, checked, disabled, onChange, title }: { label: string; checked: boolean; disabled?: boolean; onChange?: (checked: boolean) => void; title?: string }) {
+  return <button className="ui-switch-button" type="button" role="switch" aria-label={t(label)} aria-checked={checked} disabled={disabled} title={title && t(title)} onClick={() => onChange?.(!checked)}><i aria-hidden="true" /><span>{t(checked ? '已启用' : '已停用')}</span></button>
+}
+
 export function Metric({ label, value, note }: { label: string; value: ReactNode; note: string }) {
   return <article className="metric"><small>{t(label)}</small><strong>{value}</strong><span>{t(note)}</span></article>
 }

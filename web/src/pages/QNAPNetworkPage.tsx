@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, request, waitForOperation } from '../api'
-import { PageHeader, SectionTitle } from '../components/Common'
+import { ActionBar, Empty, FormField, PageHeader, SectionTitle, Switch } from '../components/Common'
 import type { OperationNotification } from '../components/OperationNotifications'
 import type { ControlConfig, NetworkDefaults, Overview } from '../types'
 import { t } from '../i18n'
@@ -64,6 +64,8 @@ export function QNAPNetworkPage({
   const [hostPolicyDirty, setHostPolicyDirty] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [presetAddress, setPresetAddress] = useState(resolverPresets[0].address)
+  const busy = loading || saving || hostRoutingBusy
 
   const running = overview?.status.gateway === 'running' || overview?.status.gateway === 'degraded'
   const interrupted = overview?.status.runtime_state === 'interrupted'
@@ -113,7 +115,7 @@ export function QNAPNetworkPage({
   }
 
   const toggleHostRouting = async () => {
-    if (!hostRouting || hostRoutingBusy) return
+    if (!hostRouting || busy) return
     const nextEnabled = !hostRouting.desired
     if (nextEnabled && !window.confirm(t('启用 NAS 主机接管？公网 IPv4 将优先经过 OpenSurge，QTS 默认网关保持不变。'))) return
     setHostRoutingBusy(true)
@@ -135,7 +137,7 @@ export function QNAPNetworkPage({
   }
 
   const saveHostPolicy = async () => {
-    if (!hostRouting || hostRoutingBusy || !hostPolicyDirty) return
+    if (!hostRouting || busy || !hostPolicyDirty) return
     setHostRoutingBusy(true)
     setError('')
     setMessage('')
@@ -155,7 +157,7 @@ export function QNAPNetworkPage({
   }
 
   const saveRuntime = async () => {
-    if (!draft || saving) return
+    if (!draft || busy) return
     setSaving(true)
     setError('')
     setMessage('')
@@ -210,6 +212,8 @@ export function QNAPNetworkPage({
 
   const resolverMode = draft?.dns.resolver_mode || 'system'
   const resolverUpstreams = draft?.dns.resolver_upstreams || []
+  const preset = resolverPresets.find(item => item.address === presetAddress) || resolverPresets[0]
+  const presetAdded = resolverUpstreams.some(item => item.address.trim() === preset.address && item.bootstrap_ipv4?.trim() === preset.bootstrap_ipv4)
   const updateResolver = (index: number, next: Partial<(typeof resolverUpstreams)[number]>) => {
     if (!draft) return
     patch({ dns: { ...draft.dns, resolver_upstreams: resolverUpstreams.map((upstream, at) => at === index ? { ...upstream, ...next } : upstream) } })
@@ -321,65 +325,72 @@ export function QNAPNetworkPage({
         <strong>{t(dnsRuntime?.configured && dnsFrontendState === 'running' ? '已读取 SmartDNS 运行配置' : 'DNS 运行配置待确认')}</strong>
         <p>{t('所列上游来自已写入的 SmartDNS 配置，不保证上游可达；NAS 宿主 DNS、qBittorrent 与此处的局域网 SmartDNS 可能是不同路径。')}</p>
       </div>
-      {draft && <div className="source-import-card">
+      {draft && <div className="ui-card smartdns-settings" aria-busy={saving}>
         <h3>{t('SmartDNS 上游 DNS 设置')}</h3>
         <p className="muted">{t('先选择可信的上游，再比较连接速度。加密 DNS 可防止传输途中被篡改，但不能保证服务商的答案没有污染。')}</p>
-        <label>
-          <span>{t('Resolver View 上游来源')}</span>
-          <select aria-label={t('Resolver View 上游来源')} value={resolverMode} disabled={saving} onChange={event => patch({ dns: { ...draft.dns, resolver_mode: event.target.value as 'system' | 'custom', ...(event.target.value === 'system' ? { resolver_proxy_enabled: false, mihomo_use_smartdns: false } : {}) } })}>
+        <FormField label="Resolver View 上游来源">
+          <select aria-label={t('Resolver View 上游来源')} value={resolverMode} disabled={busy} onChange={event => patch({ dns: { ...draft.dns, resolver_mode: event.target.value as 'system' | 'custom', ...(event.target.value === 'system' ? { resolver_proxy_enabled: false, mihomo_use_smartdns: false } : {}) } })}>
             <option value="custom">{t('自定义（推荐：加密优先）')}</option>
             <option value="system">{t('系统 DNS（兼容旧配置）')}</option>
           </select>
-        </label>
+        </FormField>
         {resolverMode === 'system' ? <p className="muted">{t('当前继承系统 DNS，过滤不可用地址后可能回退到主路由；此模式不保证上游可信。选择自定义后只使用你填写的上游。')}</p> : <>
-          <div className="source-actions">
-            {resolverPresets.map(preset => <button key={preset.name} type="button" disabled={saving || resolverUpstreams.length >= 16} onClick={() => addResolver(preset)}>{t('添加预设')} · {t(preset.name)} DoH</button>)}
-            <button type="button" disabled={saving || resolverUpstreams.length >= 16} onClick={() => addResolver()}>{t('添加自定义上游')}</button>
+          <div className="smartdns-preset-toolbar">
+            <FormField label="上游 DNS 预设">
+              <select value={presetAddress} disabled={busy} onChange={event => setPresetAddress(event.target.value)}>
+                {resolverPresets.map(item => <option key={item.address} value={item.address}>{t(item.name)} DoH</option>)}
+              </select>
+            </FormField>
+            <div className="ui-actions ui-actions--start">
+              <button className="ui-button" type="button" disabled={busy || presetAdded || resolverUpstreams.length >= 16} onClick={() => addResolver(preset)}>{t(presetAdded ? '已添加' : '添加预设')}</button>
+              <button className="ui-button" type="button" disabled={busy || resolverUpstreams.length >= 16} onClick={() => addResolver()}>{t('添加自定义上游')}</button>
+            </div>
           </div>
           <p className="muted">{t('预设只是配置示例，不是无污染认证。请选择你信任且在当前网络可达的服务商；Quad9 会过滤已知恶意域名。')}</p>
-          <div className="source-import-grid">
-            {resolverUpstreams.map((upstream, index) => <article className="source-import-card" key={index}>
-              <label>
-                <span>{t('上游地址')} · {index + 1}</span>
-                <input aria-label={`${t('上游地址')} ${index + 1}`} value={upstream.address} disabled={saving} placeholder="https://cloudflare-dns.com/dns-query" onChange={event => updateResolver(index, { address: event.target.value })} />
-              </label>
-              <label>
-                <span>{t('固定连接 IPv4（加密上游必填）')}</span>
-                <input aria-label={`${t('固定连接 IPv4')} ${index + 1}`} value={upstream.bootstrap_ipv4 || ''} disabled={saving} placeholder="1.1.1.1" onChange={event => updateResolver(index, { bootstrap_ipv4: event.target.value })} />
-              </label>
-              <button type="button" disabled={saving} onClick={() => patch({ dns: { ...draft.dns, resolver_upstreams: resolverUpstreams.filter((_, at) => at !== index) } })}>{t('移除上游')} · {index + 1}</button>
+          {!resolverUpstreams.length && <Empty text="尚未添加上游 DNS" />}
+          <div className="ui-form-grid">
+            {resolverUpstreams.map((upstream, index) => <article className="ui-card smartdns-upstream-card" key={index}>
+              <FormField label={`${t('上游地址')} · ${index + 1}`}>
+                <input aria-label={`${t('上游地址')} ${index + 1}`} value={upstream.address} disabled={busy} spellCheck={false} autoCapitalize="none" placeholder="https://cloudflare-dns.com/dns-query" onChange={event => updateResolver(index, { address: event.target.value })} />
+              </FormField>
+              <FormField label="固定连接 IPv4（加密上游必填）">
+                <input aria-label={`${t('固定连接 IPv4')} ${index + 1}`} value={upstream.bootstrap_ipv4 || ''} disabled={busy} inputMode="decimal" placeholder="1.1.1.1" onChange={event => updateResolver(index, { bootstrap_ipv4: event.target.value })} />
+              </FormField>
+              <div className="ui-actions"><button className="ui-button ui-button--danger" type="button" disabled={busy} onClick={() => patch({ dns: { ...draft.dns, resolver_upstreams: resolverUpstreams.filter((_, at) => at !== index) } })}>{t('移除上游')} · {index + 1}</button></div>
             </article>)}
           </div>
           <p className="muted">{t('DoH：https://域名/dns-query；DoT：tls://域名:853。固定连接 IPv4 只用于连接，TLS 仍严格验证域名和证书；不依赖系统 DNS 引导。')}</p>
-          <label className="checkbox-field smartdns-toggle">
-            <input type="checkbox" aria-label={t('允许明文 DNS')} checked={draft.dns.resolver_allow_plaintext || false} disabled={saving} onChange={event => patch({ dns: { ...draft.dns, resolver_allow_plaintext: event.target.checked } })} />
-            <span>{t('允许明文 DNS')}</span>
-          </label>
-          <p className="muted">{t('明确允许后可填写 IPv4、udp://IPv4:53 或 tcp://IPv4:53。有加密上游时，明文只作为加密上游全部失败后的备选；仅填明文时无法防止途中污染。')}</p>
-          <div className="source-import-grid">
-            <article className="source-import-card smartdns-option-card">
-              <label className="checkbox-field smartdns-toggle">
-                <input type="checkbox" aria-label={t('上游 DNS 查询经过 OpenSurge 代理')} checked={draft.dns.resolver_proxy_enabled || false} disabled={saving} onChange={event => patch({ dns: { ...draft.dns, resolver_proxy_enabled: event.target.checked } })} />
-                <span>{t('上游 DNS 查询经过 OpenSurge 代理')}</span>
-              </label>
-              {draft.dns.resolver_proxy_enabled && <label>
-                <span>{t('DNS 代理节点或策略组')}</span>
-                <input aria-label={t('DNS 代理节点或策略组')} list="smartdns-proxy-targets" value={draft.dns.resolver_proxy_target || ''} disabled={saving} placeholder={t('填写当前配置中的名称')} onChange={event => patch({ dns: { ...draft.dns, resolver_proxy_target: event.target.value } })} />
+          <article className="ui-card smartdns-option-card">
+            <div className="smartdns-setting">
+              <strong>{t('允许明文 DNS')}</strong>
+              <Switch label="允许明文 DNS" checked={draft.dns.resolver_allow_plaintext || false} disabled={busy} onChange={checked => patch({ dns: { ...draft.dns, resolver_allow_plaintext: checked } })} />
+            </div>
+            <p className="muted">{t('明确允许后可填写 IPv4、udp://IPv4:53 或 tcp://IPv4:53。有加密上游时，明文只作为加密上游全部失败后的备选；仅填明文时无法防止途中污染。')}</p>
+          </article>
+          <div className="ui-form-grid">
+            <article className="ui-card smartdns-option-card">
+              <div className="smartdns-setting">
+                <strong>{t('上游 DNS 查询经过 OpenSurge 代理')}</strong>
+                <Switch label="上游 DNS 查询经过 OpenSurge 代理" checked={draft.dns.resolver_proxy_enabled || false} disabled={busy} onChange={checked => patch({ dns: { ...draft.dns, resolver_proxy_enabled: checked } })} />
+              </div>
+              {draft.dns.resolver_proxy_enabled && <FormField label="DNS 代理节点或策略组">
+                <input aria-label={t('DNS 代理节点或策略组')} list="smartdns-proxy-targets" value={draft.dns.resolver_proxy_target || ''} disabled={busy} placeholder={t('填写当前配置中的名称')} onChange={event => patch({ dns: { ...draft.dns, resolver_proxy_target: event.target.value } })} />
                 <datalist id="smartdns-proxy-targets">{(overview?.policies || []).filter(group => !group.name.startsWith('open-surge/') && !/^(DIRECT|REJECT|REJECT-DROP|REJECT-TINYGIF|PASS|COMPATIBLE|GLOBAL)$/i.test(group.name)).map(group => <option key={group.name} value={group.name} />)}</datalist>
-              </label>}
+              </FormField>}
               <p className="muted">{t('通过所选节点或策略组查询 DoH、DoT 或 TCP 上游，故障时不绕过代理直连。请选择使用代理节点的策略组；组内出口选择仍会影响实际路径。代理模式按可信上游的查询延迟选择答案，不使用 NAS 直连测速。')}</p>
             </article>
-            <article className="source-import-card smartdns-option-card">
-              <label className="checkbox-field smartdns-toggle">
-                <input type="checkbox" aria-label={t('用 SmartDNS 替换 Mihomo DNS 上游')} checked={draft.dns.mihomo_use_smartdns || false} disabled={saving} onChange={event => patch({ dns: { ...draft.dns, mihomo_use_smartdns: event.target.checked } })} />
-                <span>{t('用 SmartDNS 替换 Mihomo DNS 上游')}</span>
-              </label>
+            <article className="ui-card smartdns-option-card">
+              <div className="smartdns-setting">
+                <strong>{t('用 SmartDNS 替换 Mihomo DNS 上游')}</strong>
+                <Switch label="用 SmartDNS 替换 Mihomo DNS 上游" checked={draft.dns.mihomo_use_smartdns || false} disabled={busy} onChange={checked => patch({ dns: { ...draft.dns, mihomo_use_smartdns: checked } })} />
+              </div>
               <p className="muted">{t('覆盖订阅中的普通解析、直连解析和备用 DNS 上游，使用 SmartDNS 的真实解析结果；保留 Fake-IP、过滤规则、hosts 和 TUN DNS 劫持。关闭后恢复配置文件的 DNS 设置。')}</p>
             </article>
           </div>
+          <p className="muted">{t('加密上游的真实解析缓存可在重启后复用；修改上游、解析规则或代理配置会使用新缓存。允许明文时不保存缓存到磁盘。')}</p>
           <div className="notice">{t('两个开关默认关闭，互相独立。启用任一项后，代理节点域名通过所选加密上游直接解析，并使用固定连接 IPv4 引导，以避免启动时的解析循环；普通查询是否经过代理由第一个开关决定。自定义模式不自动回退到系统或主路由 DNS。')}</div>
         </>}
-        <div className="source-actions"><button className="primary" type="button" aria-label={t('保存上游 DNS')} disabled={saving} onClick={() => void saveRuntime()}>{saving ? t('正在保存…') : t(running ? '保存并重启网关' : '保存上游 DNS')}</button></div>
+        <ActionBar status={t('已配置 {{count}} / 16 个上游', { count: resolverUpstreams.length })}><button className="ui-button ui-button--primary" type="button" aria-label={t('保存上游 DNS')} disabled={busy} onClick={() => void saveRuntime()}>{saving ? t('正在保存…') : t(running ? '保存并重启网关' : '保存上游 DNS')}</button></ActionBar>
       </div>}
     </section>
 
@@ -403,7 +414,7 @@ export function QNAPNetworkPage({
                   ? '强制将 NAS 的 UDP/TCP 53 端口查询交给 Mihomo TUN；不改变系统 DNS 地址。'
                   : '通过 QTS 主路由处理 NAS 的 UDP/TCP 53；不会更改 QTS 设置的 DNS 地址。')}</small>
             </span>
-            <select className="qnap-host-policy-select" aria-label={t('NAS DNS 接管模式')} value={dnsMode} disabled={hostRoutingBusy} onChange={event => { setDNSMode(event.target.value as HostDNSMode); setHostPolicyDirty(true) }}>
+            <select className="qnap-host-policy-select" aria-label={t('NAS DNS 接管模式')} value={dnsMode} disabled={busy} onChange={event => { setDNSMode(event.target.value as HostDNSMode); setHostPolicyDirty(true) }}>
               <option value="auto">{t('自动（推荐）')}</option>
               <option value="opensurge">{t('经 OpenSurge')}</option>
               <option value="host">{t('保留宿主 DNS')}</option>
@@ -415,7 +426,7 @@ export function QNAPNetworkPage({
               <small>{t('优先保留 Tailscale 的已有路由规则；不负责修改或修复 QTS 的系统 DNS。')}</small>
               <small>{t('仅在需要覆盖宿主 VPN 路由时关闭。')}</small>
             </span>
-            <button className={`overlay-switch ${protectTailscale ? 'on' : ''}`} type="button" role="switch" aria-label={t('Tailscale 共存保护')} aria-checked={protectTailscale} disabled={hostRoutingBusy} onClick={() => { setProtectTailscale(current => !current); setHostPolicyDirty(true) }}><i aria-hidden="true" /><span>{t(protectTailscale ? '已启用' : '已停用')}</span></button>
+            <Switch label="Tailscale 共存保护" checked={protectTailscale} disabled={busy} onChange={checked => { setProtectTailscale(checked); setHostPolicyDirty(true) }} />
           </article>
         </div>
 
@@ -431,10 +442,10 @@ export function QNAPNetworkPage({
           <div><small>{t('Tailnet 路由')}</small><strong>{t(hostRouting.tailscale_detected ? hostRouting.tailscale_routes_protected ? '已保护' : '需要检查' : '等待 Tailscale')}</strong><small>{t('避免被公网接管覆盖')}</small></div>
         </div>
 
-        <div className="source-actions">
-          <button className="primary" type="button" disabled={hostRoutingBusy || !hostPolicyDirty} onClick={() => void saveHostPolicy()}>{t(hostRoutingBusy ? '正在保存…' : '保存接管策略')}</button>
-          <button type="button" className={hostRouting.desired ? 'danger' : 'primary'} disabled={hostRoutingBusy || (!hostRouting.desired && (!hostRouting.supported || !running || !hostRouting.gateway_ready))} onClick={() => void toggleHostRouting()}>{t(hostRoutingBusy ? '正在切换…' : hostRouting.desired ? '停止 NAS 接管' : '让 NAS 使用 OpenSurge')}</button>
-          <button type="button" disabled={hostRoutingBusy} onClick={() => void load()}>{t('刷新状态')}</button>
+        <div className="ui-actions">
+          <button className="ui-button ui-button--primary" type="button" disabled={busy || !hostPolicyDirty} onClick={() => void saveHostPolicy()}>{t(hostRoutingBusy ? '正在保存…' : '保存接管策略')}</button>
+          <button type="button" className={`ui-button ${hostRouting.desired ? 'ui-button--danger' : 'ui-button--primary'}`} disabled={busy || (!hostRouting.desired && (!hostRouting.supported || !running || !hostRouting.gateway_ready))} onClick={() => void toggleHostRouting()}>{t(hostRoutingBusy ? '正在切换…' : hostRouting.desired ? '停止 NAS 接管' : '让 NAS 使用 OpenSurge')}</button>
+          <button className="ui-button" type="button" disabled={busy} onClick={() => void load()}>{t('刷新状态')}</button>
         </div>
         <div className="notice">{t('仅对所显示的 NAS 主机源 IPv4 应用接管；不主动修改第二网卡的 PT 做种源地址。若 QTS 系统 DNS 已被 Tailscale 改为 100.100.100.100，仍需单独检查系统 DNS。')}</div>
       </> : <div className="empty">{t('正在读取 NAS 主机路由能力…')}</div>}
@@ -442,31 +453,30 @@ export function QNAPNetworkPage({
 
     {draft && <section className="section qnap-runtime-section">
       <SectionTitle title="运行参数" subtitle="保存到 /data；运行中保存会重启网关" />
-      <div className="source-import-grid qnap-runtime-grid">
-        <article className="source-import-card qnap-runtime-card">
+      <div className="qnap-runtime-grid">
+        <article className="ui-card qnap-runtime-card">
           <strong className="qnap-runtime-title">Store fake-ip</strong>
-          <button className={`overlay-switch ${draft.mihomo.store_fake_ip ? 'on' : ''}`} type="button" role="switch" aria-label="Store fake-ip" aria-checked={draft.mihomo.store_fake_ip} onClick={() => patch({ mihomo: { ...draft.mihomo, store_fake_ip: !draft.mihomo.store_fake_ip } })}><i aria-hidden="true" /><span>{t(draft.mihomo.store_fake_ip ? '已启用' : '已停用')}</span></button>
+          <Switch label="Store fake-ip" checked={draft.mihomo.store_fake_ip} disabled={busy} onChange={checked => patch({ mihomo: { ...draft.mihomo, store_fake_ip: checked } })} />
           <small className="qnap-runtime-note">{t('持久化 fake-ip 映射')}</small>
         </article>
-        <article className="source-import-card qnap-runtime-card">
+        <article className="ui-card qnap-runtime-card">
           <strong className="qnap-runtime-title">TUN strict-route</strong>
-          <button className={`overlay-switch ${draft.transparent.strict_route ? 'on' : ''}`} type="button" role="switch" aria-label="TUN strict-route" aria-checked={draft.transparent.strict_route} disabled title={t('QNAP 的 Linux 路由由 OpenSurge 管理，Mihomo auto-route 被强制禁用；此开关无路由控制效果。')}><i aria-hidden="true" /><span>{t(draft.transparent.strict_route ? '已启用' : '已停用')}</span></button>
+          <Switch label="TUN strict-route" checked={draft.transparent.strict_route} disabled title="QNAP 的 Linux 路由由 OpenSurge 管理，Mihomo auto-route 被强制禁用；此开关无路由控制效果。" />
           <small className="qnap-runtime-note">{t('QNAP 由 OpenSurge 管理 Linux 路由；auto-route 禁用，此项不适用。')}</small>
         </article>
-        <article className="source-import-card qnap-runtime-card qnap-runtime-card-wide qnap-runtime-socks-card">
+        <article className="ui-card qnap-runtime-card qnap-runtime-card-wide qnap-runtime-socks-card">
           <strong className="qnap-runtime-title">LAN SOCKS5 / SOCKS5H</strong>
-          <button className={`overlay-switch ${lanProxy.enabled ? 'on' : ''}`} type="button" role="switch" aria-label="LAN SOCKS5 / SOCKS5H" aria-checked={lanProxy.enabled} onClick={() => patch({ lan_proxy: { ...lanProxy, enabled: !lanProxy.enabled } })}><i aria-hidden="true" /><span>{t(lanProxy.enabled ? '已启用' : '已停用')}</span></button>
+          <Switch label="LAN SOCKS5 / SOCKS5H" checked={lanProxy.enabled} disabled={busy} onChange={checked => patch({ lan_proxy: { ...lanProxy, enabled: checked } })} />
           <small className="qnap-runtime-note">{t('仅开放独立 SOCKS listener，不暴露内部 mixed-port')}</small>
-          <label>
-            <span>{t('LAN SOCKS 端口')}</span>
-            <input aria-label={t('LAN SOCKS 端口')} type="number" min={1} max={65535} value={lanProxy.socks_port} onChange={event => patch({ lan_proxy: { ...lanProxy, socks_port: Number(event.target.value) } })} />
-          </label>
+          <FormField label="LAN SOCKS 端口">
+            <input aria-label={t('LAN SOCKS 端口')} type="number" min={1} max={65535} value={lanProxy.socks_port} disabled={busy} onChange={event => patch({ lan_proxy: { ...lanProxy, socks_port: Number(event.target.value) } })} />
+          </FormField>
           <p className="muted">{lanProxy.enabled
             ? `socks5://${networkIPv4}:${lanProxy.socks_port} · socks5h://${networkIPv4}:${lanProxy.socks_port}`
             : t('启用后，局域网客户端可使用 SOCKS5；使用 socks5h 时域名也交给代理端解析。')}</p>
         </article>
       </div>
-      <div className="source-actions"><button type="button" onClick={() => void load()} disabled={saving}>{t('重新读取')}</button><button className="primary" type="button" onClick={() => void saveRuntime()} disabled={saving}>{saving ? t('正在保存…') : t(running ? '保存并重启网关' : '保存运行参数')}</button></div>
+      <ActionBar><button className="ui-button" type="button" onClick={() => void load()} disabled={busy}>{t('重新读取')}</button><button className="ui-button ui-button--primary" type="button" onClick={() => void saveRuntime()} disabled={busy}>{saving ? t('正在保存…') : t(running ? '保存并重启网关' : '保存运行参数')}</button></ActionBar>
     </section>}
   </>
 }

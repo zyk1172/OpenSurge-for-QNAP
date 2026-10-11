@@ -2,9 +2,11 @@ package smartdns
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -197,6 +199,24 @@ func RenderConfigWithResolvers(cfg config.Config, paths runtime.Paths, resolvers
 	}
 	for _, rule := range hostRules {
 		fmt.Fprintf(&out, "domain-rules /%s/ -address %s -group %s\n", rule.Domain, strings.Join(rule.IPs, ","), ResolverGroup)
+	}
+	// A different upstream, TLS identity, view, hosts rule or proxy profile
+	// gets a fresh cache. Even with persistence disabled, name an owned path:
+	// SmartDNS unlinks its cache-file on exit when cache-persist is no.
+	policy := out.String()
+	if cfg.DNS.ResolverProxyEnabled {
+		policy += "\n" + renderedMihomo
+	}
+	digest := sha256.Sum256([]byte(policy))
+	cacheFile := filepath.Join(paths.Dir, "smartdns-cache", fmt.Sprintf("resolver-%x.cache", digest))
+	fmt.Fprintf(&out, "cache-file %q\n", cacheFile)
+	if cfg.DNS.ResolverMode == "custom" && !cfg.DNS.ResolverAllowPlaintext {
+		// Keep warm, authenticated real-IP answers across restarts.
+		out.WriteString("cache-persist yes\ncache-checkpoint-time 3600\n")
+	} else {
+		// A plaintext fallback may have supplied cached answers. Do not carry
+		// those, or legacy system/router answers, into a later clean session.
+		out.WriteString("cache-persist no\n")
 	}
 	return out.String(), nil
 }
