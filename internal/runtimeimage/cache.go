@@ -28,7 +28,8 @@ type Manifest struct {
 	Entries []Entry `json:"entries"`
 }
 
-const ManifestPath = "/usr/share/opensurge/runtime-image.json"
+// Outside /usr: a creation-time cache bind must never replace the trust anchor.
+const ManifestPath = "/opt/opensurge/runtime-image.json"
 
 func digest(path string) (string, error) {
 	f, err := os.Open(path)
@@ -52,10 +53,6 @@ func Generate(root string) (Manifest, error) {
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
-		}
-		// The manifest is written after generation and cannot hash itself.
-		if rel == "share/opensurge/runtime-image.json" {
-			return nil
 		}
 		info, err := d.Info()
 		if err != nil {
@@ -218,9 +215,6 @@ func Prepare(source, cacheRoot string, data []byte) (string, error) {
 		}
 	}
 	if err := Verify(root, m); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(filepath.Join(root, "share/opensurge/runtime-image.json"), data, 0644); err != nil {
 		return "", err
 	}
 	if err := os.Rename(temp, destination); err != nil {

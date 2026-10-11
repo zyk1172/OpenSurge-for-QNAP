@@ -35,8 +35,12 @@
 核对全部文件、链接、ownership 和写权限。损坏、额外文件及不安全目录均 fail closed，
 不删除旧缓存或用户配置。
 
-该选项默认关闭。仅对 SSD 上的 `/data` 有存储隔离效果；需要容器已有 SYS_ADMIN
-以及允许 bind mount 的容器安全配置。QNAP Host Takeover 容器已有该能力时可使用，
+该选项默认关闭。仅对 SSD 上的 `/data` 有存储隔离效果；内部自动挂载需要 SYS_ADMIN
+以及允许 bind mount 的容器安全配置。启用 AppArmor docker-default 的 NAS 用新镜像的
+prepare-files 在无网络、只读根文件系统的临时容器中校验缓存，再由 Docker 创建时
+只读绑定该摘要目录到 /usr，保留原安全配置。启动再次根据 /usr 之外的可信
+/opt/opensurge/runtime-image.json 校验全部内容，确认 /usr inode/device 一致且只读。
+升级必须用新镜像重新准备，错误版本绑定或可写挂载均拒绝启动。
 不需要 privileged、Docker Socket 或全局 Docker root 迁移。不修改宿主 mount namespace。
 首轮复制和每次完整校验会增加启动时间、SSD 空间与读取开销，Docker 启动期间的
 初始镜像加载、非 /usr 文件、内存/CPU 调度和宿主整体失效仍不由该缓存解决。

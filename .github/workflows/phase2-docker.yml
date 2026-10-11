@@ -253,6 +253,28 @@ jobs:
                 /usr/local/bin/opensurge-container --component platform
               /usr/local/bin/opensurge-runtime-cache prepare
             '
+          runtime_root="$(docker run --rm --network none --read-only \
+            -v /tmp/opensurge-ci-cache:/data \
+            --entrypoint /usr/local/bin/opensurge-runtime-cache opensurge-qnap:ci prepare-files)"
+          case "$runtime_root" in /data/runtime-image-cache/*/usr) ;; *) exit 1 ;; esac
+          host_root="/tmp/opensurge-ci-cache/${runtime_root#/data/}"
+          # Default AppArmor/Seccomp, no SYS_ADMIN: Docker installs the bind.
+          docker run --rm --network none --read-only \
+            -v /tmp/opensurge-ci-cache:/data -v "$host_root:/usr:ro" \
+            --entrypoint /bin/sh opensurge-qnap:ci -ec '
+              /usr/local/bin/opensurge-runtime-cache prepare
+              test -r /opt/opensurge/runtime-image.json
+              if touch /usr/opensurge-cache-write-test; then exit 1; fi
+              /usr/local/bin/mihomo -v
+              setpriv --reuid=1000 --regid=100 --clear-groups --bounding-set=-all \
+                /usr/local/bin/opensurge-container --component platform
+            '
+          if docker run --rm --network none \
+            -v /tmp/opensurge-ci-cache:/data -v "$host_root:/usr" \
+            --entrypoint /usr/local/bin/opensurge-runtime-cache opensurge-qnap:ci prepare; then
+            echo 'Writable pre-mounted runtime cache was accepted' >&2
+            exit 1
+          fi
       - name: Verify QNAP image and privilege split
         run: |
           set -euo pipefail

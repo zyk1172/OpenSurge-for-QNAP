@@ -17,10 +17,13 @@ func run() error {
 		if err != nil {
 			return err
 		}
+		if err := os.MkdirAll("/opt/opensurge", 0755); err != nil {
+			return err
+		}
 		return os.WriteFile(runtimeimage.ManifestPath, data, 0644)
 	}
-	if len(os.Args) != 2 || os.Args[1] != "prepare" {
-		return fmt.Errorf("usage: opensurge-runtime-cache manifest|prepare")
+	if len(os.Args) != 2 || os.Args[1] != "prepare" && os.Args[1] != "prepare-files" {
+		return fmt.Errorf("usage: opensurge-runtime-cache manifest|prepare|prepare-files")
 	}
 	data, err := os.ReadFile(runtimeimage.ManifestPath)
 	if err != nil {
@@ -30,6 +33,10 @@ func run() error {
 	root, err := runtimeimage.Prepare("/usr", "/data/runtime-image-cache", data)
 	if err != nil {
 		return err
+	}
+	if os.Args[1] == "prepare-files" {
+		fmt.Println(root)
+		return nil
 	}
 	if err := runtimeimage.Mount(root); err != nil {
 		return err
