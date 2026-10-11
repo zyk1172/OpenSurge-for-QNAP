@@ -209,3 +209,29 @@ QNAP 的 Same-LAN 模式可以使用 TUN + Linux policy routing 工作，不要�
 - 不提供 QPKG。
 
 更多问题见：[FAQ](faq.zh-CN.md)
+
+## SmartDNS 上游 DNS
+
+在 **网络设置 → DNS 服务 → SmartDNS 上游 DNS 设置** 中选择“自定义（推荐：加密优先）”，添加你信任的上游。可以使用 Cloudflare、Google、Quad9 的 DoH 预设，也可以填写自己的服务。
+
+- DoH 地址示例：`https://cloudflare-dns.com/dns-query`。
+- DoT 地址示例：`tls://dns.google:853`。
+- 加密上游需同时填写服务商的固定连接 IPv4，例如上述两项分别使用 `1.1.1.1` 和 `8.8.8.8`。该地址用于连接，证书仍按 URL 中的域名验证；无需依赖系统 DNS 解析上游域名。若服务商更换地址，需要更新它。
+- 默认不允许明文 DNS。明确启用“允许明文 DNS”后，可填写 `9.9.9.9`、`udp://9.9.9.9:53` 或 `tcp://9.9.9.9:53`，明文地址不填写固定连接 IPv4。当同时有加密上游时，明文只作为加密上游全部失败后的备选，不能因为更快而抢先回答。
+
+自定义模式只使用你填写的上游，不自动回退到系统 DNS 或主路由。先选择可信的解析服务，再让 SmartDNS 在所选上游的结果中进行连接速度选择。DoH/DoT 可防止传输途中篡改，但不能证明服务商的答案没有污染；预设不是无污染认证，Quad9 还会过滤已知恶意域名。
+
+点击“保存上游 DNS”后，Web 会重新读取并核对持久化设置。运行中的网关会先停止、保存并验证，再重新启动；停止状态下保存则在下次启动生效。上方运行状态卡显示实际已写入的配置，上游列表表单显示下一次应用的设置，两者可能在网关停止时不同。
+
+这些设置用于 **Resolver View 的真实 IP 解析**。Gateway View 保留 Mihomo Fake-IP DNS 路径；NAS 宿主 DNS 接管模式也是独立设置。旧配置仍使用“系统 DNS（兼容旧配置）”，该模式不提供上述上游信任约束，建议手动切换到自定义。
+
+手动编辑配置文件时，新字段使用现有逗号分隔格式：
+
+```yaml
+dns:
+  resolver_mode: "custom"
+  resolver_upstreams: "https://cloudflare-dns.com/dns-query|1.1.1.1,tls://dns.google:853|8.8.8.8"
+  resolver_allow_plaintext: false
+```
+
+每项 `|` 后为固定连接 IPv4；明文上游不使用 `|`。该片段需合并到已有 `dns` 节点中，并保留监听等其他设置。

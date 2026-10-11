@@ -27,3 +27,15 @@ func TestParseDNSRuntimeDoesNotClaimEmptyOrPartialConfigApplied(t *testing.T) {
 		}
 	}
 }
+
+func TestDNSRuntimeIncludesEncryptedAndFallbackUpstreams(t *testing.T) {
+	data := []byte("bind 192.168.2.241:53 -group opensurge-resolver\n" +
+		"server 127.0.0.1:1053 -group opensurge-gateway\n" +
+		"server-https https://cloudflare-dns.com/dns-query -group opensurge-resolver -host-ip 1.1.1.1 -tls-host-verify cloudflare-dns.com\n" +
+		"server-tls dns.google:853 -group opensurge-resolver -host-ip 8.8.8.8\n" +
+		"server-tcp 9.9.9.9:53 -group opensurge-resolver -fallback\n")
+	got := parseDNSRuntime(data)
+	if !got.Configured || !reflect.DeepEqual(got.ResolverUpstreams, []string{"https://cloudflare-dns.com/dns-query", "tls://dns.google:853", "tcp://9.9.9.9:53"}) {
+		t.Fatalf("lost encrypted upstreams: %#v", got)
+	}
+}

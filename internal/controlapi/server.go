@@ -417,11 +417,13 @@ func controlConfigFrom(cfg config.Config, revision string) ControlConfig {
 		dnsUpstream = config.MihomoDNSUpstream
 	}
 	storeFakeIP := cfg.Mihomo.StoreFakeIP
+	resolverMode, allowPlaintext := cfg.DNS.ResolverMode, cfg.DNS.ResolverAllowPlaintext
+	resolverUpstreams := append([]config.ResolverUpstream{}, cfg.DNS.ResolverUpstreams...)
 	return ControlConfig{
 		SchemaVersion: SchemaVersion, Revision: revision,
 		Gateway:          GatewayConfigInput{Mode: cfg.Gateway.Mode, Interface: cfg.Gateway.Interface, LANIP: cfg.Gateway.LANIP, LANPrefixLen: lan.PrefixLenOrDefault(cfg.Gateway.LANPrefixLen), UpstreamInterface: cfg.Gateway.UpstreamInterface},
 		DHCP:             DHCPConfigInput{Enabled: cfg.DHCP.Enabled, RangeStart: cfg.DHCP.RangeStart, RangeEnd: cfg.DHCP.RangeEnd, LeaseTime: cfg.DHCP.LeaseTime, Domain: cfg.DHCP.Domain, BypassGateway: cfg.DHCP.BypassGateway, BypassDNS: append([]string{}, cfg.DHCP.BypassDNS...)},
-		DNS:              DNSConfigInput{Listen: cfg.DNS.Listen, Upstream: dnsUpstream, IPv6: cfg.DNS.IPv6},
+		DNS:              DNSConfigInput{Listen: cfg.DNS.Listen, Upstream: dnsUpstream, IPv6: cfg.DNS.IPv6, ResolverMode: &resolverMode, ResolverUpstreams: &resolverUpstreams, ResolverAllowPlaintext: &allowPlaintext},
 		Mihomo:           MihomoConfigInput{StoreFakeIP: &storeFakeIP},
 		Transparent:      TransparentConfigInput{Mode: cfg.Transparent.Mode, StrictRoute: cfg.Transparent.TUNStrictRoute, TUNIPv6: cfg.Transparent.TUNIPv6, IPv6SharedL2Ready: cfg.Transparent.IPv6SharedL2Ready},
 		LocalSystemProxy: LocalSystemProxyConfigInput{Enabled: cfg.LocalSystemProxy.Enabled},
@@ -960,11 +962,11 @@ func (s *Server) runOperationLocked(op Operation, topology string, recoveryBefor
 		}
 	}
 	_ = s.store.SaveOperation(op)
-    // The last DNS probe describes the old listener generation. Do not reuse
-    // it after any full lifecycle transition (including one that failed).
-    if s.dnsHealth != nil && (op.Kind == "start" || op.Kind == "stop" || op.Kind == "reload" || op.Kind == "recover-gateway") {
-        s.dnsHealth.reset()
-    }
+	// The last DNS probe describes the old listener generation. Do not reuse
+	// it after any full lifecycle transition (including one that failed).
+	if s.dnsHealth != nil && (op.Kind == "start" || op.Kind == "stop" || op.Kind == "reload" || op.Kind == "recover-gateway") {
+		s.dnsHealth.reset()
+	}
 	if completed != nil {
 		completed(err)
 	} else if op.Kind == "restart-mihomo" || op.Kind == "recover-gateway" {

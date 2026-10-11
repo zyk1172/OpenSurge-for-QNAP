@@ -143,3 +143,11 @@ The first stable release does not aim to provide:
 - automatic migration of the whole household network.
 
 The current priority is making the single-container QNET/TUN/DNS/subscription/policy/device/recovery path stable on real QNAP systems.
+
+## SmartDNS upstream DNS
+
+Under **Network Settings → DNS Service → SmartDNS upstream settings**, select **Custom (recommended: encryption first)**. Add Cloudflare, Google or Quad9 DoH presets, or enter your own trusted DoH/DoT provider. Encrypted upstreams require a hostname URL and a fixed connection IPv4, for example `https://cloudflare-dns.com/dns-query` with `1.1.1.1`, or `tls://dns.google:853` with `8.8.8.8`. The IP is used for transport; certificate and hostname verification remain enabled, with no system DNS bootstrap dependency. Update the fixed IP if the provider changes it.
+
+Plaintext DNS is disabled by default. If explicitly allowed, enter an IPv4 or a `udp://IPv4:53` / `tcp://IPv4:53` URL without a bootstrap IPv4. When encrypted upstreams exist, plaintext is only a fallback after the encrypted upstreams fail. Custom mode never automatically adds system or router DNS. Choose providers you trust first, then let SmartDNS optimize connections among their answers. Encryption prevents in-transit tampering but does not certify provider answers; presets are examples, and Quad9 also filters known malicious domains.
+
+Saving verifies persisted upstream settings and restarts a running gateway. These settings apply to Resolver View; Gateway View retains Mihomo Fake-IP DNS. Existing installations retain legacy system resolver mode until explicitly changed. The applied runtime cards can differ from saved settings while the gateway is stopped.

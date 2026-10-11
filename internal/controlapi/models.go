@@ -3,6 +3,7 @@ package controlapi
 import (
 	"time"
 
+	"open-mihomo-gateway/internal/config"
 	"open-mihomo-gateway/internal/device"
 	"open-mihomo-gateway/internal/doctor"
 	"open-mihomo-gateway/internal/gateway"
@@ -207,9 +208,12 @@ type DHCPConfigInput struct {
 }
 
 type DNSConfigInput struct {
-	Listen   string `json:"listen"`
-	Upstream string `json:"upstream"`
-	IPv6     bool   `json:"ipv6"`
+	ResolverMode           *string                    `json:"resolver_mode,omitempty"`
+	ResolverUpstreams      *[]config.ResolverUpstream `json:"resolver_upstreams,omitempty"`
+	ResolverAllowPlaintext *bool                      `json:"resolver_allow_plaintext,omitempty"`
+	Listen                 string                     `json:"listen"`
+	Upstream               string                     `json:"upstream"`
+	IPv6                   bool                       `json:"ipv6"`
 }
 
 type MihomoConfigInput struct {
@@ -352,32 +356,32 @@ type Operation struct {
 }
 
 type Source struct {
-	SchemaVersion       int             `json:"schema_version"`
-	ID                  string          `json:"id"`
-	Name                string          `json:"name"`
-	Kind                string          `json:"kind"`
-	Origin              string          `json:"origin"`
-	FetchURL            string          `json:"fetch_url,omitempty"`
-	SnapshotPath        string          `json:"snapshot_path,omitempty"`
-	SnapshotDisplayPath string          `json:"snapshot_display_path,omitempty"`
-	Digest              string          `json:"digest"`
-	Size                int64           `json:"size"`
-	Valid               bool            `json:"valid"`
-	Validation          string          `json:"validation,omitempty"`
-	Inventory           Inventory       `json:"inventory"`
-	ImportedAt          time.Time       `json:"imported_at"`
-	AutoUpdate          bool            `json:"auto_update"`
-	UpdateIntervalMinutes int            `json:"update_interval_minutes,omitempty"`
-	LastRefreshAttemptAt *time.Time      `json:"last_refresh_attempt_at,omitempty"`
-	LastRefreshError     string          `json:"last_refresh_error,omitempty"`
-	Desired             bool            `json:"desired"`
-	Applied             bool            `json:"applied"`
-	Versions            []SourceVersion `json:"versions"`
-	Diff                SourceDiff      `json:"diff"`
-	EffectiveDigest     string          `json:"effective_digest,omitempty"`
-	EffectiveInventory  Inventory       `json:"effective_inventory"`
-	OverlayCompatible   bool            `json:"overlay_compatible"`
-	OverlayValidation   string          `json:"overlay_validation,omitempty"`
+	SchemaVersion         int             `json:"schema_version"`
+	ID                    string          `json:"id"`
+	Name                  string          `json:"name"`
+	Kind                  string          `json:"kind"`
+	Origin                string          `json:"origin"`
+	FetchURL              string          `json:"fetch_url,omitempty"`
+	SnapshotPath          string          `json:"snapshot_path,omitempty"`
+	SnapshotDisplayPath   string          `json:"snapshot_display_path,omitempty"`
+	Digest                string          `json:"digest"`
+	Size                  int64           `json:"size"`
+	Valid                 bool            `json:"valid"`
+	Validation            string          `json:"validation,omitempty"`
+	Inventory             Inventory       `json:"inventory"`
+	ImportedAt            time.Time       `json:"imported_at"`
+	AutoUpdate            bool            `json:"auto_update"`
+	UpdateIntervalMinutes int             `json:"update_interval_minutes,omitempty"`
+	LastRefreshAttemptAt  *time.Time      `json:"last_refresh_attempt_at,omitempty"`
+	LastRefreshError      string          `json:"last_refresh_error,omitempty"`
+	Desired               bool            `json:"desired"`
+	Applied               bool            `json:"applied"`
+	Versions              []SourceVersion `json:"versions"`
+	Diff                  SourceDiff      `json:"diff"`
+	EffectiveDigest       string          `json:"effective_digest,omitempty"`
+	EffectiveInventory    Inventory       `json:"effective_inventory"`
+	OverlayCompatible     bool            `json:"overlay_compatible"`
+	OverlayValidation     string          `json:"overlay_validation,omitempty"`
 }
 
 type SourceSnapshotFile struct {

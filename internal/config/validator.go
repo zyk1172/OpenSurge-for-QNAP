@@ -1,13 +1,13 @@
 package config
 
 import (
-	"regexp"
 	"fmt"
 	"net"
 	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -86,6 +86,9 @@ func validate(cfg Config, checkDevicePolicy bool) error {
 	}
 	if !validPort(cfg.DNS.Port) {
 		return fmt.Errorf("dns.port must be between 1 and 65535")
+	}
+	if err := ValidateResolverConfig(cfg); err != nil {
+		return err
 	}
 	if err := validateDNSUpstream(cfg.DNS.Upstream); err != nil {
 		return err

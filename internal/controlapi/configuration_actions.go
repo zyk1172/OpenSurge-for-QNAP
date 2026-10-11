@@ -640,6 +640,15 @@ func applyControlConfig(configPath, revision string, payload []byte) (string, er
 	cfg.DNS.Listen = input.DNS.Listen
 	cfg.DNS.Upstream = input.DNS.Upstream
 	cfg.DNS.IPv6 = input.DNS.IPv6
+	if input.DNS.ResolverMode != nil {
+		cfg.DNS.ResolverMode = *input.DNS.ResolverMode
+	}
+	if input.DNS.ResolverUpstreams != nil {
+		cfg.DNS.ResolverUpstreams = append([]config.ResolverUpstream{}, (*input.DNS.ResolverUpstreams)...)
+	}
+	if input.DNS.ResolverAllowPlaintext != nil {
+		cfg.DNS.ResolverAllowPlaintext = *input.DNS.ResolverAllowPlaintext
+	}
 	if input.Mihomo.StoreFakeIP != nil {
 		cfg.Mihomo.StoreFakeIP = *input.Mihomo.StoreFakeIP
 	}

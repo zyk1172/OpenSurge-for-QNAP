@@ -37,11 +37,18 @@ func parseDNSRuntime(data []byte) DNSRuntime {
 			if containsGroup(parts, "opensurge-gateway") {
 				snapshot.DefaultView = "gateway"
 			}
-		case "server":
+		case "server", "server-tcp", "server-tls", "server-https":
 			if containsGroup(parts, "opensurge-gateway") {
 				snapshot.GatewayUpstream = parts[1]
 			} else if containsGroup(parts, "opensurge-resolver") {
-				snapshot.ResolverUpstreams = append(snapshot.ResolverUpstreams, parts[1])
+				address := parts[1]
+				switch parts[0] {
+				case "server-tcp":
+					address = "tcp://" + address
+				case "server-tls":
+					address = "tls://" + address
+				}
+				snapshot.ResolverUpstreams = append(snapshot.ResolverUpstreams, address)
 			}
 		}
 	}

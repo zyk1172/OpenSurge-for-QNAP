@@ -5,6 +5,7 @@ import type { OperationNotification } from '../components/OperationNotifications
 import type { ControlConfig, NetworkDefaults, Overview } from '../types'
 import { t } from '../i18n'
 import { product } from '../product'
+import { resolverPresets, validateResolverDraft } from '../dnsResolvers'
 
 type HostDNSMode = 'auto' | 'opensurge' | 'host'
 
@@ -158,6 +159,8 @@ export function QNAPNetworkPage({
     setMessage('')
     let stoppedForSave = false
     try {
+      const resolverError = validateResolverDraft(draft)
+      if (resolverError) throw new Error(t(resolverError))
       if (running) {
         const stop = await api.gateway('stop')
         await waitForOperation(stop.id)
@@ -176,6 +179,12 @@ export function QNAPNetworkPage({
       const saved = await api.saveConfig(ipv4OnlyDraft)
       const reread = await api.config()
       if (saved.revision !== reread.revision) throw new Error(t('配置保存后的版本校验失败，请重新读取后再试。'))
+      const resolverSnapshot = (cfg: ControlConfig) => JSON.stringify({
+        mode: cfg.dns.resolver_mode || 'system',
+        allow: cfg.dns.resolver_allow_plaintext || false,
+        upstreams: (cfg.dns.resolver_upstreams || []).map(upstream => ({ address: upstream.address.trim(), bootstrap_ipv4: upstream.bootstrap_ipv4?.trim() || '' })),
+      })
+      if (resolverSnapshot(ipv4OnlyDraft) !== resolverSnapshot(reread)) throw new Error(t('上游 DNS 保存后校验失败，请重新读取配置。'))
       setDraft(reread)
 
       if (stoppedForSave) {
@@ -192,6 +201,19 @@ export function QNAPNetworkPage({
     } finally {
       setSaving(false)
     }
+  }
+
+  const resolverMode = draft?.dns.resolver_mode || 'system'
+  const resolverUpstreams = draft?.dns.resolver_upstreams || []
+  const updateResolver = (index: number, next: Partial<(typeof resolverUpstreams)[number]>) => {
+    if (!draft) return
+    patch({ dns: { ...draft.dns, resolver_upstreams: resolverUpstreams.map((upstream, at) => at === index ? { ...upstream, ...next } : upstream) } })
+  }
+  const addResolver = (preset?: (typeof resolverPresets)[number]) => {
+    if (!draft || resolverUpstreams.length >= 16) return
+    const upstream = preset ? { address: preset.address, bootstrap_ipv4: preset.bootstrap_ipv4 } : { address: '', bootstrap_ipv4: '' }
+    if (preset && resolverUpstreams.some(existing => existing.address === upstream.address && existing.bootstrap_ipv4 === upstream.bootstrap_ipv4)) return
+    patch({ dns: { ...draft.dns, resolver_mode: 'custom', resolver_upstreams: [...resolverUpstreams, upstream] } })
   }
 
   const networkInterface = actual?.snapshot.interface || draft?.gateway.interface || overview?.status.interface || 'eth0'
@@ -290,6 +312,45 @@ export function QNAPNetworkPage({
         <strong>{t(dnsRuntime?.configured && dnsFrontendState === 'running' ? '已读取 SmartDNS 运行配置' : 'DNS 运行配置待确认')}</strong>
         <p>{t('所列上游来自已写入的 SmartDNS 配置，不保证上游可达；NAS 宿主 DNS、qBittorrent 与此处的局域网 SmartDNS 可能是不同路径。')}</p>
       </div>
+      {draft && <div className="source-import-card">
+        <h3>{t('SmartDNS 上游 DNS 设置')}</h3>
+        <p className="muted">{t('先选择可信的上游，再比较连接速度。加密 DNS 可防止传输途中被篡改，但不能保证服务商的答案没有污染。')}</p>
+        <label>
+          <span>{t('Resolver View 上游来源')}</span>
+          <select aria-label={t('Resolver View 上游来源')} value={resolverMode} disabled={saving} onChange={event => patch({ dns: { ...draft.dns, resolver_mode: event.target.value as 'system' | 'custom' } })}>
+            <option value="custom">{t('自定义（推荐：加密优先）')}</option>
+            <option value="system">{t('系统 DNS（兼容旧配置）')}</option>
+          </select>
+        </label>
+        {resolverMode === 'system' ? <p className="muted">{t('当前继承系统 DNS，过滤不可用地址后可能回退到主路由；此模式不保证上游可信。选择自定义后只使用你填写的上游。')}</p> : <>
+          <div className="source-actions">
+            {resolverPresets.map(preset => <button key={preset.name} type="button" disabled={saving || resolverUpstreams.length >= 16} onClick={() => addResolver(preset)}>{t('添加预设')} · {preset.name} DoH</button>)}
+            <button type="button" disabled={saving || resolverUpstreams.length >= 16} onClick={() => addResolver()}>{t('添加自定义上游')}</button>
+          </div>
+          <p className="muted">{t('预设只是配置示例，不是无污染认证。请选择你信任且在当前网络可达的服务商；Quad9 会过滤已知恶意域名。')}</p>
+          <div className="source-import-grid">
+            {resolverUpstreams.map((upstream, index) => <article className="source-import-card" key={index}>
+              <label>
+                <span>{t('上游地址')} · {index + 1}</span>
+                <input aria-label={`${t('上游地址')} ${index + 1}`} value={upstream.address} disabled={saving} placeholder="https://cloudflare-dns.com/dns-query" onChange={event => updateResolver(index, { address: event.target.value })} />
+              </label>
+              <label>
+                <span>{t('固定连接 IPv4（加密上游必填）')}</span>
+                <input aria-label={`${t('固定连接 IPv4')} ${index + 1}`} value={upstream.bootstrap_ipv4 || ''} disabled={saving} placeholder="1.1.1.1" onChange={event => updateResolver(index, { bootstrap_ipv4: event.target.value })} />
+              </label>
+              <button type="button" disabled={saving} onClick={() => patch({ dns: { ...draft.dns, resolver_upstreams: resolverUpstreams.filter((_, at) => at !== index) } })}>{t('移除上游')} · {index + 1}</button>
+            </article>)}
+          </div>
+          <p className="muted">{t('DoH：https://域名/dns-query；DoT：tls://域名:853。固定连接 IPv4 只用于连接，TLS 仍严格验证域名和证书；不依赖系统 DNS 引导。')}</p>
+          <label>
+            <input type="checkbox" aria-label={t('允许明文 DNS')} checked={draft.dns.resolver_allow_plaintext || false} disabled={saving} onChange={event => patch({ dns: { ...draft.dns, resolver_allow_plaintext: event.target.checked } })} />
+            <span>{t('允许明文 DNS')}</span>
+          </label>
+          <p className="muted">{t('明确允许后可填写 IPv4、udp://IPv4:53 或 tcp://IPv4:53。有加密上游时，明文只作为加密上游全部失败后的备选；仅填明文时无法防止途中污染。')}</p>
+          <div className="notice">{t('自定义模式不会自动回退到系统或主路由 DNS。SmartDNS 只在所选可信上游内优化连接；这些设置用于 Resolver View，不替换 Gateway View 的 Mihomo DNS。')}</div>
+        </>}
+        <div className="source-actions"><button className="primary" type="button" aria-label={t('保存上游 DNS')} disabled={saving} onClick={() => void saveRuntime()}>{saving ? t('正在保存…') : t(running ? '保存并重启网关' : '保存上游 DNS')}</button></div>
+      </div>}
     </section>
 
     {product.host_takeover ? <section className="section qnap-host-takeover-section">

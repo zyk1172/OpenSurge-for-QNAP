@@ -65,7 +65,7 @@ if [[ ! -x "$SMARTDNS_TEST_BIN" ]]; then
 fi
 
 log "validating project-generated SmartDNS config with the pinned runtime"
-OPEN_SURGE_SMARTDNS_INTEGRATION_TESTS=1 "$SMARTDNS_TEST_BIN" -test.v -test.run '^TestRenderedConfigLoadsInPinnedSmartDNS$'
+OPEN_SURGE_SMARTDNS_INTEGRATION_TESTS=1 "$SMARTDNS_TEST_BIN" -test.v -test.run '^Test(RenderedConfigLoadsInPinnedSmartDNS|EncryptedResolversInPinnedSmartDNS)$'
 
 log "creating isolated client -> gateway -> upstream topology"
 sudo ip netns add "$CLIENT_NS"

@@ -36,6 +36,14 @@ func Normalize(cfg *Config) error {
 		cfg.Gateway.LANCIDR = network.String()
 	}
 
+	if cfg.DNS.ResolverMode == "" {
+		cfg.DNS.ResolverMode = "system"
+	}
+	for index := range cfg.DNS.ResolverUpstreams {
+		cfg.DNS.ResolverUpstreams[index].Address = strings.TrimSpace(cfg.DNS.ResolverUpstreams[index].Address)
+		cfg.DNS.ResolverUpstreams[index].BootstrapIPv4 = strings.TrimSpace(cfg.DNS.ResolverUpstreams[index].BootstrapIPv4)
+	}
+
 	// Linux policy routing is owned exclusively by OpenSurge. Allowing mihomo to
 	// auto-route would create a second, unauditable route owner and break exact
 	// rollback semantics.
