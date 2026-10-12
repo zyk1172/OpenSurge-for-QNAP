@@ -2,9 +2,11 @@ package smartdns
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -26,6 +28,9 @@ const (
 // RenderConfig renders the LAN DNS front door. System resolvers are used only
 // for Resolver View; Gateway View has exactly one upstream: Mihomo fake-IP DNS.
 func RenderConfig(cfg config.Config, paths runtime.Paths) (string, error) {
+	if cfg.DNS.ResolverMode == "custom" {
+		return RenderConfigWithResolvers(cfg, paths, nil)
+	}
 	resolvers, err := systemResolvers("/etc/resolv.conf", cfg)
 	if err != nil {
 		return "", err
@@ -48,13 +53,16 @@ func RenderConfigWithResolvers(cfg config.Config, paths runtime.Paths, resolvers
 	if cfg.DNS.Port <= 0 || cfg.DNS.Port > 65535 {
 		return "", fmt.Errorf("smartdns listen port must be between 1 and 65535")
 	}
+	if err := config.ValidateResolverConfig(cfg); err != nil {
+		return "", err
+	}
 	resolvers = normalizeResolvers(resolvers, cfg)
-	if len(resolvers) == 0 {
-		if fallback := net.ParseIP(strings.TrimSpace(cfg.Gateway.UpstreamGateway)); fallback != nil && fallback.To4() != nil && fallback.String() != listen {
+	if cfg.DNS.ResolverMode != "custom" && len(resolvers) == 0 {
+		if fallback := net.ParseIP(strings.TrimSpace(cfg.Gateway.UpstreamGateway)); fallback != nil && fallback.To4() != nil && fallback.String() != listen && fallback.String() != "100.100.100.100" {
 			resolvers = []string{fallback.To4().String()}
 		}
 	}
-	if len(resolvers) == 0 {
+	if cfg.DNS.ResolverMode != "custom" && len(resolvers) == 0 {
 		return "", fmt.Errorf("resolver view has no real DNS upstream")
 	}
 
@@ -65,6 +73,18 @@ func RenderConfigWithResolvers(cfg config.Config, paths runtime.Paths, resolvers
 
 	var out strings.Builder
 	out.WriteString("server-name opensurge\n")
+	if cfg.DNS.ResolverProxyEnabled {
+		fmt.Fprintf(&out, "proxy-server socks5://127.0.0.1:%d -name opensurge-dns\n", config.SmartDNSProxyPort)
+	}
+	for _, upstream := range cfg.DNS.ResolverUpstreams {
+		endpoint, _ := config.ParseResolverUpstream(upstream, cfg)
+		if cfg.DNS.ResolverMode == "custom" && endpoint.Encrypted {
+			// Explicit CA configuration makes SmartDNS fail closed if trust roots
+			// cannot be loaded, instead of disabling certificate verification.
+			out.WriteString("ca-file /etc/ssl/certs/ca-certificates.crt\n")
+			break
+		}
+	}
 	out.WriteString("log-level info\n")
 	out.WriteString("log-console yes\n")
 	out.WriteString("cache-size 32768\n")
@@ -84,8 +104,14 @@ func RenderConfigWithResolvers(cfg config.Config, paths runtime.Paths, resolvers
 	out.WriteString("serve-expired yes\n")
 	out.WriteString("serve-expired-ttl 600\n")
 	out.WriteString("serve-expired-reply-ttl 3\n")
-	out.WriteString("speed-check-mode tcp:443,tcp:80\n")
-	out.WriteString("response-mode fastest-ip\n")
+	if cfg.DNS.ResolverProxyEnabled {
+		// Direct IP probes measure the NAS path, not the chosen proxy's path.
+		out.WriteString("speed-check-mode none\n")
+		out.WriteString("response-mode fastest-response\n")
+	} else {
+		out.WriteString("speed-check-mode tcp:443,tcp:80\n")
+		out.WriteString("response-mode fastest-ip\n")
+	}
 	out.WriteString("dualstack-ip-selection no\n")
 	out.WriteString("group-end\n")
 
@@ -96,10 +122,40 @@ func RenderConfigWithResolvers(cfg config.Config, paths runtime.Paths, resolvers
 	}
 	fmt.Fprintf(&out, "bind %s %s\n", listenTarget, defaultOptions)
 	fmt.Fprintf(&out, "bind-tcp %s %s\n", listenTarget, defaultOptions)
+	if cfg.DNS.MihomoUseSmartDNS {
+		// Feeding Mihomo from the LAN bind would recurse in Gateway View.
+		// The private listener always obtains real answers from Resolver View.
+		fmt.Fprintf(&out, "bind %s %s\n", config.SmartDNSResolverAddr, resolverOptions())
+		fmt.Fprintf(&out, "bind-tcp %s %s\n", config.SmartDNSResolverAddr, resolverOptions())
+	}
 
 	fmt.Fprintf(&out, "server %s -group %s -exclude-default-group\n", mihomoDNS, GatewayGroup)
-	for _, resolver := range resolvers {
-		fmt.Fprintf(&out, "server %s -group %s -exclude-default-group\n", resolver, ResolverGroup)
+	if cfg.DNS.ResolverMode == "custom" {
+		hasEncrypted := false
+		for _, upstream := range cfg.DNS.ResolverUpstreams {
+			endpoint, _ := config.ParseResolverUpstream(upstream, cfg)
+			hasEncrypted = hasEncrypted || endpoint.Encrypted
+		}
+		for _, upstream := range cfg.DNS.ResolverUpstreams {
+			endpoint, _ := config.ParseResolverUpstream(upstream, cfg)
+			directive := map[string]string{"https": "server-https", "tls": "server-tls", "udp": "server", "tcp": "server-tcp"}[endpoint.Scheme]
+			fmt.Fprintf(&out, "%s %s -group %s -exclude-default-group", directive, endpoint.Target, ResolverGroup)
+			if endpoint.Encrypted {
+				fmt.Fprintf(&out, " -host-ip %s -host-name %s -tls-host-verify %s", endpoint.BootstrapIPv4, endpoint.Hostname, endpoint.Hostname)
+			} else if hasEncrypted {
+				// Plaintext is a user-authorized fallback, never a faster competitor to
+				// a working encrypted resolver. Do not add system/router fallbacks.
+				out.WriteString(" -fallback")
+			}
+			if cfg.DNS.ResolverProxyEnabled {
+				out.WriteString(" -proxy opensurge-dns")
+			}
+			out.WriteString("\n")
+		}
+	} else {
+		for _, resolver := range resolvers {
+			fmt.Fprintf(&out, "server %s -group %s -exclude-default-group\n", resolver, ResolverGroup)
+		}
 	}
 	if dhcp.ShouldRun(cfg) {
 		localDNS := net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", dhcp.LocalDNSPort))
@@ -144,6 +200,24 @@ func RenderConfigWithResolvers(cfg config.Config, paths runtime.Paths, resolvers
 	for _, rule := range hostRules {
 		fmt.Fprintf(&out, "domain-rules /%s/ -address %s -group %s\n", rule.Domain, strings.Join(rule.IPs, ","), ResolverGroup)
 	}
+	// A different upstream, TLS identity, view, hosts rule or proxy profile
+	// gets a fresh cache. Even with persistence disabled, name an owned path:
+	// SmartDNS unlinks its cache-file on exit when cache-persist is no.
+	policy := out.String()
+	if cfg.DNS.ResolverProxyEnabled {
+		policy += "\n" + renderedMihomo
+	}
+	digest := sha256.Sum256([]byte(policy))
+	cacheFile := filepath.Join(paths.Dir, "smartdns-cache", fmt.Sprintf("resolver-%x.cache", digest))
+	fmt.Fprintf(&out, "cache-file %q\n", cacheFile)
+	if cfg.DNS.ResolverMode == "custom" && !cfg.DNS.ResolverAllowPlaintext {
+		// Keep warm, authenticated real-IP answers across restarts.
+		out.WriteString("cache-persist yes\ncache-checkpoint-time 3600\n")
+	} else {
+		// A plaintext fallback may have supplied cached answers. Do not carry
+		// those, or legacy system/router answers, into a later clean session.
+		out.WriteString("cache-persist no\n")
+	}
 	return out.String(), nil
 }
 
@@ -168,9 +242,10 @@ func normalizeResolvers(values []string, cfg config.Config) []string {
 		value := ip.To4().String()
 		// Loopback resolvers belong to the current namespace. Docker's embedded
 		// 127.0.0.11 can forward to host-only DNS (for example Tailscale MagicDNS),
-		// which is unreachable from QNET/macvlan. Use the real upstream gateway
-		// fallback when no routable system resolver remains.
-		if ip.IsLoopback() || ip.IsUnspecified() || ip.IsMulticast() || value == self || value == strings.TrimSpace(cfg.Gateway.LANIP) || seen[value] {
+		// which is unreachable from QNET/macvlan. Tailscale 100.100.100.100
+		// is also device-local and must never be copied from host DNS to an
+		// isolated container resolver. Fall back to the real upstream router.
+		if ip.IsLoopback() || ip.IsUnspecified() || ip.IsMulticast() || value == "100.100.100.100" || value == self || value == strings.TrimSpace(cfg.Gateway.LANIP) || seen[value] {
 			continue
 		}
 		seen[value] = true

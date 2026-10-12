@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"open-mihomo-gateway/internal/config"
 	"open-mihomo-gateway/internal/mihomo"
 )
 
@@ -48,6 +49,7 @@ func TestHostHostsSyncPersistsManagedLayerAndAppliesEffectiveProfile(t *testing.
 	if updated.LastEntries != 2 || updated.LastDigest == "" || updated.LastSyncAt == "" {
 		t.Fatalf("sync metadata=%+v", updated)
 	}
+	assertHostHostsOperation(t, store, "succeeded", "")
 	managed, err := store.HostHostsManaged()
 	if err != nil {
 		t.Fatal(err)
@@ -105,12 +107,47 @@ func TestHostHostsSyncDoesNotAdvanceSuccessMetadataWhenApplyFails(t *testing.T) 
 	if updated.LastError == "" {
 		t.Fatal("failed apply must record last_error")
 	}
+	assertHostHostsOperation(t, store, "failed", "reload failed")
 	managed, err := store.HostHostsManaged()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(managed) != "192.0.2.10 old.local" {
 		t.Fatalf("failed apply did not restore prior managed snapshot: %q", managed)
+	}
+}
+
+func assertHostHostsOperation(t *testing.T, store *Store, state, message string) {
+	t.Helper()
+	ops, err := store.Operations(10)
+	if err != nil || len(ops) != 1 {
+		t.Fatalf("background operations=%+v error=%v", ops, err)
+	}
+	if ops[0].Kind != "sync-host-hosts" || ops[0].State != state || ops[0].Error != message || !strings.HasPrefix(ops[0].ID, "auto-host-hosts-") {
+		t.Fatalf("background operation=%+v", ops[0])
+	}
+}
+
+func TestHostHostsReconcileNoChangeCreatesNoOperation(t *testing.T) {
+	path, storeDir, _ := writeContainerProfileReloadFixture(t)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Mihomo.ProfileMode = config.MihomoProfileModeManaged
+	cfg.Mihomo.Profile = ""
+	cfg.Mihomo.ProfileSourceDigest = ""
+	cfg.Mihomo.ProfileOverlayDigest = ""
+	if err := writeAtomic(path, []byte(config.Render(cfg)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{store: NewStore(storeDir), configPath: path}
+	if err := s.reconcileHostHostsProfile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	ops, err := s.store.Operations(10)
+	if err != nil || len(ops) != 0 {
+		t.Fatalf("no-op created operations=%+v err=%v", ops, err)
 	}
 }
 
@@ -150,7 +187,6 @@ func TestHostHostsSyncStatusReportsMappedFile(t *testing.T) {
 	}
 }
 
-
 func TestHostHostsSyncAPIUpdatesPartialSettings(t *testing.T) {
 	store := NewStore(t.TempDir())
 	if err := store.Ensure(); err != nil {
@@ -173,7 +209,6 @@ func TestHostHostsSyncAPIUpdatesPartialSettings(t *testing.T) {
 		t.Fatalf("settings=%+v", settings)
 	}
 }
-
 
 func TestNormalizeManagedHostHosts(t *testing.T) {
 	input := "162.159.4.181\t\twiki.m-team.cc\n172.64.155.48        tracker.m-team.cc\n172.64.155.48\ttracker.m-team.io   # tracker\n\n# kept comment\n"

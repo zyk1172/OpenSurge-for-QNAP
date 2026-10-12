@@ -32,7 +32,7 @@
   --ui-radius-control:8px;
   --ui-radius-compact:6px;
   --ui-radius-pill:999px;
-  --ui-control-height:40px;
+  --ui-control-height:38px;
   --ui-surface:rgba(17,20,28,.56);
   --ui-surface-soft:rgba(23,27,35,.44);
   --ui-surface-raised:rgba(20,23,33,.78);
@@ -408,6 +408,66 @@ html,body,button,input,select,textarea{
   cursor:not-allowed!important;
   transform:none!important;
 }
+.ui-actions{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:flex-end;
+  gap:var(--ui-space-2);
+}
+.ui-actions--start{justify-content:flex-start}
+:where(.ui-button,.ui-switch-button):focus-visible{
+  outline:2px solid var(--ui-accent)!important;
+  outline-offset:2px!important;
+  box-shadow:var(--ui-focus)!important;
+}
+.ui-button--primary:not(:disabled):hover{
+  background:color-mix(in srgb,var(--ui-accent) 88%,var(--ui-text))!important;
+}
+.ui-button--danger:not(:disabled):hover{
+  background:color-mix(in srgb,var(--ui-danger) 28%,var(--ui-control-surface))!important;
+}
+.ui-switch-button{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+  flex-shrink:0;
+  gap:var(--ui-space-2)!important;
+  min-height:var(--ui-control-height)!important;
+  padding:0 var(--ui-space-2)!important;
+  border:1px solid transparent!important;
+  border-radius:var(--ui-radius-control)!important;
+  background:transparent!important;
+  color:var(--ui-text-secondary)!important;
+  font-size:var(--ui-font-control)!important;
+  font-weight:600!important;
+  line-height:1.2!important;
+  cursor:pointer;
+}
+.ui-switch-button>i{
+  position:relative;
+  width:34px;
+  height:20px;
+  flex:0 0 34px;
+  border-radius:var(--ui-radius-pill);
+  background:var(--ui-border-hover);
+  transition:background var(--ui-motion-control) var(--ui-ease);
+}
+.ui-switch-button>i::after{
+  content:"";
+  position:absolute;
+  top:3px;
+  left:3px;
+  width:14px;
+  height:14px;
+  border-radius:var(--ui-radius-pill);
+  background:var(--ui-text);
+  transition:transform var(--ui-motion-control) var(--ui-ease);
+}
+.ui-switch-button[aria-checked="true"]>i{background:var(--ui-accent)}
+.ui-switch-button[aria-checked="true"]>i::after{background:#fff;transform:translateX(14px)}
+.ui-switch-button:not(:disabled):hover{background:var(--ui-control-surface-hover)!important}
+.ui-switch-button:disabled{opacity:.46!important;cursor:not-allowed!important}
 
 /* Forms ----------------------------------------------------------------- */
 .ui-form-grid,
@@ -907,6 +967,7 @@ dialog.reload-dialog>.dialog-actions{
     transition:none!important;
     transform:none!important;
   }
+  .ui-switch-button>i,.ui-switch-button>i::after{transition:none!important}
 }
 
 /* Unified MoviePilot liquid-glass contract: legacy CSS below these components is layout-only. */
@@ -976,6 +1037,32 @@ dialog.reload-dialog>.dialog-actions{
   font-size:var(--ui-font-card)!important;
   white-space:nowrap!important;
 }
+.smartdns-settings,.smartdns-upstream-card,.smartdns-option-card{
+  display:grid;
+  align-content:start;
+  gap:var(--ui-space-3);
+  min-width:0;
+  padding:var(--ui-space-4);
+}
+.smartdns-settings{margin-top:var(--ui-space-4)}
+.smartdns-settings :where(h3,p){margin:0}
+.smartdns-settings :where(input,select){width:100%;min-width:0}
+.smartdns-preset-toolbar{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:flex-end;
+  gap:var(--ui-space-3);
+}
+.smartdns-preset-toolbar>.ui-field{flex:1 1 220px}
+.smartdns-setting{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--ui-space-2);
+}
+.smartdns-setting>strong{flex:1 1 180px;min-width:0}
+.smartdns-settings>.ui-action-bar{grid-template-columns:1fr!important}
 .qnap-dns-note{
   margin-top:var(--ui-space-3)!important;
 }
@@ -1032,7 +1119,7 @@ dialog.reload-dialog>.dialog-actions{
   min-width:180px!important;
   max-width:100%!important;
 }
-.qnap-host-tailscale-card>.overlay-switch{
+.qnap-host-tailscale-card>:is(.overlay-switch,.ui-switch-button){
   justify-self:end!important;
   align-self:center!important;
 }
@@ -1705,7 +1792,7 @@ html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runt
   flex-direction:column!important;
   align-items:flex-start!important;
   justify-content:space-between!important;
-  gap:4px!important;
+  gap:0!important;
   padding:12px 14px!important;
   overflow:hidden!important;
   border:1px solid var(--ui-border)!important;
@@ -1737,11 +1824,11 @@ html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-note{
   text-overflow:ellipsis!important;
   white-space:nowrap!important;
 }
-html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-card .overlay-switch{
+html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-card :is(.overlay-switch,.ui-switch-button){
   align-self:flex-start!important;
   margin:0!important;
 }
-html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card{
+html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runtime-socks-card{
   display:grid!important;
   grid-template-columns:minmax(0,1fr) minmax(116px,.55fr) minmax(0,1.1fr)!important;
   grid-template-rows:auto auto auto!important;
@@ -1752,7 +1839,7 @@ html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card{
   align-items:center!important;
   justify-items:stretch!important;
   column-gap:12px!important;
-  row-gap:3px!important;
+  row-gap:0!important;
   padding-left:14px!important;
   padding-right:14px!important;
 }
@@ -1761,7 +1848,7 @@ html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card>.qna
   min-width:0!important;
   justify-self:start!important;
 }
-html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card>.overlay-switch{
+html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card>:is(.overlay-switch,.ui-switch-button){
   grid-area:toggle!important;
   justify-self:start!important;
 }
@@ -1805,8 +1892,12 @@ html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card>.mut
 @media(max-width:600px){
   .cloudflare-page .cloudflare-monitor-grid,
   html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid{grid-template-columns:1fr!important}
+  html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runtime-card{
+    height:auto!important;
+    gap:var(--ui-space-2)!important;
+  }
   html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runtime-card-wide{grid-column:auto!important}
-  html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card{
+  html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runtime-socks-card{
     grid-template-columns:minmax(0,1fr) auto!important;
     grid-template-rows:auto auto auto auto!important;
     grid-template-areas:

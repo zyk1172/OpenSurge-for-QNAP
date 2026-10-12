@@ -1005,3 +1005,13 @@ func assertOrdered(t *testing.T, value string, ordered ...string) {
 		position = next
 	}
 }
+
+func TestTUNExplicitlyHijacksBothDNSProtocols(t *testing.T) {
+    cfg := config.Default()
+    cfg.Transparent.Mode = config.TransparentModeTUN
+    rendered, err := RenderConfig(cfg)
+    if err != nil {t.Fatal(err)}
+    for _, entry := range []string{"    - any:53","    - tcp://any:53"} {
+        if !strings.Contains(rendered,entry) {t.Fatalf("missing DNS hijack entry %q: %s",entry,rendered)}
+    }
+}

@@ -144,6 +144,14 @@ jobs:
           test "$(git -C /tmp/opensurge-smartdns-src rev-parse HEAD)" = "21c940edc65520849ba03544c5cf8d9cf326e680"
           make -C /tmp/opensurge-smartdns-src/src -j"$(nproc)"
           sudo install -Dm0755 /tmp/opensurge-smartdns-src/src/smartdns /usr/local/bin/smartdns
+      - name: Install pinned Mihomo for SmartDNS proxy integration fixtures
+        run: |
+          curl --fail --location --retry 3 \
+            https://github.com/MetaCubeX/mihomo/releases/download/v1.19.30/mihomo-linux-amd64-compatible-v1.19.30.gz \
+            --output /tmp/opensurge-mihomo.gz
+          printf '%s  %s\n' db214c7a2517e63c150d123178d16d102e03a241ccdae4e5e07ffbe9cf56c6f9 /tmp/opensurge-mihomo.gz | sha256sum --check --strict
+          gzip -dc /tmp/opensurge-mihomo.gz > /tmp/opensurge-mihomo
+          sudo install -Dm0755 /tmp/opensurge-mihomo /usr/local/bin/mihomo
       - name: Compile integration test binaries before entering namespaces
         run: |
           go test -c -o /tmp/opensurge-linux-network.test ./internal/platform/linux
@@ -226,6 +234,47 @@ jobs:
           docker exec opensurge-ci grep -q 'lan_cidr: "10.55.0.0/24"' /data/config/opensurge.yaml
           docker exec opensurge-ci grep -q 'upstream_gateway: "10.55.0.1"' /data/config/opensurge.yaml
           docker exec opensurge-ci grep -q 'interface: "eth0"' /data/config/opensurge.yaml
+      - name: Verify versioned runtime image cache in a private container mount namespace
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/opensurge-ci-cache
+          docker run --rm --name opensurge-runtime-cache-ci \
+            --cap-add SYS_ADMIN --security-opt apparmor=unconfined \
+            -v /tmp/opensurge-ci-cache:/data \
+            --entrypoint /bin/sh opensurge-qnap:ci -ec '
+              /usr/local/bin/opensurge-runtime-cache prepare
+              test "$(stat -c %d /usr)" = "$(stat -c %d /data)"
+              if touch /usr/opensurge-cache-write-test; then exit 1; fi
+              /usr/local/bin/opensurge-container --help >/dev/null
+              /usr/local/bin/mihomo -v
+              /usr/local/bin/dnsmasq --version
+              ip link show >/dev/null
+              setpriv --reuid=1000 --regid=100 --clear-groups --bounding-set=-all \
+                /usr/local/bin/opensurge-container --component platform
+              /usr/local/bin/opensurge-runtime-cache prepare
+            '
+          runtime_root="$(docker run --rm --network none --read-only \
+            -v /tmp/opensurge-ci-cache:/data \
+            --entrypoint /usr/local/bin/opensurge-runtime-cache opensurge-qnap:ci prepare-files)"
+          case "$runtime_root" in /data/runtime-image-cache/*/usr) ;; *) exit 1 ;; esac
+          host_root="/tmp/opensurge-ci-cache/${runtime_root#/data/}"
+          # Default AppArmor/Seccomp, no SYS_ADMIN: Docker installs the bind.
+          docker run --rm --network none --read-only \
+            -v /tmp/opensurge-ci-cache:/data -v "$host_root:/usr:ro" \
+            --entrypoint /bin/sh opensurge-qnap:ci -ec '
+              /usr/local/bin/opensurge-runtime-cache prepare
+              test -r /opt/opensurge/runtime-image.json
+              if touch /usr/opensurge-cache-write-test; then exit 1; fi
+              /usr/local/bin/mihomo -v
+              setpriv --reuid=1000 --regid=100 --clear-groups --bounding-set=-all \
+                /usr/local/bin/opensurge-container --component platform
+            '
+          if docker run --rm --network none \
+            -v /tmp/opensurge-ci-cache:/data -v "$host_root:/usr" \
+            --entrypoint /usr/local/bin/opensurge-runtime-cache opensurge-qnap:ci prepare; then
+            echo 'Writable pre-mounted runtime cache was accepted' >&2
+            exit 1
+          fi
       - name: Verify QNAP image and privilege split
         run: |
           set -euo pipefail

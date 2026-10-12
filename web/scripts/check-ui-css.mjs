@@ -29,7 +29,7 @@ if (!runtime.includes('height:94px!important')) throw new Error('Desktop QNAP ru
 const runtimeWide = ruleBody(design, 'html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runtime-card-wide')
 if (!runtimeWide.includes('grid-column:span 2!important')) throw new Error('Wide QNAP runtime card must span two card columns')
 
-const runtimeSocks = ruleBody(design, 'html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-socks-card')
+const runtimeSocks = ruleBody(design, 'html[data-product-target="qnap"] .workspace-canvas .qnap-runtime-grid>.qnap-runtime-socks-card')
 if (!runtimeSocks.includes('grid-template-areas:')) throw new Error('LAN SOCKS runtime card must use the compact horizontal layout')
 if (!runtimeSocks.includes('padding-left:14px!important')) throw new Error('LAN SOCKS runtime card must preserve the shared left content inset')
 if (!runtimeSocks.includes('padding-right:14px!important')) throw new Error('LAN SOCKS runtime card must preserve the shared right content inset')

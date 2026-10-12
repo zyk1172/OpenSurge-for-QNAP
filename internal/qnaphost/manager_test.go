@@ -72,13 +72,33 @@ func TestIntentPersistsOptInAndDefaultCoexistencePolicy(t *testing.T) {
 	}
 }
 
+func TestNASDNSModesHaveDistinctEffectiveRoutes(t *testing.T) {
+	for _, test := range []struct {
+		configured         string
+		protect, tailscale bool
+		effective          string
+		redirect           bool
+	}{
+		{DNSModeAuto, false, false, DNSModeOpenSurge, true},
+		{DNSModeAuto, true, false, DNSModeOpenSurge, true},
+		{DNSModeAuto, true, true, DNSModeHost, false},
+		{DNSModeAuto, false, true, DNSModeOpenSurge, true},
+		{DNSModeOpenSurge, true, true, DNSModeOpenSurge, true},
+		{DNSModeHost, false, false, DNSModeHost, false},
+	} {
+		got := resolvedDNSMode(test.configured, test.protect, test.tailscale)
+		if got != test.effective || usesOpenSurgeDNS(got) != test.redirect {
+			t.Errorf("resolvedDNSMode(%q,%t,%t)=%q, want %q", test.configured, test.protect, test.tailscale, got, test.effective)
+		}
+	}
+}
 
 func TestNASDNSModesMapToDedicatedGatewayPath(t *testing.T) {
 	for _, test := range []struct {
 		mode string
 		want bool
 	}{
-		{mode: DNSModeAuto, want: true},
+		{mode: DNSModeAuto, want: false},
 		{mode: DNSModeOpenSurge, want: true},
 		{mode: DNSModeHost, want: false},
 	} {
@@ -227,6 +247,23 @@ func TestPreflightL4PolicyRoutingFailsBeforePersistentRoutingWhenKernelRejectsDP
 	}
 }
 
+func TestHostDNSBypassIsScopedToNASInterfaceSourceAndHasCleanup(t *testing.T) {
+	runner := &fakeRunner{}
+	manager := &Manager{netNSPath: "/run/test-host-netns", runner: runner}
+	if err := manager.installHostDNSBypassLocked(context.Background(), "192.168.2.240"); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(runner.calls, "\n")
+	for _, proto := range []string{"udp", "tcp"} {
+		if !strings.Contains(joined, "from 192.168.2.240/32 iif lo ipproto "+proto+" dport 53 table main") {
+			t.Errorf("missing scoped QTS DNS bypass for %s: %s", proto, joined)
+		}
+	}
+	if strings.Contains(joined, "192.168.1.") || strings.Contains(joined, "nft") || strings.Contains(joined, "iptables") {
+		t.Errorf("bypass touched unrelated PT network or firewall: %s", joined)
+	}
+}
+
 func TestInstallDNSPolicyUsesHost20242AndContainerTUNTableWithoutNFTables(t *testing.T) {
 	runner := &fakeRunner{}
 	manager := &Manager{netNSPath: "/run/test-host-netns", runner: runner}
@@ -365,5 +402,39 @@ func TestHostRoutingEndpointRequiresInternalControlToken(t *testing.T) {
 	handler.ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d, want %d", recorder.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestDNSBypassCleanupRequiresMatchingTakeoverSource(t *testing.T) {
+	for _, test := range []struct {
+		name, source string
+		owned        bool
+	}{
+		{"owned", "192.168.2.240", true},
+		{"other NIC", "192.168.1.240", false},
+		{"all sources", "all", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &fakeRunner{}
+			manager := &Manager{netNSPath: "/run/test-host-netns", runner: runner}
+			priorities := legacyHostPriorities()
+			udp, tcp, _, proxy := priorities.strings()
+			rules := []byte(proxy + ": from 192.168.2.240 iif lo lookup " + routeTableID + "\n" +
+				udp + ": from " + test.source + " iif lo ipproto udp dport 53 lookup main\n" +
+				tcp + ": from " + test.source + " iif lo ipproto tcp dport 53 lookup main\n")
+			manager.cleanupHostDNSBypassLocked(t.Context(), rules, priorities)
+			if test.owned {
+				if len(runner.calls) != 2 {
+					t.Fatalf("expected UDP/TCP cleanup: %v", runner.calls)
+				}
+				for _, call := range runner.calls {
+					if !strings.Contains(call, "from 192.168.2.240/32 iif lo") {
+						t.Fatalf("unscoped cleanup: %s", call)
+					}
+				}
+			} else if len(runner.calls) != 0 {
+				t.Fatalf("deleted unrelated rule: %v", runner.calls)
+			}
+		})
 	}
 }

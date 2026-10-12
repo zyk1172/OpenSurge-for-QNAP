@@ -22,7 +22,8 @@ RUN go mod download
 COPY . .
 COPY --from=web-builder /src/internal/webui/dist/ ./internal/webui/dist/
 RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/opensurge-container ./cmd/opensurge-container \
- && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/omg ./cmd/omg
+ && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/omg ./cmd/omg \
+ && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/opensurge-runtime-cache ./cmd/opensurge-runtime-cache
 
 FROM ${DEBIAN_IMAGE} AS dnsmasq-builder
 ARG DNSMASQ_VERSION=2.93
@@ -55,10 +56,9 @@ RUN set -eux; \
     make -C src -j"$(nproc)"; \
     install -Dm0755 src/smartdns /out/smartdns
 
-# Upstream v1.19.30 is the latest stable Mihomo release, but its published
-# binaries were built before several Go dependency security fixes. Rebuild the
-# exact stable source commit with the patched module versions instead of
-# switching a stable OpenSurge release to an upstream alpha binary.
+# Upstream v1.19.30 binaries were built before several Go dependency security
+# fixes. Rebuild the pinned stable source with patched module versions instead
+# of consuming those release binaries.
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS mihomo-builder
 ARG TARGETOS=linux
 ARG TARGETARCH
@@ -75,7 +75,7 @@ RUN set -eux; \
     git checkout --detach FETCH_HEAD; \
     test "$(git rev-parse HEAD)" = "${MIHOMO_COMMIT}"; \
     go mod edit -go=1.25.14; \
-    go get golang.org/x/crypto@v0.55.0; \
+    go get golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0; \
     go mod tidy; \
     case "${TARGETARCH}" in \
       amd64) export GOAMD64=v1 ;; \
@@ -107,6 +107,7 @@ RUN apt-get update \
 
 COPY --from=go-builder /out/opensurge-container /usr/local/bin/opensurge-container
 COPY --from=go-builder /out/omg /usr/local/bin/omg
+COPY --from=go-builder /out/opensurge-runtime-cache /usr/local/bin/opensurge-runtime-cache
 COPY --from=dnsmasq-builder /out/dnsmasq /usr/local/bin/dnsmasq
 COPY --from=smartdns-builder /out/smartdns /usr/local/bin/smartdns
 COPY --from=mihomo-builder /out-mihomo /usr/local/bin/mihomo
@@ -118,6 +119,9 @@ COPY third_party/licenses/ /usr/share/opensurge/licenses/third_party/
 
 RUN chmod 0755 /usr/local/bin/opensurge-entrypoint \
  && mkdir -p /data/config /data/profiles /data/providers /data/runtime /data/state /data/logs /data/backups /data/licenses /data/control /data/web-auth /run/opensurge
+
+# The manifest is an image artifact, never supplied by the writable /data.
+RUN /usr/local/bin/opensurge-runtime-cache manifest
 
 LABEL org.opencontainers.image.title="OpenSurge for NAS" \
       org.opencontainers.image.description="Web-managed Linux transparent proxy gateway for QNAP, Synology, fnOS and Docker NAS" \

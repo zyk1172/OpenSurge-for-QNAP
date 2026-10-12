@@ -295,6 +295,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/recovery/keep-static", s.auth(http.HandlerFunc(s.handleKeepStaticFinish)))
 	mux.Handle("GET /api/v1/network/discovery", s.auth(http.HandlerFunc(s.handleNetworkDiscovery)))
 	mux.Handle("GET /api/v1/network/defaults", s.auth(http.HandlerFunc(s.handleNetworkDefaults)))
+	mux.Handle("GET /api/v1/network/dns-runtime", s.auth(http.HandlerFunc(s.handleDNSRuntime)))
 	mux.Handle("GET /api/v1/network/interfaces", s.auth(http.HandlerFunc(s.handleNetworkInterfaces)))
 	mux.Handle("POST /api/v1/network/apply-static", s.auth(http.HandlerFunc(s.handleApplyStatic)))
 	mux.Handle("POST /api/v1/network/dhcp-probe", s.auth(http.HandlerFunc(s.handleDHCPProbe)))
@@ -416,11 +417,14 @@ func controlConfigFrom(cfg config.Config, revision string) ControlConfig {
 		dnsUpstream = config.MihomoDNSUpstream
 	}
 	storeFakeIP := cfg.Mihomo.StoreFakeIP
+	resolverMode, allowPlaintext := cfg.DNS.ResolverMode, cfg.DNS.ResolverAllowPlaintext
+	proxyEnabled, proxyTarget, useSmartDNS := cfg.DNS.ResolverProxyEnabled, cfg.DNS.ResolverProxyTarget, cfg.DNS.MihomoUseSmartDNS
+	resolverUpstreams := append([]config.ResolverUpstream{}, cfg.DNS.ResolverUpstreams...)
 	return ControlConfig{
 		SchemaVersion: SchemaVersion, Revision: revision,
 		Gateway:          GatewayConfigInput{Mode: cfg.Gateway.Mode, Interface: cfg.Gateway.Interface, LANIP: cfg.Gateway.LANIP, LANPrefixLen: lan.PrefixLenOrDefault(cfg.Gateway.LANPrefixLen), UpstreamInterface: cfg.Gateway.UpstreamInterface},
 		DHCP:             DHCPConfigInput{Enabled: cfg.DHCP.Enabled, RangeStart: cfg.DHCP.RangeStart, RangeEnd: cfg.DHCP.RangeEnd, LeaseTime: cfg.DHCP.LeaseTime, Domain: cfg.DHCP.Domain, BypassGateway: cfg.DHCP.BypassGateway, BypassDNS: append([]string{}, cfg.DHCP.BypassDNS...)},
-		DNS:              DNSConfigInput{Listen: cfg.DNS.Listen, Upstream: dnsUpstream, IPv6: cfg.DNS.IPv6},
+		DNS:              DNSConfigInput{Listen: cfg.DNS.Listen, Upstream: dnsUpstream, IPv6: cfg.DNS.IPv6, ResolverMode: &resolverMode, ResolverUpstreams: &resolverUpstreams, ResolverAllowPlaintext: &allowPlaintext, ResolverProxyEnabled: &proxyEnabled, ResolverProxyTarget: &proxyTarget, MihomoUseSmartDNS: &useSmartDNS},
 		Mihomo:           MihomoConfigInput{StoreFakeIP: &storeFakeIP},
 		Transparent:      TransparentConfigInput{Mode: cfg.Transparent.Mode, StrictRoute: cfg.Transparent.TUNStrictRoute, TUNIPv6: cfg.Transparent.TUNIPv6, IPv6SharedL2Ready: cfg.Transparent.IPv6SharedL2Ready},
 		LocalSystemProxy: LocalSystemProxyConfigInput{Enabled: cfg.LocalSystemProxy.Enabled},
@@ -907,11 +911,15 @@ func (s *Server) handleGatewayAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "operation_failed", err.Error())
 		return
 	}
-	if action == "restart-mihomo" || action == "recover-gateway" {
+	if action == "restart-mihomo" || action == "recover-gateway" || action == "start" && containerRecoveryRunner(s.runner) {
 		if s.dnsHealth != nil {
 			s.dnsHealth.reset()
 		}
-		s.mihomoRecovery.beginManual()
+		if containerRecoveryRunner(s.runner) && (action == "recover-gateway" || action == "start") {
+			s.mihomoRecovery.beginManual(containerFailureIncomplete)
+		} else {
+			s.mihomoRecovery.beginManual()
+		}
 	}
 	locked = false
 	go s.runOperationLocked(op, cfg.Gateway.Mode, recovery, startWorkspace, nil)
@@ -959,14 +967,14 @@ func (s *Server) runOperationLocked(op Operation, topology string, recoveryBefor
 		}
 	}
 	_ = s.store.SaveOperation(op)
-    // The last DNS probe describes the old listener generation. Do not reuse
-    // it after any full lifecycle transition (including one that failed).
-    if s.dnsHealth != nil && (op.Kind == "start" || op.Kind == "stop" || op.Kind == "reload" || op.Kind == "recover-gateway") {
-        s.dnsHealth.reset()
-    }
+	// The last DNS probe describes the old listener generation. Do not reuse
+	// it after any full lifecycle transition (including one that failed).
+	if s.dnsHealth != nil && (op.Kind == "start" || op.Kind == "stop" || op.Kind == "reload" || op.Kind == "recover-gateway") {
+		s.dnsHealth.reset()
+	}
 	if completed != nil {
 		completed(err)
-	} else if op.Kind == "restart-mihomo" || op.Kind == "recover-gateway" {
+	} else if op.Kind == "restart-mihomo" || op.Kind == "recover-gateway" || op.Kind == "start" && containerRecoveryRunner(s.runner) {
 		s.mihomoRecovery.finishManual(err)
 	}
 }

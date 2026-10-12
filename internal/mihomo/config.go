@@ -67,6 +67,7 @@ tun:
 {{- end }}
   dns-hijack:
     - any:53
+    - tcp://any:53
 {{- if .TUNRouteAddresses }}
   route-address:
 {{ .TUNRouteAddresses }}
@@ -83,8 +84,15 @@ tun:
 {{- end }}
 
 {{ end }}
-{{ if or .DedicatedLANProxyEnabled .TUNIPv6Enabled }}
+{{ if or .DedicatedLANProxyEnabled .TUNIPv6Enabled .SmartDNSProxyEnabled }}
 listeners:
+{{ if .SmartDNSProxyEnabled }}  - name: open-surge/smartdns
+    type: socks
+    listen: "127.0.0.1"
+    port: {{ .SmartDNSProxyPort }}
+    udp: false
+    proxy: {{ .SmartDNSProxyTarget }}
+{{ end }}
 {{ if .DedicatedLANProxyEnabled }}  - name: open-surge/lan-socks5
     type: socks
     listen: "{{ .DedicatedLANProxyListen }}"
@@ -118,34 +126,37 @@ func RenderConfig(cfg config.Config) (string, error) {
 
 type templateData struct {
 	config.MihomoConfig
-	TUNEnabled             bool
-	TUNDevice              string
-	TUNStack               string
-	TUNAutoRoute           bool
-	TUNAutoDetectInterface bool
-	TUNStrictRoute         bool
-	TUNRouteAddresses      string
-	TUNCustomRoutes        bool
-	LANProxyEnabled           bool
-	MihomoBindAddress         string
-	DedicatedLANProxyEnabled  bool
-	DedicatedLANProxyListen   string
-	DedicatedLANProxyPort     int
-	IPv6Enabled               bool
-	TUNIPv6Enabled         bool
-	TUNIPv6Address         string
-	UpstreamInterface      string
-	LANPrefix              string
-	UpstreamProxy          config.UpstreamProxyConfig
-	DNSIPv6                bool
-	FakeIPv6Range          string
-	IPv6PacketListenerName string
-	IPv6PacketSocket       string
-	IPv6PacketMTU          int
-	IPv6DeviceUsers        string
-	Hosts                   string
-	DNSResolverFields      string
-	PolicySections         string
+	TUNEnabled               bool
+	TUNDevice                string
+	TUNStack                 string
+	TUNAutoRoute             bool
+	TUNAutoDetectInterface   bool
+	TUNStrictRoute           bool
+	TUNRouteAddresses        string
+	TUNCustomRoutes          bool
+	LANProxyEnabled          bool
+	MihomoBindAddress        string
+	DedicatedLANProxyEnabled bool
+	DedicatedLANProxyListen  string
+	DedicatedLANProxyPort    int
+	SmartDNSProxyEnabled     bool
+	SmartDNSProxyPort        int
+	SmartDNSProxyTarget      string
+	IPv6Enabled              bool
+	TUNIPv6Enabled           bool
+	TUNIPv6Address           string
+	UpstreamInterface        string
+	LANPrefix                string
+	UpstreamProxy            config.UpstreamProxyConfig
+	DNSIPv6                  bool
+	FakeIPv6Range            string
+	IPv6PacketListenerName   string
+	IPv6PacketSocket         string
+	IPv6PacketMTU            int
+	IPv6DeviceUsers          string
+	Hosts                    string
+	DNSResolverFields        string
+	PolicySections           string
 }
 
 func newTemplateData(cfg config.Config) (templateData, error) {
@@ -167,6 +178,13 @@ func newTemplateData(cfg config.Config) (templateData, error) {
 		imported = &loaded
 		dnsResolverFields = loaded.dnsResolverFields
 		hostsYAML, err = loadProfileHostsYAML(cfg.Mihomo.Profile)
+		if err != nil {
+			return templateData{}, err
+		}
+	}
+	if cfg.DNS.ResolverProxyEnabled || cfg.DNS.MihomoUseSmartDNS {
+		var err error
+		dnsResolverFields, hostsYAML, err = renderSmartDNSIntegration(cfg, imported, dnsResolverFields, hostsYAML)
 		if err != nil {
 			return templateData{}, err
 		}
@@ -193,35 +211,38 @@ func newTemplateData(cfg config.Config) (templateData, error) {
 		hostsYAML = indentYAMLBlock(hostsYAML, "  ")
 	}
 	return templateData{
-		MihomoConfig:           cfg.Mihomo,
-		TUNEnabled:             transparent.TUNEnabled(),
-		TUNDevice:              transparent.TUNDevice,
-		TUNStack:               transparent.TUNStack,
-		TUNAutoRoute:           transparent.TUNAutoRoute,
-		TUNAutoDetectInterface: transparent.TUNAutoDetectInterface,
-		TUNStrictRoute:         transparent.TUNStrictRoute,
-		TUNRouteAddresses:      tunRouteAddresses,
-		TUNCustomRoutes:        tunRouteAddresses != "",
+		MihomoConfig:             cfg.Mihomo,
+		TUNEnabled:               transparent.TUNEnabled(),
+		TUNDevice:                transparent.TUNDevice,
+		TUNStack:                 transparent.TUNStack,
+		TUNAutoRoute:             transparent.TUNAutoRoute,
+		TUNAutoDetectInterface:   transparent.TUNAutoDetectInterface,
+		TUNStrictRoute:           transparent.TUNStrictRoute,
+		TUNRouteAddresses:        tunRouteAddresses,
+		TUNCustomRoutes:          tunRouteAddresses != "",
 		LANProxyEnabled:          lanProxyEnabled,
 		MihomoBindAddress:        mihomoBindAddress,
 		DedicatedLANProxyEnabled: cfg.LANProxy.Enabled,
 		DedicatedLANProxyListen:  cfg.Gateway.LANIP,
 		DedicatedLANProxyPort:    cfg.LANProxy.SOCKSPort,
-		IPv6Enabled:               cfg.DNS.IPv6 || transparent.TUNIPv6 != config.TUNIPv6Off,
-		TUNIPv6Enabled:         transparent.TUNIPv6 != config.TUNIPv6Off,
-		TUNIPv6Address:         config.MihomoTUNIPv6,
-		UpstreamInterface:      cfg.Gateway.UpstreamInterface,
-		LANPrefix:              lanPrefix,
-		UpstreamProxy:          cfg.UpstreamProxy,
-		DNSIPv6:                cfg.DNS.IPv6,
-		FakeIPv6Range:          config.MihomoFakeIPv6Range,
-		IPv6PacketListenerName: config.IPv6PacketListenerName,
-		IPv6PacketSocket:       yamlQuote(packetSocket),
-		IPv6PacketMTU:          transparent.IPv6PacketMTU,
-		IPv6DeviceUsers:        renderIPv6DeviceUsers(cfg),
-		Hosts:                   hostsYAML,
-		DNSResolverFields:      indentYAMLBlock(dnsResolverFields, "  "),
-		PolicySections:         policySections,
+		SmartDNSProxyEnabled:     cfg.DNS.ResolverProxyEnabled,
+		SmartDNSProxyPort:        config.SmartDNSProxyPort,
+		SmartDNSProxyTarget:      yamlQuote(cfg.DNS.ResolverProxyTarget),
+		IPv6Enabled:              cfg.DNS.IPv6 || transparent.TUNIPv6 != config.TUNIPv6Off,
+		TUNIPv6Enabled:           transparent.TUNIPv6 != config.TUNIPv6Off,
+		TUNIPv6Address:           config.MihomoTUNIPv6,
+		UpstreamInterface:        cfg.Gateway.UpstreamInterface,
+		LANPrefix:                lanPrefix,
+		UpstreamProxy:            cfg.UpstreamProxy,
+		DNSIPv6:                  cfg.DNS.IPv6,
+		FakeIPv6Range:            config.MihomoFakeIPv6Range,
+		IPv6PacketListenerName:   config.IPv6PacketListenerName,
+		IPv6PacketSocket:         yamlQuote(packetSocket),
+		IPv6PacketMTU:            transparent.IPv6PacketMTU,
+		IPv6DeviceUsers:          renderIPv6DeviceUsers(cfg),
+		Hosts:                    hostsYAML,
+		DNSResolverFields:        indentYAMLBlock(dnsResolverFields, "  "),
+		PolicySections:           policySections,
 	}, nil
 }
 

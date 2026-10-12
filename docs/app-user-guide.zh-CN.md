@@ -209,3 +209,51 @@ QNAP 的 Same-LAN 模式可以使用 TUN + Linux policy routing 工作，不要�
 - 不提供 QPKG。
 
 更多问题见：[FAQ](faq.zh-CN.md)
+
+## SmartDNS 上游 DNS
+
+在 **网络设置 → DNS 服务 → SmartDNS 上游 DNS 设置** 中选择“自定义（推荐：加密优先）”，从“上游 DNS 预设”选择服务商后点击“添加预设”，或添加自定义上游。已添加的预设会禁用重复添加，移除后可以重新添加。提供国内与海外的 DoH 预设。
+
+| 预设 | DoH 地址 | 固定连接 IPv4 |
+| --- | --- | --- |
+| [阿里 DNS](https://www.alidns.com/) | `https://dns.alidns.com/dns-query` | `223.5.5.5` |
+| [腾讯 DNSPod](https://www.dnspod.cn/products/publicdns) | `https://doh.pub/dns-query` | `1.12.12.12` |
+| Cloudflare | `https://cloudflare-dns.com/dns-query` | `1.1.1.1` |
+| Google | `https://dns.google/dns-query` | `8.8.8.8` |
+| Quad9 | `https://dns.quad9.net/dns-query` | `9.9.9.9` |
+
+- DoH 地址示例：`https://cloudflare-dns.com/dns-query`。
+- DoT 地址示例：`tls://dns.google:853`。
+- 加密上游需同时填写服务商的固定连接 IPv4，例如上述两项分别使用 `1.1.1.1` 和 `8.8.8.8`。该地址用于连接，证书仍按 URL 中的域名验证；无需依赖系统 DNS 解析上游域名。若服务商更换地址，需要更新它。
+- 默认不允许明文 DNS。明确启用“允许明文 DNS”后，可填写 `9.9.9.9`、`udp://9.9.9.9:53` 或 `tcp://9.9.9.9:53`，明文地址不填写固定连接 IPv4。当同时有加密上游时，明文只作为加密上游全部失败后的备选，不能因为更快而抢先回答。
+
+自定义模式只使用你填写的上游，不自动回退到系统 DNS 或主路由。先选择可信的解析服务，再让 SmartDNS 在所选上游的结果中进行连接速度选择。DoH/DoT 可防止传输途中篡改，但不能证明服务商的答案没有污染；预设不是无污染认证，Quad9 还会过滤已知恶意域名。
+
+点击“保存上游 DNS”后，Web 会重新读取并核对持久化设置。运行中的网关会先停止、保存并验证，再重新启动；停止状态下保存则在下次启动生效。上方运行状态卡显示实际已写入的配置，上游列表表单显示下一次应用的设置，两者可能在网关停止时不同。
+
+解析缓存参考 [SmartDNS 官方配置](https://github.com/pymumu/smartdns/blob/21c940edc65520849ba03544c5cf8d9cf326e680/etc/smartdns/smartdns.conf)和 [LuCI 集成](https://github.com/pymumu/luci-app-smartdns/blob/581e5e816d92d3a663b1b2e331e3f21685968cf1/htdocs/luci-static/resources/view/smartdns/smartdns.js)：保留预取与最多 600 秒的过期缓存（过期答案 TTL 为 3 秒）；仅在自定义加密模式且不允许明文时，将真实解析缓存持久化到 `/data/runtime/smartdns-cache`，退出时保存、每小时检查点保存。同一配置重启后可复用缓存，修改上游、解析规则或代理配置会使用新缓存，启动时只清理 OpenSurge 自己的旧缓存文件。Gateway View 的 Fake-IP 和 DHCP 本地域名不缓存；配置校验使用独立的临时缓存，不读取或改写当前缓存。允许明文与系统模式不持久化缓存。策略组内临时切换节点仍遵循原答案 TTL，不等同于修改代理配置。
+
+基础设置用于 **Resolver View 的真实 IP 解析**。还可以独立开启以下功能，两个开关默认关闭：
+
+- **上游 DNS 查询经过 OpenSurge 代理**：填写当前配置中的代理节点或策略组名称，使用所选出口访问 DoH、DoT 或 TCP 上游。UDP 上游不能启用代理查询，请先换成加密或 TCP 上游。代理入口仅在容器回环地址监听，不需要开启 LAN SOCKS。SmartDNS 不在代理故障时改为直连；所选策略组的出口选择仍然生效，因此应选择实际使用代理节点的组。此时只比较可信上游经代理查询的响应延迟，不用 NAS 直连 IP 测速判断代理线路。
+- **用 SmartDNS 替换 Mihomo DNS 上游**：覆盖订阅中的普通、直连、备用解析和 DNS 分流上游，Mihomo 从专用的 SmartDNS Resolver View 获得真实答案；保留 Fake-IP、Fake-IP 过滤规则、hosts 和 TUN DNS 劫持。Gateway View 仍先经过 Mihomo，不会直接返回真实 IP。关闭此开关后恢复配置文件中的 DNS 上游。
+
+启用任一项后，**代理节点域名**会使用所选加密上游直接解析，通过固定 IPv4 连接并验证证书域名。这条独立路径不依赖尚未启动的 SmartDNS，也不经过它正在引导的代理，避免启动或运行时的解析循环；至少需要一个加密上游。明文上游不参与节点域名引导。启用这两项时，DoH 地址不能含查询参数。普通查询是否经代理由第一个开关决定。
+
+NAS 宿主 DNS 接管模式仍是独立设置。旧配置继续使用“系统 DNS（兼容旧配置）”，该模式不提供自定义上游的信任约束，也不能开启上述两项，建议手动切换到自定义。运行状态卡中的“Resolver View 查询出口”来自已写入的 SmartDNS 配置。
+
+手动编辑配置文件时，新字段使用现有逗号分隔格式：
+
+```yaml
+dns:
+  resolver_mode: "custom"
+  resolver_upstreams: "https://cloudflare-dns.com/dns-query|1.1.1.1,tls://dns.google:853|8.8.8.8"
+  resolver_allow_plaintext: false
+  resolver_proxy_enabled: false
+  resolver_proxy_target: ""
+  mihomo_use_smartdns: false
+```
+
+每项 `|` 后为固定连接 IPv4；明文上游不使用 `|`。该片段需合并到已有 `dns` 节点中，并保留监听等其他设置。
+
+要同时启用代理查询和替换解析，将 `resolver_proxy_enabled` 与 `mihomo_use_smartdns` 改为 `true`，并把 `resolver_proxy_target` 填为当前配置里的节点或策略组名称；名称不存在时保存会被拒绝。内部 `127.0.0.1:5354` 与 `127.0.0.1:7854` 分别用于这两项功能，启用时不得与其他配置端口重复。

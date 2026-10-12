@@ -143,3 +143,24 @@ The first stable release does not aim to provide:
 - automatic migration of the whole household network.
 
 The current priority is making the single-container QNET/TUN/DNS/subscription/policy/device/recovery path stable on real QNAP systems.
+
+## SmartDNS upstream DNS
+
+Under **Network Settings → DNS Service → SmartDNS upstream settings**, select **Custom (recommended: encryption first)**. Add AliDNS (`https://dns.alidns.com/dns-query`, `223.5.5.5`), Tencent DNSPod (`https://doh.pub/dns-query`, `1.12.12.12`), Cloudflare, Google or Quad9 DoH presets, or enter your own trusted DoH/DoT provider. Encrypted upstreams require a hostname URL and a fixed connection IPv4, for example `https://cloudflare-dns.com/dns-query` with `1.1.1.1`, or `tls://dns.google:853` with `8.8.8.8`. The IP is used for transport; certificate and hostname verification remain enabled, with no system DNS bootstrap dependency. Update the fixed IP if the provider changes it.
+
+Plaintext DNS is disabled by default. If explicitly allowed, enter an IPv4 or a `udp://IPv4:53` / `tcp://IPv4:53` URL without a bootstrap IPv4. When encrypted upstreams exist, plaintext is only a fallback after the encrypted upstreams fail. Custom mode never automatically adds system or router DNS. Choose providers you trust first, then let SmartDNS optimize connections among their answers. Encryption prevents in-transit tampering but does not certify provider answers; presets are examples, and Quad9 also filters known malicious domains.
+
+Saving verifies persisted settings and restarts a running gateway.
+
+Choose a provider in **Upstream DNS preset**, then click **Add preset**, or add a custom upstream. Already-added presets cannot be added again until removed. Editing and refresh controls are disabled during saving; switches support both Space and Enter.
+
+Cache handling follows the [official SmartDNS configuration](https://github.com/pymumu/smartdns/blob/21c940edc65520849ba03544c5cf8d9cf326e680/etc/smartdns/smartdns.conf) and [LuCI integration](https://github.com/pymumu/luci-app-smartdns/blob/581e5e816d92d3a663b1b2e331e3f21685968cf1/htdocs/luci-static/resources/view/smartdns/smartdns.js). Prefetch and up to 600 seconds of expired answers remain enabled, with a 3-second expired-answer TTL. Custom encrypted mode with plaintext disabled persists real answers in `/data/runtime/smartdns-cache` on exit and at hourly checkpoints. Restarts reuse an unchanged policy's cache; changes to upstreams, resolver rules or proxy configuration start a fresh cache. Startup prunes only obsolete OpenSurge cache files. Gateway Fake-IP and DHCP local answers remain uncached. Validation uses a separate temporary cache and neither loads nor modifies the live cache. Plaintext-authorized and system modes do not persist caches. Runtime node selection within a group follows the original answer TTL; it does not change the saved proxy configuration.
+
+Two independent options are off by default:
+
+- **Query DNS upstreams through OpenSurge proxy**: enter a node or group name from the active profile. DoH, DoT and TCP queries use a private loopback SOCKS listener pinned to this target; LAN SOCKS need not be enabled. UDP upstreams must be replaced before enabling this option. SmartDNS never bypasses a failed proxy to connect directly. The selected group's route still controls the actual exit, so choose one that uses proxy nodes. Proxy mode compares response times of trusted upstream queries rather than probing answer IPs directly from the NAS.
+- **Replace Mihomo DNS upstreams with SmartDNS**: replace ordinary, direct, fallback and domain-policy upstreams with a private SmartDNS Resolver View listener. Preserve Fake-IP, fake-IP filters, hosts and TUN DNS hijacking. Gateway View still enters Mihomo first. Disabling this option restores profile DNS settings.
+
+Enabling either option resolves **proxy node hostnames** directly through the selected encrypted upstreams using fixed IPv4 bootstrap and authenticated TLS hostnames. This works before SmartDNS starts and avoids depending on the same proxy being established. At least one encrypted upstream is required; plaintext never participates in node bootstrap. DoH URLs with query parameters are not supported for this integration. The first option controls proxying for ordinary queries.
+
+Persisted fields are `dns.resolver_proxy_enabled`, `dns.resolver_proxy_target` and `dns.mihomo_use_smartdns`; booleans default to `false`. Unknown target names are rejected before persistence. Internal ports `127.0.0.1:7854` and `127.0.0.1:5354` are reserved when their respective options are enabled. Existing installations retain legacy system resolver mode until explicitly changed, and neither option can be enabled in system mode. NAS host DNS takeover remains independent. Applied runtime cards can differ from saved settings while the gateway is stopped.

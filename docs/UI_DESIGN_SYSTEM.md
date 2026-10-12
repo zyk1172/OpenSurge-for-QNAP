@@ -133,12 +133,15 @@ Dialog、Command Palette、sticky action bar 等浮层使用 raised surface 和 
 - `FormField`
 - `TableSurface`
 - `ActionBar`
+- `Switch`（原生按钮、`role="switch"`、受控状态、键盘操作与 disabled）
 - `Empty`
 - `Metric`
 - `Service`
 - `StatusDot`
 
 新增页面优先组合这些 primitive，而不是复制 DOM + class。
+
+普通操作按钮使用 `.ui-button`；提交使用 `.ui-button--primary`，移除或停止使用 `.ui-button--danger`。非 sticky 的操作组使用 `.ui-actions`（自动换行），不要借用 `.source-actions`。布尔设置使用 `Switch`，保存期间禁用可编辑控件，操作结果仍需依据持久化回读确认。
 
 ## Feature CSS 边界
 

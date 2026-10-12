@@ -106,6 +106,12 @@ func (m Manager) Start() (int, error) {
 		m.stopStartedProcess(pid)
 		return 0, err
 	}
+	if m.cfg.DNS.ResolverProxyEnabled {
+		if err := m.waitForSmartDNSProxyListener(pid, apiStartupTimeout); err != nil {
+			m.stopStartedProcess(pid)
+			return 0, err
+		}
+	}
 	if m.cfg.Transparent.TUNEnabled() {
 		if err := m.waitForTUN(pid, tunStartupTimeout); err != nil {
 			m.stopStartedProcess(pid)

@@ -39,6 +39,12 @@ dns:
   port: %d
   upstream: %s
   ipv6: %t
+  resolver_mode: %s
+  resolver_upstreams: %s
+  resolver_allow_plaintext: %t
+  resolver_proxy_enabled: %t
+  resolver_proxy_target: %s
+  mihomo_use_smartdns: %t
 
 mihomo:
   binary: %s
@@ -111,7 +117,7 @@ runtime:
 		q(cfg.Gateway.Mode), q(cfg.Gateway.Interface), q(cfg.Gateway.LANIP), lan.PrefixLenOrDefault(cfg.Gateway.LANPrefixLen), q(cfg.Gateway.UpstreamInterface), q(cfg.Gateway.UpstreamGateway),
 		q(cfg.DHCP.Binary), cfg.DHCP.Enabled, q(cfg.DHCP.RangeStart), q(cfg.DHCP.RangeEnd), q(cfg.DHCP.LeaseTime), q(cfg.DHCP.Domain), q(cfg.DHCP.BypassGateway), q(strings.Join(cfg.DHCP.BypassDNS, ",")),
 		q(cfg.DevicePolicy.File), q(strings.Join(cfg.DevicePolicy.ProtectedIPv4, ",")),
-		q(cfg.DNS.Listen), cfg.DNS.Port, q(cfg.DNS.Upstream), cfg.DNS.IPv6,
+		q(cfg.DNS.Listen), cfg.DNS.Port, q(cfg.DNS.Upstream), cfg.DNS.IPv6, q(cfg.DNS.ResolverMode), q(renderResolverUpstreams(cfg.DNS.ResolverUpstreams)), cfg.DNS.ResolverAllowPlaintext, cfg.DNS.ResolverProxyEnabled, q(cfg.DNS.ResolverProxyTarget), cfg.DNS.MihomoUseSmartDNS,
 		q(cfg.Mihomo.Binary), q(cfg.Mihomo.Config), q(cfg.Mihomo.ProfileMode), q(cfg.Mihomo.Profile), q(cfg.Mihomo.ProfileSourceDigest), q(cfg.Mihomo.ProfileOverlayDigest), cfg.Mihomo.StoreFakeIP, cfg.Mihomo.MixedPort, cfg.Mihomo.RedirPort, q(cfg.Mihomo.APIAddr), q(cfg.Mihomo.Secret),
 		cfg.Tailscale.Enabled, q(cfg.Tailscale.DisplayName), q(cfg.Tailscale.Hostname), q(cfg.Tailscale.ControlURL), q(cfg.Tailscale.AuthKeyFile), q(cfg.Tailscale.StateDir), cfg.Tailscale.AcceptRoutes,
 		q(strings.Join(cfg.Tailscale.MagicDNSSuffixes, ",")), q(strings.Join(cfg.Tailscale.PeerCIDRs, ",")), q(strings.Join(cfg.Tailscale.SubnetRoutes, ",")), cfg.Tailscale.AllowMac, cfg.Tailscale.AllowAllDevices,
@@ -124,4 +130,16 @@ runtime:
 		cfg.UpstreamProxy.Enabled, q(cfg.UpstreamProxy.Name), q(cfg.UpstreamProxy.Type), q(cfg.UpstreamProxy.Server), cfg.UpstreamProxy.Port, q(cfg.UpstreamProxy.Username), q(cfg.UpstreamProxy.Password), q(cfg.UpstreamProxy.MatchDomain),
 		q(cfg.Runtime.Dir),
 	)
+}
+
+func renderResolverUpstreams(upstreams []ResolverUpstream) string {
+	values := make([]string, 0, len(upstreams))
+	for _, upstream := range upstreams {
+		value := upstream.Address
+		if upstream.BootstrapIPv4 != "" {
+			value += "|" + upstream.BootstrapIPv4
+		}
+		values = append(values, value)
+	}
+	return strings.Join(values, ",")
 }

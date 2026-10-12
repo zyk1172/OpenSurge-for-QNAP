@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ControlConfig, NetworkDefaults, Overview } from '../types'
@@ -70,6 +70,8 @@ type HostRoutingFixture = {
   gateway_ipv4: string
   fallback_gateway: string
   dns_redirect: boolean
+  dns_preserved?: boolean
+  effective_dns_mode?: 'auto' | 'opensurge' | 'host'
   dns_mode: 'auto' | 'opensurge' | 'host'
   protect_tailscale: boolean
   tailscale_detected: boolean
@@ -131,6 +133,9 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     vi.mocked(api.gateway).mockImplementation(async action => ({ id: action, kind: action, state: 'running' }))
     vi.mocked(api.saveConfig).mockResolvedValue(config)
     vi.mocked(request).mockImplementation(async (path, init) => {
+      if (path === '/api/v1/network/dns-runtime') {
+        return { configured: true, listen: '192.168.2.241:53', default_view: 'resolver', gateway_upstream: '127.0.0.1:1053', resolver_upstreams: ['192.168.2.1'] }
+      }
       if (path === '/api/v1/qnap-host-routing') {
         if (init?.method === 'PUT') {
           const body = JSON.parse(String(init.body)) as { enabled: boolean; dns_mode: 'auto' | 'opensurge' | 'host'; protect_tailscale: boolean }
@@ -179,9 +184,26 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     expect(within(section).getByText('192.168.2.241:53')).toBeTruthy()
     expect(within(section).getByText('Mihomo Fake-IP')).toBeTruthy()
     expect(within(section).getByText('127.0.0.1:1053')).toBeTruthy()
+    expect(within(section).getByText('192.168.2.1')).toBeTruthy()
+    expect(screen.getByText('已读取 SmartDNS 运行配置')).toBeTruthy()
     expect(within(section).getByText('Real-IP')).toBeTruthy()
     expect(within(section).getAllByText('Resolver View').length).toBeGreaterThan(0)
-    expect(within(section).getByText('any:53')).toBeTruthy()
+    expect(within(section).getByText('UDP any:53 · TCP any:53')).toBeTruthy()
+  })
+
+  it('does not invent applied DNS addresses when the runtime API is unavailable', async () => {
+    const original = vi.mocked(request).getMockImplementation()!
+    vi.mocked(request).mockImplementation(async (path, init) => {
+      if (path === '/api/v1/network/dns-runtime') throw new Error('unavailable')
+      return original(path, init)
+    })
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNotify={() => {}} />)
+    const heading = await screen.findByRole('heading', { name: 'DNS 服务' })
+    const section = heading.closest('section') as HTMLElement
+    expect(within(section).queryByText('192.168.2.241:53')).toBeNull()
+    expect(within(section).queryByText('127.0.0.1:1053')).toBeNull()
+    expect(within(section).getAllByText('未读取运行配置').length).toBeGreaterThan(0)
+    expect(screen.getByText('DNS 运行配置待确认')).toBeTruthy()
   })
 
   it('renders the NAS takeover status with the same compact card structure', async () => {
@@ -191,6 +213,29 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     expect(within(main).getByText('NAS 主机接管')).toBeTruthy()
     expect(within(main).getByText('未启用')).toBeTruthy()
     expect(main.querySelector('.mp-status-light')).toBeNull()
+  })
+
+  it('does not confuse a host-only MagicDNS resolver with the applied SmartDNS upstream', async () => {
+    vi.mocked(api.networkDefaults).mockResolvedValueOnce({
+      ...networkDefaults,
+      snapshot: { ...networkDefaults.snapshot, dns: ['100.100.100.100', '127.0.0.11'] },
+    })
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNotify={() => {}} />)
+    const heading = await screen.findByRole('heading', { name: 'DNS 服务' })
+    const dnsSection = heading.closest('section') as HTMLElement
+    await waitFor(() => expect(within(dnsSection).getByText('192.168.2.1')).toBeTruthy())
+    expect(within(dnsSection).queryByText('100.100.100.100')).toBeNull()
+    expect(within(dnsSection).queryByText('127.0.0.11')).toBeNull()
+  })
+
+  it('shows the effective QTS DNS route instead of presenting the selected auto mode as an active redirect', async () => {
+    hostRouting = { ...hostRouting, desired: true, enabled: true, gateway_ready: true,
+      dns_mode: 'auto', effective_dns_mode: 'host', dns_preserved: true, dns_redirect: false }
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNotify={() => {}} />)
+    const takeover = await screen.findByRole('heading', { name: 'NAS 主机接管' })
+    const section = takeover.closest('section') as HTMLElement
+    expect(await within(section).findByText('经 QTS 路由')).toBeTruthy()
+    expect(within(section).queryByText('已透明接管')).toBeNull()
   })
 
   it('renders DNS and Tailscale policy controls as matching compact cards', async () => {
@@ -233,6 +278,7 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     const storeCard = storeSwitch.closest('article') as HTMLElement
     expect(storeCard.querySelector(':scope > .qnap-runtime-title')?.textContent).toBe('Store fake-ip')
     expect(storeCard.children[1]).toBe(storeSwitch)
+    expect((screen.getByRole('switch', { name: 'TUN strict-route' }) as HTMLButtonElement).disabled).toBe(true)
     expect(storeCard.querySelector(':scope > .qnap-runtime-note')?.textContent).toBe('持久化 fake-ip 映射')
 
     const socksSwitch = screen.getByRole('switch', { name: 'LAN SOCKS5 / SOCKS5H' })
@@ -272,5 +318,135 @@ describe('QNAPNetworkPage host takeover coexistence controls', () => {
     expect(screen.getByRole('switch', { name: 'Store fake-ip' })).toBeTruthy()
     expect(screen.getByRole('switch', { name: 'TUN strict-route' })).toBeTruthy()
     expect(onNavigate).not.toHaveBeenCalled()
+  })
+})
+
+describe('SmartDNS custom upstream settings', () => {
+  afterEach(() => { cleanup(); vi.clearAllMocks() })
+  beforeEach(() => {
+    vi.mocked(api.config).mockResolvedValue(config)
+    vi.mocked(api.networkDefaults).mockResolvedValue(networkDefaults)
+    vi.mocked(request).mockResolvedValue({ configured: false, resolver_upstreams: [] })
+  })
+  it('saves a chosen encrypted preset and verifies persisted settings', async () => {
+    const user = userEvent.setup()
+    let persisted = structuredClone(config)
+    vi.mocked(api.config).mockImplementation(async () => persisted)
+    vi.mocked(api.saveConfig).mockImplementation(async next => { persisted = next; return persisted })
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNotify={() => {}} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Resolver View 上游来源' }), 'custom')
+    await user.selectOptions(screen.getByRole('combobox', { name: '上游 DNS 预设' }), 'Cloudflare DoH')
+    await user.click(screen.getByRole('button', { name: '添加预设' }))
+    expect((screen.getByRole('textbox', { name: '上游地址 1' }) as HTMLInputElement).value).toBe('https://cloudflare-dns.com/dns-query')
+    expect((screen.getByRole('textbox', { name: '固定连接 IPv4 1' }) as HTMLInputElement).value).toBe('1.1.1.1')
+    await user.click(screen.getByRole('button', { name: '保存上游 DNS' }))
+    await waitFor(() => expect(api.saveConfig).toHaveBeenCalled())
+    expect(persisted.dns.resolver_mode).toBe('custom')
+    expect(persisted.dns.resolver_upstreams).toEqual([{ address: 'https://cloudflare-dns.com/dns-query', bootstrap_ipv4: '1.1.1.1' }])
+    expect(persisted.dns.resolver_allow_plaintext || false).toBe(false)
+    await screen.findByText('配置已保存。')
+  })
+  it('saves domestic presets and both optional integrations through stop, persist, verify and start', async () => {
+    const user = userEvent.setup()
+    const order: string[] = []
+    let persisted = structuredClone(config)
+    vi.mocked(api.config).mockImplementation(async () => { order.push('read'); return persisted })
+    vi.mocked(api.saveConfig).mockImplementation(async next => { order.push('persist'); persisted = next; return next })
+    vi.mocked(api.gateway).mockImplementation(async kind => { order.push(kind); return { id: kind } as Awaited<ReturnType<typeof api.gateway>> })
+    render(<QNAPNetworkPage overview={{ ...overview, status: { ...overview.status, gateway: 'running' } }} onChanged={async () => {}} onNotify={() => {}} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Resolver View 上游来源' }), 'custom')
+    expect(screen.getByRole('switch', { name: '上游 DNS 查询经过 OpenSurge 代理' }).getAttribute('aria-checked')).toBe('false')
+    expect(screen.getByRole('switch', { name: '用 SmartDNS 替换 Mihomo DNS 上游' }).getAttribute('aria-checked')).toBe('false')
+    await user.selectOptions(screen.getByRole('combobox', { name: '上游 DNS 预设' }), '阿里 DNS DoH')
+    await user.click(screen.getByRole('button', { name: '添加预设' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: '上游 DNS 预设' }), '腾讯 DNSPod DoH')
+    await user.click(screen.getByRole('button', { name: '添加预设' }))
+    await user.click(screen.getByRole('switch', { name: '上游 DNS 查询经过 OpenSurge 代理' }))
+    await user.type(screen.getByRole('combobox', { name: 'DNS 代理节点或策略组' }), '节点选择')
+    await user.click(screen.getByRole('switch', { name: '用 SmartDNS 替换 Mihomo DNS 上游' }))
+    order.length = 0
+    await user.click(screen.getByRole('button', { name: '保存上游 DNS' }))
+    await screen.findByText('配置已保存并重启网关。')
+    expect(order.slice(0, 4)).toEqual(['stop', 'persist', 'read', 'start'])
+    expect(persisted.dns).toMatchObject({ resolver_proxy_enabled: true, resolver_proxy_target: '节点选择', mihomo_use_smartdns: true, resolver_upstreams: [
+      { address: 'https://dns.alidns.com/dns-query', bootstrap_ipv4: '223.5.5.5' },
+      { address: 'https://doh.pub/dns-query', bootstrap_ipv4: '1.12.12.12' },
+    ] })
+  })
+  it('rejects an empty DNS proxy target before stopping the gateway', async () => {
+    const user = userEvent.setup()
+    render(<QNAPNetworkPage overview={{ ...overview, status: { ...overview.status, gateway: 'running' } }} onChanged={async () => {}} onNotify={() => {}} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Resolver View 上游来源' }), 'custom')
+    await user.selectOptions(screen.getByRole('combobox', { name: '上游 DNS 预设' }), '阿里 DNS DoH')
+    await user.click(screen.getByRole('button', { name: '添加预设' }))
+    await user.click(screen.getByRole('switch', { name: '上游 DNS 查询经过 OpenSurge 代理' }))
+    await user.click(screen.getByRole('button', { name: '保存上游 DNS' }))
+    await screen.findByText('请选择代理节点或策略组作为 DNS 出口。')
+    expect(api.gateway).not.toHaveBeenCalled()
+    expect(api.saveConfig).not.toHaveBeenCalled()
+  })
+  it('rejects an empty custom list before stopping the running gateway', async () => {
+    const user = userEvent.setup()
+    render(<QNAPNetworkPage overview={{ ...overview, status: { ...overview.status, gateway: 'running' } }} onChanged={async () => {}} onNotify={() => {}} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Resolver View 上游来源' }), 'custom')
+    await user.click(screen.getByRole('button', { name: '保存上游 DNS' }))
+    await screen.findByText('自定义上游至少需要填写一个 DNS。')
+    expect(api.gateway).not.toHaveBeenCalled()
+    expect(api.saveConfig).not.toHaveBeenCalled()
+  })
+  it('prevents duplicate presets, re-enables removed presets, and supports keyboard switches', async () => {
+    const user = userEvent.setup()
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNotify={() => {}} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Resolver View 上游来源' }), 'custom')
+    await user.click(screen.getByRole('button', { name: '添加预设' }))
+    expect((screen.getByRole('button', { name: '已添加' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getAllByRole('textbox', { name: /^上游地址 / })).toHaveLength(1)
+    await user.click(screen.getByRole('button', { name: '移除上游 · 1' }))
+    expect(screen.getByText('尚未添加上游 DNS')).toBeTruthy()
+    expect((screen.getByRole('button', { name: '添加预设' }) as HTMLButtonElement).disabled).toBe(false)
+    const proxy = screen.getByRole('switch', { name: '上游 DNS 查询经过 OpenSurge 代理' })
+    proxy.focus()
+    await user.keyboard(' ')
+    expect(proxy.getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('combobox', { name: 'DNS 代理节点或策略组' })).toBeTruthy()
+    await user.keyboard('{Enter}')
+    expect(proxy.getAttribute('aria-checked')).toBe('false')
+    expect(screen.queryByRole('combobox', { name: 'DNS 代理节点或策略组' })).toBeNull()
+  })
+  it('locks DNS, runtime and host controls until persistence is verified', async () => {
+    const user = userEvent.setup()
+    let persisted = structuredClone(config)
+    let finishSave = () => {}
+    vi.mocked(api.config).mockImplementation(async () => persisted)
+    vi.mocked(api.saveConfig).mockImplementation(next => new Promise(resolve => {
+      finishSave = () => { persisted = next; resolve(next) }
+    }))
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNotify={() => {}} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Resolver View 上游来源' }), 'custom')
+    await user.click(screen.getByRole('button', { name: '添加预设' }))
+    await user.click(screen.getByRole('button', { name: '保存上游 DNS' }))
+    await waitFor(() => expect(api.saveConfig).toHaveBeenCalledTimes(1))
+    for (const name of ['允许明文 DNS', '上游 DNS 查询经过 OpenSurge 代理', '用 SmartDNS 替换 Mihomo DNS 上游', 'Store fake-ip', 'LAN SOCKS5 / SOCKS5H', 'Tailscale 共存保护']) {
+      expect((screen.getByRole('switch', { name }) as HTMLButtonElement).disabled).toBe(true)
+    }
+    expect((screen.getByRole('textbox', { name: '上游地址 1' }) as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByRole('combobox', { name: 'NAS DNS 接管模式' }) as HTMLSelectElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '重新读取' }) as HTMLButtonElement).disabled).toBe(true)
+    await user.click(screen.getByRole('switch', { name: '允许明文 DNS' }))
+    expect(persisted.dns.resolver_allow_plaintext || false).toBe(false)
+    await act(async () => finishSave())
+    await screen.findByText('配置已保存。')
+    await waitFor(() => expect((screen.getByRole('switch', { name: '允许明文 DNS' }) as HTMLButtonElement).disabled).toBe(false))
+  })
+  it('reports a verification failure if the backend loses DNS settings', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.saveConfig).mockResolvedValue(config)
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNotify={() => {}} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Resolver View 上游来源' }), 'custom')
+    await user.selectOptions(screen.getByRole('combobox', { name: '上游 DNS 预设' }), 'Google DoH')
+    await user.click(screen.getByRole('button', { name: '添加预设' }))
+    await user.click(screen.getByRole('button', { name: '保存上游 DNS' }))
+    await screen.findByText('上游 DNS 保存后校验失败，请重新读取配置。')
+    expect(screen.queryByText('配置已保存。')).toBeNull()
   })
 })

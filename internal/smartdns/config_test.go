@@ -12,6 +12,40 @@ import (
 	"open-mihomo-gateway/internal/runtime"
 )
 
+func TestSmartDNSProxyAndPrivateResolverAvoidGatewayRecursion(t *testing.T) {
+	cfg := config.Default()
+	cfg.DNS.ResolverMode = "custom"
+	cfg.DNS.ResolverUpstreams = []config.ResolverUpstream{{Address: "https://dns.alidns.com/dns-query", BootstrapIPv4: "223.5.5.5"}, {Address: "tls://doh.pub:853", BootstrapIPv4: "1.12.12.12"}, {Address: "tcp://223.6.6.6:53"}}
+	cfg.DNS.ResolverAllowPlaintext = true
+	cfg.DNS.ResolverProxyEnabled = true
+	cfg.DNS.ResolverProxyTarget = "open-surge-egress"
+	cfg.DNS.MihomoUseSmartDNS = true
+	cfg.UpstreamProxy.Enabled = true
+	rendered, err := RenderConfigWithResolvers(cfg, runtime.NewPaths(cfg), []string{"192.168.2.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"proxy-server socks5://127.0.0.1:7854 -name opensurge-dns",
+		"bind 127.0.0.1:5354 -group opensurge-resolver",
+		"bind-tcp 127.0.0.1:5354 -group opensurge-resolver",
+		"server-tcp 223.6.6.6:53 -group opensurge-resolver -exclude-default-group -fallback -proxy opensurge-dns",
+		"response-mode fastest-response",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("missing %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "server 192.168.2.1") || strings.Contains(rendered, "speed-check-mode tcp:") {
+		t.Fatal("proxy DNS used system fallback or direct IP probes")
+	}
+	for _, line := range strings.Split(rendered, "\n") {
+		if strings.Contains(line, "-group opensurge-resolver -exclude-default-group") && !strings.Contains(line, "-proxy opensurge-dns") {
+			t.Fatalf("unproxied resolver: %s", line)
+		}
+	}
+}
+
 func TestDockerHostOnlyResolverFallsBackToRealUpstreamRouter(t *testing.T) {
 	cfg := config.Default()
 	cfg.Gateway.LANIP = "192.168.2.241"
@@ -37,6 +71,25 @@ func TestDockerHostOnlyResolverFallsBackToRealUpstreamRouter(t *testing.T) {
 	}
 	if strings.Count(rendered, "-group opensurge-gateway -exclude-default-group") != 1 || !strings.Contains(rendered, "server 127.0.0.1:1053 -group opensurge-gateway") {
 		t.Fatalf("real-IP fallback leaked into Gateway View:\n%s", rendered)
+	}
+}
+
+func TestTailscaleDeviceLocalResolverNeverBecomesSmartDNSUpstream(t *testing.T) {
+	cfg := config.Default()
+	cfg.Gateway.LANIP = "192.168.2.241"
+	cfg.Gateway.UpstreamGateway = "192.168.2.1"
+	cfg.DNS.Listen = cfg.Gateway.LANIP
+	values := normalizeResolvers([]string{"100.100.100.100", "127.0.0.11", "192.168.2.1"}, cfg)
+	if len(values) != 1 || values[0] != "192.168.2.1" {
+		t.Fatalf("unsafe resolver list: %v", values)
+	}
+	rendered, err := RenderConfigWithResolvers(cfg, runtime.NewPaths(cfg), []string{"100.100.100.100"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(rendered, "server 100.100.100.100 ") ||
+		!strings.Contains(rendered, "server 192.168.2.1 -group opensurge-resolver") {
+		t.Fatalf("Tailscale resolver leaked into isolated namespace:\n%s", rendered)
 	}
 }
 
@@ -263,5 +316,47 @@ rules:
 	}
 	if strings.Contains(rendered, "domain-rules /cdn.example.com/ -address 192.0.2.10") {
 		t.Fatalf("underlying host mapping overrode Cloudflare optimizer result:\n%s", rendered)
+	}
+}
+
+func TestCustomResolversAuthenticateTLSAndNeverInheritSystemDNS(t *testing.T) {
+	cfg := config.Default()
+	cfg.DNS.ResolverMode = "custom"
+	cfg.DNS.ResolverUpstreams = []config.ResolverUpstream{
+		{Address: "https://cloudflare-dns.com/dns-query", BootstrapIPv4: "1.1.1.1"},
+		{Address: "tls://dns.google:853", BootstrapIPv4: "8.8.8.8"},
+	}
+	cfg.Gateway.UpstreamGateway = "192.168.2.1"
+	rendered, err := RenderConfigWithResolvers(cfg, runtime.NewPaths(cfg), []string{"223.5.5.5", "192.168.2.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"ca-file /etc/ssl/certs/ca-certificates.crt",
+		"server-https https://cloudflare-dns.com/dns-query -group opensurge-resolver -exclude-default-group -host-ip 1.1.1.1 -host-name cloudflare-dns.com -tls-host-verify cloudflare-dns.com",
+		"server-tls dns.google:853 -group opensurge-resolver -exclude-default-group -host-ip 8.8.8.8 -host-name dns.google -tls-host-verify dns.google",
+		"server 127.0.0.1:1053 -group opensurge-gateway -exclude-default-group",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("missing %s", want)
+		}
+	}
+	for _, unsafe := range []string{"server 223.5.5.5", "server 192.168.2.1", "-no-check-certificate", "-bootstrap-dns"} {
+		if strings.Contains(rendered, unsafe) {
+			t.Errorf("unsafe resolver fallback or TLS config: %s", unsafe)
+		}
+	}
+	cfg.DNS.ResolverAllowPlaintext = true
+	cfg.DNS.ResolverUpstreams = append(cfg.DNS.ResolverUpstreams, config.ResolverUpstream{Address: "tcp://9.9.9.9:53"})
+	rendered, err = RenderConfigWithResolvers(cfg, runtime.NewPaths(cfg), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered, "server-tcp 9.9.9.9:53 -group opensurge-resolver -exclude-default-group -fallback") {
+		t.Fatal("plain DNS competed with encrypted DNS")
+	}
+	cfg.DNS.ResolverUpstreams = nil
+	if _, err = RenderConfigWithResolvers(cfg, runtime.NewPaths(cfg), []string{"223.5.5.5"}); err == nil {
+		t.Fatal("empty custom list silently fell back to system DNS")
 	}
 }

@@ -4,6 +4,31 @@
 
 当前支持范围：**IPv4 + QNET + Same-LAN**。
 
+### Docker 镜像位于繁忙机械盘时
+
+如果已确认网关启动程序因镜像层读取受阻，而 `/data` 位于 SSD，可以为已有
+Host Takeover 部署增加 `OPENSURGE_RUNTIME_IMAGE_CACHE=true` 环境变量。
+该选项默认关闭。容器内部自动挂载需要 `SYS_ADMIN` 及允许 mount 的安全配置。
+启用 AppArmor `docker-default` 的 NAS 应采用下述创建时绑定方式，保留安全配置。
+不要因此使用 privileged、关闭 AppArmor 或挂载 Docker Socket。
+
+启动时会依据镜像自带的文件摘要，在 `/data/runtime-image-cache/<摘要>/usr`
+保存并验证完整运行文件，然后在容器自己的 mount namespace 中只读挂载到 `/usr`。
+首次复制需要约数百 MB SSD 空间，可能增加启动时间；每次重启核验全部文件。
+升级镜像自动使用新摘要目录，不复用旧程序，损坏缓存会报告错误并停止启动。
+旧缓存保留，不自动清理；配置、订阅仍保存在原 `/data`。这不能解决宿主整体失效、
+内存不足或 Docker 初始启动读取受阻，长期稳定性仍需实机观察。
+
+在创建容器前，用即将部署的镜像运行一次 `opensurge-runtime-cache prepare-files`
+（临时容器使用 `--network none --read-only`，只绑定相同的 `/data`）。命令输出
+`/data/runtime-image-cache/<摘要>/usr`，将它映射到原持久化宿主路径；创建正式
+容器时额外只读绑定该目录到 `/usr`，并设置 `OPENSURGE_RUNTIME_IMAGE_CACHE=true`。
+升级须重新对新镜像执行 prepare-files，不能沿用旧摘要目录。
+启动仍用原镜像 `/opt/opensurge/runtime-image.json` 校验运行文件，并拒绝可写的 `/usr`。
+
+故障证据与恢复重试规则见
+[存储阻塞与恢复诊断](../../docs/diagnostics/2026-10-11-storage-coupled-gateway-recovery.zh-CN.md)。
+
 ## 一、准备条件
 
 需要：

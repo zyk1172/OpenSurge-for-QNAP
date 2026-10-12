@@ -62,11 +62,22 @@ type DHCPConfig struct {
 	BypassDNS     []string
 }
 
+type ResolverUpstream struct {
+	Address       string `json:"address"`
+	BootstrapIPv4 string `json:"bootstrap_ipv4,omitempty"`
+}
+
 type DNSConfig struct {
-	Listen   string
-	Port     int
-	Upstream string
-	IPv6     bool
+	ResolverMode           string
+	ResolverUpstreams      []ResolverUpstream
+	ResolverAllowPlaintext bool
+	ResolverProxyEnabled   bool
+	ResolverProxyTarget    string
+	MihomoUseSmartDNS      bool
+	Listen                 string
+	Port                   int
+	Upstream               string
+	IPv6                   bool
 }
 
 type MihomoConfig struct {
@@ -251,10 +262,12 @@ func Default() Config {
 		},
 		DevicePolicy: DevicePolicyConfig{},
 		DNS: DNSConfig{
-			Listen:   "192.168.50.1",
-			Port:     53,
-			Upstream: MihomoDNSUpstream,
-			IPv6:     false,
+			ResolverMode:      "system",
+			ResolverUpstreams: []ResolverUpstream{},
+			Listen:            "192.168.50.1",
+			Port:              53,
+			Upstream:          MihomoDNSUpstream,
+			IPv6:              false,
 		},
 		Mihomo: MihomoConfig{
 			Binary:      "./bin/mihomo",

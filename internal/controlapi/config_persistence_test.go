@@ -52,7 +52,6 @@ func TestApplyControlConfigPreservesUpstreamGateway(t *testing.T) {
 	}
 }
 
-
 func TestApplyControlConfigPersistsLANProxy(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "opensurge.yaml")
@@ -79,5 +78,72 @@ func TestApplyControlConfigPersistsLANProxy(t *testing.T) {
 	}
 	if !loaded.LANProxy.Enabled || loaded.LANProxy.SOCKSPort != 17891 {
 		t.Fatalf("LAN proxy after API save = %+v", loaded.LANProxy)
+	}
+}
+
+func TestControlConfigPersistsResolverSettingsAndPreservesThemForLegacyClients(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "opensurge.yaml")
+	cfg := config.Default()
+	cfg.UpstreamProxy.Enabled = true
+	cfg.UpstreamProxy.Server = "127.0.0.1"
+	cfg.UpstreamProxy.Port = 18080
+	cfg.Runtime.Dir = filepath.Join(dir, "runtime")
+	cfg.Mihomo.Config = filepath.Join(cfg.Runtime.Dir, "mihomo.yaml")
+	if err := os.WriteFile(path, []byte(config.Render(cfg)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	input := controlConfigFrom(cfg, fileDigest(path))
+	mode, allow := "custom", false
+	upstreams := []config.ResolverUpstream{{Address: "https://dns.quad9.net/dns-query", BootstrapIPv4: "9.9.9.9"}}
+	input.DNS.ResolverMode = &mode
+	input.DNS.ResolverUpstreams = &upstreams
+	input.DNS.ResolverAllowPlaintext = &allow
+	proxyEnabled, useSmartDNS, target := true, true, cfg.UpstreamProxy.Name
+	input.DNS.ResolverProxyEnabled = &proxyEnabled
+	input.DNS.ResolverProxyTarget = &target
+	input.DNS.MihomoUseSmartDNS = &useSmartDNS
+	payload, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = applyControlConfig(path, fileDigest(path), payload); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.DNS.ResolverMode != "custom" || len(loaded.DNS.ResolverUpstreams) != 1 || loaded.DNS.ResolverUpstreams[0] != upstreams[0] || !loaded.DNS.ResolverProxyEnabled || !loaded.DNS.MihomoUseSmartDNS || loaded.DNS.ResolverProxyTarget != target {
+		t.Fatalf("settings not persisted: %#v", loaded.DNS)
+	}
+	legacy := controlConfigFrom(loaded, fileDigest(path))
+	legacy.DNS.ResolverMode = nil
+	legacy.DNS.ResolverUpstreams = nil
+	legacy.DNS.ResolverAllowPlaintext = nil
+	legacy.DNS.ResolverProxyEnabled = nil
+	legacy.DNS.ResolverProxyTarget = nil
+	legacy.DNS.MihomoUseSmartDNS = nil
+	payload, err = json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = applyControlConfig(path, fileDigest(path), payload); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.DNS.ResolverMode != "custom" || len(loaded.DNS.ResolverUpstreams) != 1 || loaded.DNS.ResolverUpstreams[0] != upstreams[0] || !loaded.DNS.ResolverProxyEnabled || !loaded.DNS.MihomoUseSmartDNS || loaded.DNS.ResolverProxyTarget != target {
+		t.Fatalf("legacy save erased upstreams: %#v", loaded.DNS)
+	}
+	before := fileDigest(path)
+	invalid := controlConfigFrom(loaded, before)
+	unknown := "missing-node"
+	invalid.DNS.ResolverProxyTarget = &unknown
+	payload, _ = json.Marshal(invalid)
+	if _, err := applyControlConfig(path, before, payload); err == nil || fileDigest(path) != before {
+		t.Fatalf("unknown proxy persisted: err=%v", err)
 	}
 }
