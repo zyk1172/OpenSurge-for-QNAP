@@ -56,10 +56,9 @@ RUN set -eux; \
     make -C src -j"$(nproc)"; \
     install -Dm0755 src/smartdns /out/smartdns
 
-# Upstream v1.19.30 is the latest stable Mihomo release, but its published
-# binaries were built before several Go dependency security fixes. Rebuild the
-# exact stable source commit with the patched module versions instead of
-# switching a stable OpenSurge release to an upstream alpha binary.
+# Upstream v1.19.30 binaries were built before several Go dependency security
+# fixes. Rebuild the pinned stable source with patched module versions instead
+# of consuming those release binaries.
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS mihomo-builder
 ARG TARGETOS=linux
 ARG TARGETARCH
@@ -76,7 +75,7 @@ RUN set -eux; \
     git checkout --detach FETCH_HEAD; \
     test "$(git rev-parse HEAD)" = "${MIHOMO_COMMIT}"; \
     go mod edit -go=1.25.14; \
-    go get golang.org/x/crypto@v0.55.0; \
+    go get golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0; \
     go mod tidy; \
     case "${TARGETARCH}" in \
       amd64) export GOAMD64=v1 ;; \
