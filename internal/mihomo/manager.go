@@ -161,7 +161,7 @@ func (m Manager) waitForIPv6PacketListener(pid int, timeout time.Duration) error
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return fmt.Errorf("mihomo IPv6 packet listener not ready after %s", timeout)
+	return fmt.Errorf("mihomo IPv6 packet listener not ready after %s: %w", timeout, context.DeadlineExceeded)
 }
 
 func ipv6PacketStartupError(logText string) string {
@@ -229,9 +229,9 @@ func (m Manager) waitForAPI(pid int, timeout time.Duration) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if lastErr != nil {
-		return fmt.Errorf("mihomo API not ready after %s: %w", timeout, lastErr)
+		return fmt.Errorf("mihomo API not ready after %s: %w", timeout, startupDeadline(lastErr))
 	}
-	return fmt.Errorf("mihomo API not ready after %s", timeout)
+	return fmt.Errorf("mihomo API not ready after %s: %w", timeout, context.DeadlineExceeded)
 }
 
 func (m Manager) waitForTUN(pid int, timeout time.Duration) error {
@@ -257,9 +257,13 @@ func (m Manager) waitForTUN(pid int, timeout time.Duration) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if lastErr != nil {
-		return fmt.Errorf("mihomo TUN not ready after %s: %w", timeout, lastErr)
+		return fmt.Errorf("mihomo TUN not ready after %s: %w", timeout, startupDeadline(lastErr))
 	}
-	return fmt.Errorf("mihomo TUN not ready after %s: runtime config still reports disabled", timeout)
+	return fmt.Errorf("mihomo TUN not ready after %s: runtime config still reports disabled: %w", timeout, context.DeadlineExceeded)
+}
+
+func startupDeadline(cause error) error {
+	return errors.Join(context.DeadlineExceeded, cause)
 }
 
 func enrichTUNRouteError(detail string) string {

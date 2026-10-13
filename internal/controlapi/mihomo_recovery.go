@@ -18,17 +18,24 @@ const (
 	mihomoRecoveryRecovering = "recovering"
 	mihomoRecoveryFailed     = "failed"
 
-	mihomoFailureProcessMissing      = "process_missing"
-	mihomoFailureControllerRefused   = "controller_refused"
-	containerFailureDNSMissing       = "dns_missing"
-	containerFailureIncomplete       = "gateway_incomplete"
-	containerFailureDataPlaneMissing = "data_plane_missing"
-	containerFailureDNSUnresponsive  = "dns_unresponsive"
+	mihomoFailureProcessMissing       = "process_missing"
+	mihomoFailureControllerRefused    = "controller_refused"
+	containerFailureDNSMissing        = "dns_missing"
+	containerFailureIncomplete        = "gateway_incomplete"
+	containerFailureDataPlaneMissing  = "data_plane_missing"
+	containerFailureDNSUnresponsive   = "dns_unresponsive"
+	containerFailureControllerRefused = "nas_controller_refused"
 
 	autoMihomoRecoveryInterval         = 5 * time.Second
 	mihomoRecoveryHealthyConfirmations = 2
 	mihomoRecoveryUnknownLimit         = 6
 )
+
+var errConfirmedGatewayUnhealthy = errors.New("confirmed gateway failure after recovery")
+
+func nasRecoveryReason(reason string) bool {
+	return reason == containerFailureIncomplete || reason == containerFailureDNSMissing || reason == containerFailureDataPlaneMissing || reason == containerFailureDNSUnresponsive || reason == containerFailureControllerRefused
+}
 
 type mihomoRecoveryController struct {
 	mu              sync.Mutex
@@ -40,6 +47,7 @@ type mihomoRecoveryController struct {
 	unknownCount    int
 	attempted       bool
 	operationActive bool
+	awaitingHealth  bool
 	retryAt         time.Time
 	retryAttempts   int
 	now             func() time.Time
@@ -80,6 +88,7 @@ func (c *mihomoRecoveryController) observeHealthy() {
 	c.refusedCount = 0
 	c.healthyCount = 0
 	c.attempted = false
+	c.awaitingHealth = false
 	c.retryAt = time.Time{}
 	c.retryAttempts = 0
 }
@@ -124,6 +133,15 @@ func (c *mihomoRecoveryController) observeFailure(reason string) bool {
 	}
 	c.healthyCount = 0
 	c.unknownCount = 0
+	// Repeated unreadable samples can end the confirmation phase without
+	// proving a failure. A later confirmed NAS failure must still be eligible
+	// for a throttled recovery, rather than retaining that unknown guard forever.
+	if c.state == mihomoRecoveryFailed && c.awaitingHealth && c.retryAt.IsZero() && nasRecoveryReason(c.reason) && nasRecoveryReason(reason) {
+		c.reason = reason
+		c.error = "gateway remained unhealthy after full recovery"
+		c.scheduleTimeoutRetry(errConfirmedGatewayUnhealthy)
+		return false
+	}
 	// A transient failed restart must not strand desired-running forever after
 	// the host recovers. Only an actual fresh failure observation can retry,
 	// and only after the cooldown; unknown probes and manual stop never do.
@@ -135,8 +153,9 @@ func (c *mihomoRecoveryController) observeFailure(reason string) bool {
 		c.state = mihomoRecoveryFailed
 		c.reason = reason
 		c.error = "mihomo remained unhealthy after restart"
-		if reason == containerFailureDNSMissing || reason == containerFailureIncomplete || reason == containerFailureDataPlaneMissing || reason == containerFailureDNSUnresponsive {
+		if nasRecoveryReason(reason) {
 			c.error = "gateway remained unhealthy after full recovery"
+			c.scheduleTimeoutRetry(errConfirmedGatewayUnhealthy)
 		}
 		return false
 	}
@@ -152,7 +171,7 @@ func (c *mihomoRecoveryController) observeFailure(reason string) bool {
 	if reason == mihomoFailureProcessMissing || reason == containerFailureDNSMissing || reason == containerFailureIncomplete || reason == containerFailureDataPlaneMissing || reason == containerFailureDNSUnresponsive {
 		return true
 	}
-	if reason == mihomoFailureControllerRefused {
+	if reason == mihomoFailureControllerRefused || reason == containerFailureControllerRefused {
 		c.refusedCount++
 		return c.refusedCount >= 2
 	}
@@ -172,6 +191,7 @@ func (c *mihomoRecoveryController) begin(reason string) bool {
 	c.healthyCount = 0
 	c.unknownCount = 0
 	c.operationActive = true
+	c.awaitingHealth = false
 	c.retryAt = time.Time{}
 	return true
 }
@@ -185,6 +205,7 @@ func (c *mihomoRecoveryController) beginManual(reason ...string) {
 	c.healthyCount = 0
 	c.unknownCount = 0
 	c.operationActive = true
+	c.awaitingHealth = false
 	c.retryAt = time.Time{}
 	c.retryAttempts = 0
 	if len(reason) > 0 {
@@ -192,14 +213,24 @@ func (c *mihomoRecoveryController) beginManual(reason ...string) {
 	}
 }
 
-func recoveryTimeout(err error) bool {
+func recoveryPermanentFailure(err error) bool {
+	if err == nil {
+		return false
+	}
 	text := strings.ToLower(err.Error())
 	// A composite cleanup error can contain both a timeout and an ownership
 	// refusal. The refusal remains a permanent boundary, not a retry trigger.
 	for _, permanent := range []string{"identity changed", "refusing to", "permission denied", "operation not permitted", "config revision conflict", "invalid config"} {
 		if strings.Contains(text, permanent) {
-			return false
+			return true
 		}
+	}
+	return false
+}
+
+func recoveryTimeout(err error) bool {
+	if err == nil || recoveryPermanentFailure(err) {
+		return false
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
@@ -210,15 +241,16 @@ func recoveryTimeout(err error) bool {
 	}
 	// Network command errors preserve timeout details in their diagnostic
 	// message, while their underlying error can be exec's "signal: killed".
+	text := strings.ToLower(err.Error())
 	return strings.Contains(text, "context deadline exceeded") || strings.Contains(text, " timed out after ")
 }
 
 func (c *mihomoRecoveryController) scheduleTimeoutRetry(err error) {
 	// Limit this new policy to full NAS recovery, not the upstream Mac runner.
-	if c.reason != containerFailureIncomplete && c.reason != containerFailureDNSMissing && c.reason != containerFailureDataPlaneMissing && c.reason != containerFailureDNSUnresponsive {
+	if !nasRecoveryReason(c.reason) {
 		return
 	}
-	if !recoveryTimeout(err) {
+	if !recoveryTimeout(err) && !errors.Is(err, errConfirmedGatewayUnhealthy) {
 		return
 	}
 	c.retryAttempts++
@@ -240,6 +272,7 @@ func (c *mihomoRecoveryController) observeStopped() {
 	}
 	c.state, c.reason, c.error = mihomoRecoveryIdle, "", ""
 	c.attempted = false
+	c.awaitingHealth = false
 	c.retryAt = time.Time{}
 	c.retryAttempts, c.healthyCount, c.unknownCount, c.refusedCount = 0, 0, 0, 0
 }
@@ -248,6 +281,10 @@ func (c *mihomoRecoveryController) finishAutomatic(err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.operationActive = false
+	c.awaitingHealth = err == nil
+	if c.deferLifecycleContention(err) {
+		return
+	}
 	if err != nil {
 		c.state = mihomoRecoveryFailed
 		c.error = err.Error()
@@ -256,7 +293,8 @@ func (c *mihomoRecoveryController) finishAutomatic(err error) {
 	}
 	// The command completing is not proof that the controller is healthy. Keep
 	// the incident in recovery until a fresh status observation confirms it;
-	// otherwise observeFailure exposes the manual fallback without retrying.
+	// confirmed NAS failures then retry with a cooldown, while unknown health
+	// observations do not initiate another destructive recovery.
 	c.state = mihomoRecoveryRecovering
 	c.error = ""
 }
@@ -265,8 +303,12 @@ func (c *mihomoRecoveryController) finishManual(err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.operationActive = false
+	c.awaitingHealth = err == nil
 	c.attempted = true
 	c.refusedCount = 0
+	if c.deferLifecycleContention(err) {
+		return
+	}
 	if err != nil {
 		c.state = mihomoRecoveryFailed
 		c.error = err.Error()
@@ -275,6 +317,19 @@ func (c *mihomoRecoveryController) finishManual(err error) {
 	}
 	c.state = mihomoRecoveryRecovering
 	c.error = ""
+}
+
+// A boot retry worker or CLI can acquire the shared lock after our advisory
+// check. That action has not run; it must not consume the recovery incident.
+func (c *mihomoRecoveryController) deferLifecycleContention(err error) bool {
+	if !nasRecoveryReason(c.reason) || !errors.Is(err, gateway.ErrLifecycleOperationInProgress) || recoveryPermanentFailure(err) {
+		return false
+	}
+	c.state, c.error = mihomoRecoveryObserving, ""
+	c.attempted = false
+	c.refusedCount, c.healthyCount, c.unknownCount = 0, 0, 0
+	c.retryAt = time.Time{}
+	return true
 }
 
 func (s *Server) monitorMihomoRecovery(ctx context.Context) {
@@ -400,6 +455,12 @@ func automaticRecoveryAction(status gateway.Status, isContainer bool) (string, s
 		}
 		if mihomoFailureReason(status) == "" && status.Gateway != "running" {
 			return "", ""
+		}
+		switch mihomoFailureReason(status) {
+		case mihomoFailureProcessMissing:
+			return "recover-gateway", containerFailureIncomplete
+		case mihomoFailureControllerRefused:
+			return "recover-gateway", containerFailureControllerRefused
 		}
 	}
 	return "restart-mihomo", mihomoFailureReason(status)

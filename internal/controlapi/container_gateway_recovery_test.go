@@ -50,7 +50,7 @@ func TestContainerRecoveryRestoresAllDNSDependencies(t *testing.T) {
 		{"rollback cleared runtime", "none", "stopped", "stopped", "stopped", "recover-gateway", containerFailureIncomplete, true},
 		{"previous namespace", "interrupted", "stopped", "stopped", "stopped", "recover-gateway", containerFailureIncomplete, true},
 		{"manual stop", "incomplete", "stopped", "stopped", "stopped", "", "", false},
-		{"engine only exit", "active", "running", "running", "stopped", "restart-mihomo", mihomoFailureProcessMissing, true},
+		{"engine only exit", "active", "running", "running", "stopped", "recover-gateway", containerFailureIncomplete, true},
 		{"healthy", "active", "running", "running", "running", "restart-mihomo", "", true},
 		{"unknown DNS", "active", "unknown", "running", "running", "", "", true},
 	} {
@@ -65,32 +65,32 @@ func TestContainerRecoveryRestoresAllDNSDependencies(t *testing.T) {
 }
 
 func TestConfirmedDataPlaneFailureRequestsCompleteRecovery(t *testing.T) {
-  for _, tc := range []struct {
-    name string
-    mutate func(*gateway.Status)
-  }{
-    {"route missing", func(s *gateway.Status) { s.Routing = "missing" }},
-    {"tun disabled", func(s *gateway.Status) { s.TUN = "failed" }},
-    {"nft missing", func(s *gateway.Status) { s.NFTables = "missing" }},
-    {"forwarding disabled", func(s *gateway.Status) { s.Forwarding = "disabled" }},
-  } {
-    t.Run(tc.name, func(t *testing.T) {
-      status := gateway.Status{Gateway:"degraded", RuntimeState:"active", DesiredRunning:true, DNS:"running", LocalDNS:"running", Mihomo:"running"}
-      tc.mutate(&status)
-      action, reason := automaticRecoveryAction(status, true)
-      if action != "recover-gateway" || reason != containerFailureDataPlaneMissing {
-        t.Fatalf("data-plane failure action=%q reason=%q", action, reason)
-      }
-      status.DesiredRunning = false
-      if action, _ := automaticRecoveryAction(status, true); action != "" {
-        t.Fatalf("intentional stop requested recovery: %q", action)
-      }
-    })
-  }
-  unknown := gateway.Status{Gateway:"degraded", RuntimeState:"active", DesiredRunning:true, DNS:"running", LocalDNS:"running", Mihomo:"running", Routing:"unknown"}
-  if action, _ := automaticRecoveryAction(unknown, true); action != "" {
-    t.Fatalf("unknown observation triggered destructive recovery: %q",action)
-  }
+	for _, tc := range []struct {
+		name   string
+		mutate func(*gateway.Status)
+	}{
+		{"route missing", func(s *gateway.Status) { s.Routing = "missing" }},
+		{"tun disabled", func(s *gateway.Status) { s.TUN = "failed" }},
+		{"nft missing", func(s *gateway.Status) { s.NFTables = "missing" }},
+		{"forwarding disabled", func(s *gateway.Status) { s.Forwarding = "disabled" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			status := gateway.Status{Gateway: "degraded", RuntimeState: "active", DesiredRunning: true, DNS: "running", LocalDNS: "running", Mihomo: "running"}
+			tc.mutate(&status)
+			action, reason := automaticRecoveryAction(status, true)
+			if action != "recover-gateway" || reason != containerFailureDataPlaneMissing {
+				t.Fatalf("data-plane failure action=%q reason=%q", action, reason)
+			}
+			status.DesiredRunning = false
+			if action, _ := automaticRecoveryAction(status, true); action != "" {
+				t.Fatalf("intentional stop requested recovery: %q", action)
+			}
+		})
+	}
+	unknown := gateway.Status{Gateway: "degraded", RuntimeState: "active", DesiredRunning: true, DNS: "running", LocalDNS: "running", Mihomo: "running", Routing: "unknown"}
+	if action, _ := automaticRecoveryAction(unknown, true); action != "" {
+		t.Fatalf("unknown observation triggered destructive recovery: %q", action)
+	}
 }
 
 func TestFullGatewayRecoveryKeepsOneAttemptUntilFreshHealth(t *testing.T) {
