@@ -61,6 +61,12 @@ func (c *mihomoRecoveryController) snapshot() MihomoRecoveryStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	status := MihomoRecoveryStatus{State: c.state, Reason: c.reason, Error: c.error, RetryAttempts: c.retryAttempts}
+	// The Web recovery contract already recognizes gateway_incomplete as a
+	// full NAS recovery. Keep the internal refusal counter separate from Mac,
+	// without exposing an unknown reason that selects a partial engine restart.
+	if status.Reason == containerFailureControllerRefused {
+		status.Reason = containerFailureIncomplete
+	}
 	if !c.retryAt.IsZero() {
 		status.NextRetryAt = c.retryAt.UTC().Format(time.RFC3339)
 	}

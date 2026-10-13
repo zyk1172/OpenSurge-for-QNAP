@@ -154,6 +154,14 @@ func TestNASControllerRefusalUsesFullRecoveryWithConfirmation(t *testing.T) {
 	if !c.observeFailure(reason) {
 		t.Fatal("two fresh refusals did not initiate recovery")
 	}
+	if c.snapshot().Reason != containerFailureIncomplete {
+		t.Fatal("NAS refusal must expose the Web full-recovery reason")
+	}
+	mac := newMihomoRecoveryController()
+	mac.observeFailure(mihomoFailureControllerRefused)
+	if mac.snapshot().Reason != mihomoFailureControllerRefused {
+		t.Fatal("changed upstream Mac recovery reason")
+	}
 }
 
 func TestStopCancelsTimeoutRetryAndPermanentErrorNeverLoops(t *testing.T) {
