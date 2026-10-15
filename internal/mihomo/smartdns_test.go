@@ -1,10 +1,15 @@
 package mihomo
 
 import (
+	"context"
+	"errors"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -125,7 +130,7 @@ func TestSmartDNSProxyReadinessRequiresItsOwnListener(t *testing.T) {
 		{"SOCKS[other] proxy listening at: 127.0.0.1:7854", true},
 		{"SOCKS[open-surge/smartdns] proxy listening at: 0.0.0.0:7854", true},
 		{"Listener open-surge/smartdns listen err: address already in use", true},
-		{"SOCKS[open-surge/smartdns] proxy listening at: 127.0.0.1:7854", false},
+		{"SOCKS[open-surge/smartdns] proxy listening at: 127.0.0.1:7854", true}, // stale log is not a socket
 	} {
 		if err := os.WriteFile(paths.MihomoLog, []byte(test.log), 0600); err != nil {
 			t.Fatal(err)
@@ -133,5 +138,63 @@ func TestSmartDNSProxyReadinessRequiresItsOwnListener(t *testing.T) {
 		if err := manager.waitForSmartDNSProxyListener(os.Getpid(), 10*time.Millisecond); (err != nil) != test.wantError {
 			t.Fatalf("readiness for %q: %v", test.log, err)
 		}
+	}
+}
+
+func TestSmartDNSProxyReadinessWithoutLogAndRejectsWrongProtocol(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:7854")
+	if err != nil {
+		t.Fatalf("reserve isolated test listener: %v", err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
+	var response atomic.Uint32
+	requests := make(chan net.Conn)
+	go func() {
+		defer close(requests)
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			requests <- c
+		}
+	}()
+	go func() {
+		for c := range requests {
+			_ = c.SetDeadline(time.Now().Add(time.Second))
+			var greeting [3]byte
+			_, _ = io.ReadFull(c, greeting[:])
+			_, _ = c.Write([]byte{5, byte(response.Load())})
+			_ = c.Close()
+		}
+	}()
+	cfg := config.Default()
+	cfg.Runtime.Dir = t.TempDir()
+	paths := runtime.NewPaths(cfg)
+	if err := os.MkdirAll(filepath.Dir(paths.MihomoLog), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.MihomoLog, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	m := New(cfg, paths)
+	if err := m.waitForSmartDNSProxyListener(os.Getpid(), 2*time.Second); err != nil {
+		t.Fatalf("owned SOCKS5 listener rejected with no INFO log: %v", err)
+	}
+	response.Store(255)
+	if err := m.waitForSmartDNSProxyListener(os.Getpid(), 250*time.Millisecond); err == nil {
+		t.Fatal("owned socket with rejected SOCKS5 negotiation was accepted")
+	}
+	if err := probeSOCKS5("127.0.0.1:1", 50*time.Millisecond); err == nil {
+		t.Fatal("closed port accepted")
+	}
+}
+
+func TestSmartDNSProxyTimeoutCarriesDeadline(t *testing.T) {
+	cfg := config.Default()
+	cfg.Runtime.Dir = t.TempDir()
+	err := New(cfg, runtime.NewPaths(cfg)).waitForSmartDNSProxyListener(os.Getpid(), 0)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("timeout lost its type: %v", err)
 	}
 }

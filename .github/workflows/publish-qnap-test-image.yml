@@ -108,6 +108,9 @@ jobs:
 
   publish:
     name: Publish rolling test prerelease
+    # Branch dispatches provide test artifacts without replacing the rolling
+    # image built from the default branch.
+    if: github.ref == 'refs/heads/master'
     needs: build
     runs-on: ubuntu-latest
     permissions:

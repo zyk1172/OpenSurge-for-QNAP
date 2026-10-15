@@ -78,12 +78,15 @@ func TestSmartDNSProxyWithPinnedMihomo(t *testing.T) {
 		name, transport string
 		proxy, replace  bool
 		conflict        bool
+		logLevel        string
 	}{
-		{"DoH proxy and replacement", "https", true, true, false},
-		{"DoT proxy and replacement", "tls", true, true, false},
-		{"replacement without proxy", "https", false, true, false},
-		{"proxy without replacement", "https", true, false, false},
-		{"proxy port conflict fails closed", "https", true, true, true},
+		{"DoH proxy and replacement", "https", true, true, false, "info"},
+		{"DoT proxy and replacement", "tls", true, true, false, "info"},
+		{"replacement without proxy", "https", false, true, false, "info"},
+		{"proxy without replacement", "https", true, false, false, "info"},
+		{"proxy port conflict fails closed", "https", true, true, true, "info"},
+		{"warning logging", "https", true, true, false, "warning"},
+		{"silent logging", "https", true, true, false, "silent"},
 	} {
 		t.Run(variant.name, func(t *testing.T) {
 			var queries sync.Map
@@ -203,6 +206,7 @@ dns:
 			}
 			// This test CA is added only to disposable engine fixtures.
 			root["tls"] = map[string]any{"custom-certifactes": []string{ca}}
+			root["log-level"] = variant.logLevel
 			engineData, err := yaml.Marshal(root)
 			if err != nil {
 				t.Fatal(err)
@@ -262,20 +266,6 @@ dns:
 				t.Fatalf("Mihomo did not start: %s", data)
 			}
 			if variant.proxy {
-				deadline := time.Now().Add(3 * time.Second)
-				ready := false
-				for time.Now().Before(deadline) {
-					data, _ := os.ReadFile(engineLog)
-					if strings.Contains(string(data), "SOCKS[open-surge/smartdns] proxy listening at: 127.0.0.1:7854") {
-						ready = true
-						break
-					}
-					time.Sleep(25 * time.Millisecond)
-				}
-				if !ready {
-					data, _ := os.ReadFile(engineLog)
-					t.Fatalf("dedicated DNS proxy did not listen: %s", data)
-				}
 				// SmartDNS has not started yet: resolving the node must still work.
 				dialer, err := proxy.SOCKS5("tcp", fmt.Sprintf("127.0.0.1:%d", config.SmartDNSProxyPort), nil, &net.Dialer{Timeout: 3 * time.Second})
 				if err != nil {

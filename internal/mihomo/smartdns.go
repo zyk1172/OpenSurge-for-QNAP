@@ -1,7 +1,9 @@
 package mihomo
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -103,13 +105,13 @@ func renderSmartDNSIntegration(cfg config.Config, imported *importedProfile, fie
 	return strings.TrimSpace(string(encodedFields)), strings.TrimSpace(string(encodedHosts)), nil
 }
 
-// The API starts before inbound listeners. Confirm this specific listener in
-// the current process's rotated startup log rather than accepting a connection
-// to a port that could belong to another process.
+// The API starts before inbound listeners. Verify the owned socket and SOCKS5
+// negotiation; logging level, formatting and delayed writes are not readiness.
 func (m Manager) waitForSmartDNSProxyListener(pid int, timeout time.Duration) error {
-	ready := fmt.Sprintf("SOCKS[open-surge/smartdns] proxy listening at: 127.0.0.1:%d", config.SmartDNSProxyPort)
+	address := fmt.Sprintf("127.0.0.1:%d", config.SmartDNSProxyPort)
 	const failure = "Listener open-surge/smartdns listen err:"
 	deadline := time.Now().Add(timeout)
+	var lastErr error
 	for time.Now().Before(deadline) {
 		if !process.IsAlive(pid) {
 			return fmt.Errorf("mihomo pid %d exited while the SmartDNS proxy listener was starting", pid)
@@ -120,10 +122,45 @@ func (m Manager) waitForSmartDNSProxyListener(pid int, timeout time.Duration) er
 				return fmt.Errorf("SmartDNS proxy listener failed to start: %s", strings.TrimSpace(line))
 			}
 		}
-		if strings.Contains(string(data), ready) {
-			return nil
+		owned, err := process.OwnsTCPListener(pid, address)
+		if err != nil {
+			lastErr = err
+		} else if owned {
+			if err := probeSOCKS5(address, time.Until(deadline)); err == nil {
+				return nil
+			} else {
+				lastErr = err
+			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	return fmt.Errorf("SmartDNS proxy listener not ready after %s", timeout)
+	return fmt.Errorf("SmartDNS proxy listener not ready after %s (owned SOCKS5 listener): %w", timeout, startupDeadline(lastErr))
+}
+
+func probeSOCKS5(address string, timeout time.Duration) error {
+	if timeout > 200*time.Millisecond {
+		timeout = 200 * time.Millisecond
+	}
+	if timeout <= 0 {
+		return context.DeadlineExceeded
+	}
+	conn, err := net.DialTimeout("tcp", address, timeout)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		return err
+	}
+	if _, err := conn.Write([]byte{5, 1, 0}); err != nil {
+		return err
+	}
+	var response [2]byte
+	if _, err := io.ReadFull(conn, response[:]); err != nil {
+		return err
+	}
+	if response != [2]byte{5, 0} {
+		return fmt.Errorf("SmartDNS proxy did not accept SOCKS5 without authentication")
+	}
+	return nil
 }

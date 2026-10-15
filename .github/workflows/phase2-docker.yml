@@ -15,6 +15,7 @@ on:
       - 'internal/dhcp/**'
       - 'internal/gateway/**'
       - 'internal/process/**'
+      - 'internal/mihomo/**'
       - 'internal/runtime/**'
       - 'internal/smartdns/**'
       - 'internal/webgateway/**'
