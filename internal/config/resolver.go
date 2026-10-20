@@ -110,6 +110,24 @@ func validResolverIPv4(value string, cfg Config) bool {
 	return value != "100.100.100.100" && !ip.Equal(net.ParseIP(cfg.DNS.Listen)) && !ip.Equal(net.ParseIP(cfg.Gateway.LANIP))
 }
 
+// ProxyNodeResolverUpstreams keeps old installations bootable without adding a
+// DNS provider they did not choose. Once a separate list is saved, ordinary
+// resolver edits never alter node/bootstrap DNS. The Web UI exposes the legacy
+// inheritance and requires an explicit list before saving an integration.
+func ProxyNodeResolverUpstreams(cfg Config) []ResolverUpstream {
+	if len(cfg.DNS.ProxyNodeUpstreams) > 0 {
+		return cfg.DNS.ProxyNodeUpstreams
+	}
+	var upstreams []ResolverUpstream
+	for _, upstream := range cfg.DNS.ResolverUpstreams {
+		endpoint, err := ParseResolverUpstream(upstream, cfg)
+		if err == nil && endpoint.Encrypted {
+			upstreams = append(upstreams, upstream)
+		}
+	}
+	return upstreams
+}
+
 func ValidateResolverConfig(cfg Config) error {
 	mode := cfg.DNS.ResolverMode
 	if mode == "" {
@@ -139,7 +157,6 @@ func ValidateResolverConfig(cfg Config) error {
 		return fmt.Errorf("custom Resolver View requires at least one upstream")
 	}
 	seen := map[string]bool{}
-	hasEncrypted := false
 	for _, upstream := range cfg.DNS.ResolverUpstreams {
 		endpoint, err := ParseResolverUpstream(upstream, cfg)
 		if err != nil {
@@ -148,15 +165,8 @@ func ValidateResolverConfig(cfg Config) error {
 		if !endpoint.Encrypted && !cfg.DNS.ResolverAllowPlaintext {
 			return fmt.Errorf("plain DNS requires dns.resolver_allow_plaintext; prefer authenticated DoH/DoT")
 		}
-		hasEncrypted = hasEncrypted || endpoint.Encrypted
 		if cfg.DNS.ResolverProxyEnabled && endpoint.Scheme == "udp" {
 			return fmt.Errorf("SmartDNS proxy requires DoH, DoT or TCP upstreams; UDP cannot bypass the selected proxy")
-		}
-		if integration && endpoint.Scheme == "https" {
-			u, _ := url.Parse(endpoint.Target)
-			if u.RawQuery != "" {
-				return fmt.Errorf("Mihomo encrypted bootstrap does not support DoH query parameters")
-			}
 		}
 		key := endpoint.Scheme + "|" + endpoint.Target + "|" + endpoint.BootstrapIPv4
 		if seen[key] {
@@ -164,7 +174,33 @@ func ValidateResolverConfig(cfg Config) error {
 		}
 		seen[key] = true
 	}
-	if integration && !hasEncrypted {
+	if len(cfg.DNS.ProxyNodeUpstreams) > 16 {
+		return fmt.Errorf("dns.proxy_node_upstreams supports at most 16 upstreams")
+	}
+	nodeUpstreams := cfg.DNS.ProxyNodeUpstreams
+	if integration {
+		nodeUpstreams = ProxyNodeResolverUpstreams(cfg)
+	}
+	seen = map[string]bool{}
+	for _, upstream := range nodeUpstreams {
+		endpoint, err := ParseResolverUpstream(upstream, cfg)
+		if err != nil {
+			return fmt.Errorf("dns.proxy_node_upstreams: %w", err)
+		}
+		if !endpoint.Encrypted {
+			return fmt.Errorf("dns.proxy_node_upstreams requires authenticated DoH or DoT")
+		}
+		u, _ := url.Parse(endpoint.Target)
+		if u.RawQuery != "" {
+			return fmt.Errorf("Mihomo encrypted bootstrap does not support DoH query parameters")
+		}
+		key := endpoint.Scheme + "|" + endpoint.Target + "|" + endpoint.BootstrapIPv4
+		if seen[key] {
+			return fmt.Errorf("dns.proxy_node_upstreams contains a duplicate endpoint")
+		}
+		seen[key] = true
+	}
+	if integration && len(nodeUpstreams) == 0 {
 		return fmt.Errorf("SmartDNS integration requires at least one encrypted upstream for independent proxy-node bootstrap")
 	}
 	ports := []int{}

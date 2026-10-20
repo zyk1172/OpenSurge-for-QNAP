@@ -212,6 +212,7 @@ type DHCPConfigInput struct {
 type DNSConfigInput struct {
 	ResolverMode           *string                    `json:"resolver_mode,omitempty"`
 	ResolverUpstreams      *[]config.ResolverUpstream `json:"resolver_upstreams,omitempty"`
+	ProxyNodeUpstreams     *[]config.ResolverUpstream `json:"proxy_node_upstreams,omitempty"`
 	ResolverAllowPlaintext *bool                      `json:"resolver_allow_plaintext,omitempty"`
 	ResolverProxyEnabled   *bool                      `json:"resolver_proxy_enabled,omitempty"`
 	ResolverProxyTarget    *string                    `json:"resolver_proxy_target,omitempty"`

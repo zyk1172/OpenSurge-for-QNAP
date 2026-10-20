@@ -79,14 +79,16 @@ func TestSmartDNSProxyWithPinnedMihomo(t *testing.T) {
 		proxy, replace  bool
 		conflict        bool
 		logLevel        string
+		independent     bool
 	}{
-		{"DoH proxy and replacement", "https", true, true, false, "info"},
-		{"DoT proxy and replacement", "tls", true, true, false, "info"},
-		{"replacement without proxy", "https", false, true, false, "info"},
-		{"proxy without replacement", "https", true, false, false, "info"},
-		{"proxy port conflict fails closed", "https", true, true, true, "info"},
-		{"warning logging", "https", true, true, false, "warning"},
-		{"silent logging", "https", true, true, false, "silent"},
+		{"DoH proxy and replacement", "https", true, true, false, "info", false},
+		{"DoT proxy and replacement", "tls", true, true, false, "info", false},
+		{"replacement without proxy", "https", false, true, false, "info", false},
+		{"proxy without replacement", "https", true, false, false, "info", false},
+		{"proxy port conflict fails closed", "https", true, true, true, "info", false},
+		{"warning logging", "https", true, true, false, "warning", false},
+		{"silent logging", "https", true, true, false, "silent", false},
+		{"independent node DNS cold start and proxy outage", "https", true, true, false, "info", true},
 	} {
 		t.Run(variant.name, func(t *testing.T) {
 			var queries sync.Map
@@ -196,6 +198,21 @@ dns:
 				endpoint += "/dns-query"
 			}
 			cfg.DNS.ResolverUpstreams = []config.ResolverUpstream{{Address: endpoint, BootstrapIPv4: hostIP}}
+			var nodeQueries, ordinaryQueriesAtNodeDNS atomic.Int32
+			if variant.independent {
+				nodePort := startProxyDNSFixture(t, "https", certificate, func(data []byte) []byte {
+					var request dnsmessage.Message
+					if request.Unpack(data) == nil && len(request.Questions) > 0 {
+						if request.Questions[0].Name.String() == "proxy-node.test." {
+							nodeQueries.Add(1)
+						} else {
+							ordinaryQueriesAtNodeDNS.Add(1)
+						}
+					}
+					return answer(data)
+				})
+				cfg.DNS.ProxyNodeUpstreams = []config.ResolverUpstream{{Address: fmt.Sprintf("https://resolver.test:%d/dns-query", nodePort), BootstrapIPv4: hostIP}}
+			}
 			engineConfig, err := mihomo.RenderConfig(cfg)
 			if err != nil {
 				t.Fatal(err)
@@ -339,6 +356,9 @@ dns:
 				// direct query, regardless of when the next retry is attempted.
 				if countQueries("blocked.test.") != 0 {
 					t.Fatal("failed proxy was bypassed by a direct DNS query")
+				}
+				if variant.independent && (nodeQueries.Load() == 0 || ordinaryQueriesAtNodeDNS.Load() != 0 || countQueries("proxy-node.test.") != nodeQueries.Load()) {
+					t.Fatalf("DNS pools mixed: node queries=%d, node queries at ordinary pool=%d, ordinary queries at node pool=%d", nodeQueries.Load(), countQueries("proxy-node.test.")-nodeQueries.Load(), ordinaryQueriesAtNodeDNS.Load())
 				}
 			} else if connects.Load() != 0 {
 				t.Fatal("disabled proxy still forwarded DNS through a proxy")

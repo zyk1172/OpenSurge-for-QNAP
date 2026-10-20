@@ -105,7 +105,7 @@ export type ControlConfig = {
   schema_version: number; revision: string
   gateway: { mode: 'same_lan' | 'same_wifi_dhcp' | 'isolated_lan'; interface: string; lan_ip: string; lan_prefix_len: number; upstream_interface: string }
   dhcp: { enabled: boolean; range_start: string; range_end: string; lease_time: string; domain: string; bypass_gateway: string; bypass_dns: string[] }
-  dns: { listen: string; upstream: string; ipv6: boolean; resolver_mode?: 'system' | 'custom'; resolver_upstreams?: ResolverUpstream[]; resolver_allow_plaintext?: boolean; resolver_proxy_enabled?: boolean; resolver_proxy_target?: string; mihomo_use_smartdns?: boolean }
+  dns: { listen: string; upstream: string; ipv6: boolean; resolver_mode?: 'system' | 'custom'; resolver_upstreams?: ResolverUpstream[]; proxy_node_upstreams?: ResolverUpstream[]; resolver_allow_plaintext?: boolean; resolver_proxy_enabled?: boolean; resolver_proxy_target?: string; mihomo_use_smartdns?: boolean }
   mihomo: { store_fake_ip: boolean }
   transparent: { mode: 'off' | 'tun'; strict_route: boolean; tun_ipv6: 'off' | 'auto' | 'always'; ipv6_shared_l2_ready?: boolean }
   local_system_proxy: { enabled: boolean }

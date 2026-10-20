@@ -17,8 +17,9 @@ import (
 )
 
 // Proxy node DNS must work before SmartDNS starts and must never depend on the
-// same proxy it is trying to establish. Only the user's encrypted upstreams
-// bootstrap it, directly, with fixed transport IPs and authenticated TLS names.
+// same proxy it is trying to establish. Its independent encrypted pool connects
+// directly to fixed transport IPs with authenticated TLS names. Ordinary DNS
+// stays in SmartDNS and follows the selected proxy.
 func renderSmartDNSIntegration(cfg config.Config, imported *importedProfile, fieldsYAML, hostsYAML string) (string, string, error) {
 	if err := config.ValidateResolverConfig(cfg); err != nil {
 		return "", "", err
@@ -62,7 +63,7 @@ func renderSmartDNSIntegration(cfg config.Config, imported *importedProfile, fie
 	delete(fields, "proxy-server-nameserver-policy")
 	var bootstrap, proxyServers []string
 	fixedHosts := map[string][]string{}
-	for _, upstream := range cfg.DNS.ResolverUpstreams {
+	for _, upstream := range config.ProxyNodeResolverUpstreams(cfg) {
 		endpoint, _ := config.ParseResolverUpstream(upstream, cfg)
 		if !endpoint.Encrypted {
 			continue // plaintext never participates in node bootstrap

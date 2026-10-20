@@ -70,6 +70,7 @@ type ResolverUpstream struct {
 type DNSConfig struct {
 	ResolverMode           string
 	ResolverUpstreams      []ResolverUpstream
+	ProxyNodeUpstreams     []ResolverUpstream
 	ResolverAllowPlaintext bool
 	ResolverProxyEnabled   bool
 	ResolverProxyTarget    string
