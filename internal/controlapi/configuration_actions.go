@@ -646,6 +646,9 @@ func applyControlConfig(configPath, revision string, payload []byte) (string, er
 	if input.DNS.ResolverUpstreams != nil {
 		cfg.DNS.ResolverUpstreams = append([]config.ResolverUpstream{}, (*input.DNS.ResolverUpstreams)...)
 	}
+	if input.DNS.ProxyNodeUpstreams != nil {
+		cfg.DNS.ProxyNodeUpstreams = append([]config.ResolverUpstream{}, (*input.DNS.ProxyNodeUpstreams)...)
+	}
 	if input.DNS.ResolverAllowPlaintext != nil {
 		cfg.DNS.ResolverAllowPlaintext = *input.DNS.ResolverAllowPlaintext
 	}
@@ -657,6 +660,9 @@ func applyControlConfig(configPath, revision string, payload []byte) (string, er
 	}
 	if input.DNS.MihomoUseSmartDNS != nil {
 		cfg.DNS.MihomoUseSmartDNS = *input.DNS.MihomoUseSmartDNS
+	}
+	if input.DNS.ProxyNodeUpstreams != nil && len(cfg.DNS.ProxyNodeUpstreams) == 0 && (cfg.DNS.ResolverProxyEnabled || cfg.DNS.MihomoUseSmartDNS) {
+		return "", fmt.Errorf("dns.proxy_node_upstreams requires an explicit encrypted resolver while SmartDNS integration is enabled")
 	}
 	if input.Mihomo.StoreFakeIP != nil {
 		cfg.Mihomo.StoreFakeIP = *input.Mihomo.StoreFakeIP

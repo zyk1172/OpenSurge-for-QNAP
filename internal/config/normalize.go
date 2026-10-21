@@ -40,9 +40,11 @@ func Normalize(cfg *Config) error {
 		cfg.DNS.ResolverMode = "system"
 	}
 	cfg.DNS.ResolverProxyTarget = strings.TrimSpace(cfg.DNS.ResolverProxyTarget)
-	for index := range cfg.DNS.ResolverUpstreams {
-		cfg.DNS.ResolverUpstreams[index].Address = strings.TrimSpace(cfg.DNS.ResolverUpstreams[index].Address)
-		cfg.DNS.ResolverUpstreams[index].BootstrapIPv4 = strings.TrimSpace(cfg.DNS.ResolverUpstreams[index].BootstrapIPv4)
+	for _, upstreams := range [][]ResolverUpstream{cfg.DNS.ResolverUpstreams, cfg.DNS.ProxyNodeUpstreams} {
+		for index := range upstreams {
+			upstreams[index].Address = strings.TrimSpace(upstreams[index].Address)
+			upstreams[index].BootstrapIPv4 = strings.TrimSpace(upstreams[index].BootstrapIPv4)
+		}
 	}
 
 	// Linux policy routing is owned exclusively by OpenSurge. Allowing mihomo to

@@ -420,11 +420,16 @@ func controlConfigFrom(cfg config.Config, revision string) ControlConfig {
 	resolverMode, allowPlaintext := cfg.DNS.ResolverMode, cfg.DNS.ResolverAllowPlaintext
 	proxyEnabled, proxyTarget, useSmartDNS := cfg.DNS.ResolverProxyEnabled, cfg.DNS.ResolverProxyTarget, cfg.DNS.MihomoUseSmartDNS
 	resolverUpstreams := append([]config.ResolverUpstream{}, cfg.DNS.ResolverUpstreams...)
+	var proxyNodeUpstreams *[]config.ResolverUpstream
+	if len(cfg.DNS.ProxyNodeUpstreams) > 0 {
+		nodeCopy := append([]config.ResolverUpstream{}, cfg.DNS.ProxyNodeUpstreams...)
+		proxyNodeUpstreams = &nodeCopy
+	}
 	return ControlConfig{
 		SchemaVersion: SchemaVersion, Revision: revision,
 		Gateway:          GatewayConfigInput{Mode: cfg.Gateway.Mode, Interface: cfg.Gateway.Interface, LANIP: cfg.Gateway.LANIP, LANPrefixLen: lan.PrefixLenOrDefault(cfg.Gateway.LANPrefixLen), UpstreamInterface: cfg.Gateway.UpstreamInterface},
 		DHCP:             DHCPConfigInput{Enabled: cfg.DHCP.Enabled, RangeStart: cfg.DHCP.RangeStart, RangeEnd: cfg.DHCP.RangeEnd, LeaseTime: cfg.DHCP.LeaseTime, Domain: cfg.DHCP.Domain, BypassGateway: cfg.DHCP.BypassGateway, BypassDNS: append([]string{}, cfg.DHCP.BypassDNS...)},
-		DNS:              DNSConfigInput{Listen: cfg.DNS.Listen, Upstream: dnsUpstream, IPv6: cfg.DNS.IPv6, ResolverMode: &resolverMode, ResolverUpstreams: &resolverUpstreams, ResolverAllowPlaintext: &allowPlaintext, ResolverProxyEnabled: &proxyEnabled, ResolverProxyTarget: &proxyTarget, MihomoUseSmartDNS: &useSmartDNS},
+		DNS:              DNSConfigInput{Listen: cfg.DNS.Listen, Upstream: dnsUpstream, IPv6: cfg.DNS.IPv6, ResolverMode: &resolverMode, ResolverUpstreams: &resolverUpstreams, ProxyNodeUpstreams: proxyNodeUpstreams, ResolverAllowPlaintext: &allowPlaintext, ResolverProxyEnabled: &proxyEnabled, ResolverProxyTarget: &proxyTarget, MihomoUseSmartDNS: &useSmartDNS},
 		Mihomo:           MihomoConfigInput{StoreFakeIP: &storeFakeIP},
 		Transparent:      TransparentConfigInput{Mode: cfg.Transparent.Mode, StrictRoute: cfg.Transparent.TUNStrictRoute, TUNIPv6: cfg.Transparent.TUNIPv6, IPv6SharedL2Ready: cfg.Transparent.IPv6SharedL2Ready},
 		LocalSystemProxy: LocalSystemProxyConfigInput{Enabled: cfg.LocalSystemProxy.Enabled},

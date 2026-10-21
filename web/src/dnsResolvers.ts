@@ -10,14 +10,9 @@ export const resolverPresets: Array<ResolverUpstream & { name: string }> = [
 
 // Validate before stopping a running gateway. The server validates the same
 // configuration again before persisting it.
-export function validateResolverDraft(config: ControlConfig): string | null {
-  const upstreams = config.dns.resolver_upstreams || []
-  const integration = config.dns.resolver_proxy_enabled || config.dns.mihomo_use_smartdns
-  if (integration && config.dns.resolver_mode !== 'custom') return '代理查询和替换 Mihomo DNS 需要选择自定义上游。'
-  if (config.dns.resolver_proxy_enabled && (!config.dns.resolver_proxy_target?.trim() || config.dns.resolver_proxy_target.length > 256 || /["\\\x00-\x1f\x7f]/.test(config.dns.resolver_proxy_target) || /^(DIRECT|REJECT|REJECT-DROP|REJECT-TINYGIF|PASS|COMPATIBLE|GLOBAL)$/i.test(config.dns.resolver_proxy_target.trim()))) return '请选择代理节点或策略组作为 DNS 出口。'
-  if (config.dns.resolver_mode === 'custom' && !upstreams.length) return '自定义上游至少需要填写一个 DNS。'
+function validateUpstreams(config: ControlConfig, upstreams: ResolverUpstream[], nodeDNS: boolean): string | null {
+  if (upstreams.length > 16) return '最多可配置 16 个上游 DNS。'
   const seen = new Set<string>()
-  let hasEncrypted = false
   const ipv4 = (value: string) => {
     if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(value)) return false
     const octets = value.split('.').map(Number)
@@ -33,9 +28,9 @@ export function validateResolverDraft(config: ControlConfig): string | null {
       const endpoint = new URL(address.includes('://') ? address : `udp://${address}`)
       if (endpoint.username || endpoint.password || endpoint.hash || (endpoint.port && (+endpoint.port < 1 || +endpoint.port > 65535))) return invalid
       const encrypted = endpoint.protocol === 'https:' || endpoint.protocol === 'tls:'
-      hasEncrypted ||= encrypted
-      if (config.dns.resolver_proxy_enabled && endpoint.protocol === 'udp:') return '代理查询支持 DoH、DoT 和 TCP DNS；请将 UDP 上游改为加密或 TCP 上游。'
-      if (integration && encrypted && endpoint.search) return '启用 Mihomo 接入时，DoH 地址不能带查询参数。'
+      if (nodeDNS && !encrypted) return '代理节点 DNS 仅支持带固定连接 IPv4 的加密 DoH 或 DoT 上游。'
+      if (!nodeDNS && config.dns.resolver_proxy_enabled && endpoint.protocol === 'udp:') return '代理查询支持 DoH、DoT 和 TCP DNS；请将 UDP 上游改为加密或 TCP 上游。'
+      if (nodeDNS && endpoint.search) return '代理节点 DNS 地址不能带查询参数。'
       if (encrypted) {
         if (endpoint.hostname.length > 253 || !endpoint.hostname.includes('.') || !endpoint.hostname.split('.').every(label => /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/.test(label)) || /^\d+(\.\d+){3}$/.test(endpoint.hostname)) return invalid
         if (!ipv4(upstream.bootstrap_ipv4?.trim() || '')) return invalid
@@ -48,6 +43,18 @@ export function validateResolverDraft(config: ControlConfig): string | null {
       seen.add(key)
     } catch { return invalid }
   }
-  if (integration && !hasEncrypted) return '至少添加一个加密上游，用于独立解析代理节点域名，避免解析循环。'
-  return upstreams.length > 16 ? '最多可配置 16 个上游 DNS。' : null
+  return null
+}
+
+export function validateResolverDraft(config: ControlConfig): string | null {
+  const upstreams = config.dns.resolver_upstreams || []
+  const nodeUpstreams = config.dns.proxy_node_upstreams || []
+  const integration = config.dns.resolver_proxy_enabled || config.dns.mihomo_use_smartdns
+  if (integration && config.dns.resolver_mode !== 'custom') return '代理查询和替换 Mihomo DNS 需要选择自定义上游。'
+  if (config.dns.resolver_proxy_enabled && (!config.dns.resolver_proxy_target?.trim() || config.dns.resolver_proxy_target.length > 256 || /["\\\x00-\x1f\x7f]/.test(config.dns.resolver_proxy_target) || /^(DIRECT|REJECT|REJECT-DROP|REJECT-TINYGIF|PASS|COMPATIBLE|GLOBAL)$/i.test(config.dns.resolver_proxy_target.trim()))) return '请选择代理节点或策略组作为 DNS 出口。'
+  if (config.dns.resolver_mode === 'custom' && !upstreams.length) return '自定义上游至少需要填写一个 DNS。'
+  const resolverError = validateUpstreams(config, upstreams, false)
+  if (resolverError) return resolverError
+  if (integration && !nodeUpstreams.length) return '请单独配置至少一个能直连的加密代理节点 DNS，再保存设置。'
+  return validateUpstreams(config, nodeUpstreams, true)
 }

@@ -364,6 +364,7 @@ describe('SmartDNS custom upstream settings', () => {
     await user.click(screen.getByRole('switch', { name: '上游 DNS 查询经过 OpenSurge 代理' }))
     await user.type(screen.getByRole('combobox', { name: 'DNS 代理节点或策略组' }), '节点选择')
     await user.click(screen.getByRole('switch', { name: '用 SmartDNS 替换 Mihomo DNS 上游' }))
+    await user.click(screen.getByRole('button', { name: '添加节点 DNS 预设' }))
     order.length = 0
     await user.click(screen.getByRole('button', { name: '保存上游 DNS' }))
     await screen.findByText('配置已保存并重启网关。')
@@ -371,7 +372,32 @@ describe('SmartDNS custom upstream settings', () => {
     expect(persisted.dns).toMatchObject({ resolver_proxy_enabled: true, resolver_proxy_target: '节点选择', mihomo_use_smartdns: true, resolver_upstreams: [
       { address: 'https://dns.alidns.com/dns-query', bootstrap_ipv4: '223.5.5.5' },
       { address: 'https://doh.pub/dns-query', bootstrap_ipv4: '1.12.12.12' },
-    ] })
+    ], proxy_node_upstreams: [{ address: 'https://dns.alidns.com/dns-query', bootstrap_ipv4: '223.5.5.5' }] })
+  })
+  it('exposes legacy inheritance and rejects saving it before stopping a gateway', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.config).mockResolvedValue({ ...config, dns: { ...config.dns, resolver_mode: 'custom', resolver_upstreams: [{ address: 'https://dns.google/dns-query', bootstrap_ipv4: '8.8.8.8' }], resolver_proxy_enabled: true, resolver_proxy_target: '节点选择' } })
+    render(<QNAPNetworkPage overview={{ ...overview, status: { ...overview.status, gateway: 'running' } }} onChanged={async () => {}} onNotify={() => {}} />)
+    await screen.findByRole('heading', { name: '代理节点 DNS（直连）' })
+    expect(screen.getByText(/尚未单独配置代理节点 DNS/)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: '保存上游 DNS' }))
+    await screen.findByText('请单独配置至少一个能直连的加密代理节点 DNS，再保存设置。')
+    expect(api.gateway).not.toHaveBeenCalled()
+    expect(api.saveConfig).not.toHaveBeenCalled()
+  })
+  it('keeps proxied Google separate from node DNS and detects a lost node pool after save', async () => {
+    const user = userEvent.setup()
+    const upstreams = [{ address: 'https://dns.google/dns-query', bootstrap_ipv4: '8.8.8.8' }]
+    const original = { ...config, dns: { ...config.dns, resolver_mode: 'custom' as const, resolver_upstreams: upstreams, resolver_proxy_enabled: true, resolver_proxy_target: '节点选择' } }
+    let persisted: ControlConfig = structuredClone(original)
+    vi.mocked(api.config).mockImplementation(async () => persisted)
+    vi.mocked(api.saveConfig).mockImplementation(async next => { persisted = { ...next, dns: { ...next.dns, proxy_node_upstreams: [] } }; return persisted })
+    render(<QNAPNetworkPage overview={overview} onChanged={async () => {}} onNotify={() => {}} />)
+    await user.click(await screen.findByRole('button', { name: '添加节点 DNS 预设' }))
+    await user.click(screen.getByRole('button', { name: '保存上游 DNS' }))
+    await screen.findByText('上游 DNS 保存后校验失败，请重新读取配置。')
+    expect(api.saveConfig).toHaveBeenCalledWith(expect.objectContaining({ dns: expect.objectContaining({ resolver_upstreams: upstreams, proxy_node_upstreams: [{ address: 'https://dns.alidns.com/dns-query', bootstrap_ipv4: '223.5.5.5' }] }) }))
+    expect(screen.queryByText('配置已保存。')).toBeNull()
   })
   it('rejects an empty DNS proxy target before stopping the gateway', async () => {
     const user = userEvent.setup()

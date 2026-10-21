@@ -98,6 +98,8 @@ func TestControlConfigPersistsResolverSettingsAndPreservesThemForLegacyClients(t
 	upstreams := []config.ResolverUpstream{{Address: "https://dns.quad9.net/dns-query", BootstrapIPv4: "9.9.9.9"}}
 	input.DNS.ResolverMode = &mode
 	input.DNS.ResolverUpstreams = &upstreams
+	nodeUpstreams := []config.ResolverUpstream{{Address: "https://doh.pub/dns-query", BootstrapIPv4: "1.12.12.12"}}
+	input.DNS.ProxyNodeUpstreams = &nodeUpstreams
 	input.DNS.ResolverAllowPlaintext = &allow
 	proxyEnabled, useSmartDNS, target := true, true, cfg.UpstreamProxy.Name
 	input.DNS.ResolverProxyEnabled = &proxyEnabled
@@ -117,9 +119,13 @@ func TestControlConfigPersistsResolverSettingsAndPreservesThemForLegacyClients(t
 	if loaded.DNS.ResolverMode != "custom" || len(loaded.DNS.ResolverUpstreams) != 1 || loaded.DNS.ResolverUpstreams[0] != upstreams[0] || !loaded.DNS.ResolverProxyEnabled || !loaded.DNS.MihomoUseSmartDNS || loaded.DNS.ResolverProxyTarget != target {
 		t.Fatalf("settings not persisted: %#v", loaded.DNS)
 	}
+	if len(loaded.DNS.ProxyNodeUpstreams) != 1 || loaded.DNS.ProxyNodeUpstreams[0] != nodeUpstreams[0] {
+		t.Fatalf("independent node resolvers lost: %#v", loaded.DNS)
+	}
 	legacy := controlConfigFrom(loaded, fileDigest(path))
 	legacy.DNS.ResolverMode = nil
 	legacy.DNS.ResolverUpstreams = nil
+	legacy.DNS.ProxyNodeUpstreams = nil
 	legacy.DNS.ResolverAllowPlaintext = nil
 	legacy.DNS.ResolverProxyEnabled = nil
 	legacy.DNS.ResolverProxyTarget = nil
@@ -138,7 +144,17 @@ func TestControlConfigPersistsResolverSettingsAndPreservesThemForLegacyClients(t
 	if loaded.DNS.ResolverMode != "custom" || len(loaded.DNS.ResolverUpstreams) != 1 || loaded.DNS.ResolverUpstreams[0] != upstreams[0] || !loaded.DNS.ResolverProxyEnabled || !loaded.DNS.MihomoUseSmartDNS || loaded.DNS.ResolverProxyTarget != target {
 		t.Fatalf("legacy save erased upstreams: %#v", loaded.DNS)
 	}
+	if len(loaded.DNS.ProxyNodeUpstreams) != 1 || loaded.DNS.ProxyNodeUpstreams[0] != nodeUpstreams[0] {
+		t.Fatal("legacy save erased node DNS")
+	}
 	before := fileDigest(path)
+	clear := controlConfigFrom(loaded, before)
+	empty := []config.ResolverUpstream{}
+	clear.DNS.ProxyNodeUpstreams = &empty
+	payload, _ = json.Marshal(clear)
+	if _, err := applyControlConfig(path, before, payload); err == nil || fileDigest(path) != before {
+		t.Fatalf("empty node DNS persisted while enabled: err=%v", err)
+	}
 	invalid := controlConfigFrom(loaded, before)
 	unknown := "missing-node"
 	invalid.DNS.ResolverProxyTarget = &unknown

@@ -1,6 +1,19 @@
 import { registerEnglishMessages } from './i18n'
 
 export const qnapEnglishMessages: Record<string, string> = {
+  '代理节点 DNS（直连）': 'Proxy node DNS (direct)',
+  '代理节点 DNS 预设': 'Proxy node DNS preset',
+  '添加节点 DNS 预设': 'Add node DNS preset',
+  '添加自定义节点 DNS': 'Add custom node DNS',
+  '节点 DNS 地址': 'Node DNS address',
+  '节点 DNS 固定连接 IPv4': 'Node DNS fixed connection IPv4',
+  '移除节点 DNS': 'Remove node DNS',
+  '仅用于解析代理服务器域名和加密 DNS 的启动引导，始终直连；请选择当前网络能直接访问的加密上游。普通域名继续使用上方列表和代理设置。': 'Used only for proxy server names and encrypted DNS bootstrap, always over a direct connection. Choose encrypted resolvers reachable directly from your network. Ordinary domains keep using the list and proxy settings above.',
+  '尚未单独配置代理节点 DNS。旧配置运行时仍沿用普通列表中的加密上游，可能产生直连超时；请在保存前明确选择节点 DNS，不会自动添加其他服务商。': 'Proxy node DNS has not been configured separately. Existing installations still inherit encrypted ordinary resolvers, which may time out over direct connections. Select node DNS before saving; no other provider is added automatically.',
+  '两个开关默认关闭，互相独立。启用任一项后需单独配置代理节点 DNS，使用直连加密解析避免启动循环；上方代理开关只控制普通 DNS 查询。自定义模式不自动回退到系统或主路由 DNS。': 'Both switches are independent and off by default. Enabling either requires separate proxy node DNS using direct encrypted queries to avoid startup loops. The proxy switch above controls ordinary DNS queries only. Custom mode never falls back automatically to system or router DNS.',
+  '请单独配置至少一个能直连的加密代理节点 DNS，再保存设置。': 'Configure at least one directly reachable encrypted proxy node resolver before saving.',
+  '代理节点 DNS 仅支持带固定连接 IPv4 的加密 DoH 或 DoT 上游。': 'Proxy node DNS requires encrypted DoH or DoT with a fixed connection IPv4.',
+  '代理节点 DNS 地址不能带查询参数。': 'Proxy node DNS addresses cannot contain query parameters.',
   'Docker 网络配置': 'Docker network configuration',
   'Gateway View 使用 Mihomo Fake-IP DNS；Resolver View 使用真实 DNS。设备级 DNS 视图由设备策略决定。': 'Gateway View uses Mihomo Fake-IP DNS; Resolver View uses real DNS. Device policy determines the DNS view.',
   'NAS 宿主网络': 'NAS host network',

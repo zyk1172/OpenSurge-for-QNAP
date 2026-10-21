@@ -190,11 +190,18 @@ func applyValue(cfg *Config, section, key, value string) error {
 			return fmt.Errorf("dns.resolver_allow_plaintext must be a boolean")
 		}
 		cfg.DNS.ResolverAllowPlaintext = enabled
-	case "dns.resolver_upstreams":
-		cfg.DNS.ResolverUpstreams = []ResolverUpstream{}
+	case "dns.resolver_upstreams", "dns.proxy_node_upstreams":
+		upstreams := []ResolverUpstream{}
 		for _, entry := range splitCommaSeparated(value) {
 			address, bootstrap, _ := strings.Cut(entry, "|")
-			cfg.DNS.ResolverUpstreams = append(cfg.DNS.ResolverUpstreams, ResolverUpstream{Address: address, BootstrapIPv4: bootstrap})
+			upstreams = append(upstreams, ResolverUpstream{Address: address, BootstrapIPv4: bootstrap})
+		}
+		if key == "resolver_upstreams" {
+			cfg.DNS.ResolverUpstreams = upstreams
+		} else if len(upstreams) > 0 {
+			cfg.DNS.ProxyNodeUpstreams = upstreams
+		} else {
+			cfg.DNS.ProxyNodeUpstreams = nil
 		}
 	case "dns.upstream":
 		cfg.DNS.Upstream = value

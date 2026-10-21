@@ -65,6 +65,7 @@ export function QNAPNetworkPage({
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [presetAddress, setPresetAddress] = useState(resolverPresets[0].address)
+  const [nodePresetAddress, setNodePresetAddress] = useState(resolverPresets[0].address)
   const busy = loading || saving || hostRoutingBusy
 
   const running = overview?.status.gateway === 'running' || overview?.status.gateway === 'degraded'
@@ -190,6 +191,7 @@ export function QNAPNetworkPage({
         target: cfg.dns.resolver_proxy_target?.trim() || '',
         mihomo: cfg.dns.mihomo_use_smartdns || false,
         upstreams: (cfg.dns.resolver_upstreams || []).map(upstream => ({ address: upstream.address.trim(), bootstrap_ipv4: upstream.bootstrap_ipv4?.trim() || '' })),
+        nodeUpstreams: (cfg.dns.proxy_node_upstreams || []).map(upstream => ({ address: upstream.address.trim(), bootstrap_ipv4: upstream.bootstrap_ipv4?.trim() || '' })),
       })
       if (resolverSnapshot(ipv4OnlyDraft) !== resolverSnapshot(reread)) throw new Error(t('上游 DNS 保存后校验失败，请重新读取配置。'))
       setDraft(reread)
@@ -212,6 +214,10 @@ export function QNAPNetworkPage({
 
   const resolverMode = draft?.dns.resolver_mode || 'system'
   const resolverUpstreams = draft?.dns.resolver_upstreams || []
+  const proxyNodeUpstreams = draft?.dns.proxy_node_upstreams || []
+  const integrationEnabled = draft?.dns.resolver_proxy_enabled || draft?.dns.mihomo_use_smartdns
+  const nodePreset = resolverPresets.find(item => item.address === nodePresetAddress) || resolverPresets[0]
+  const nodePresetAdded = proxyNodeUpstreams.some(item => item.address.trim() === nodePreset.address && item.bootstrap_ipv4?.trim() === nodePreset.bootstrap_ipv4)
   const preset = resolverPresets.find(item => item.address === presetAddress) || resolverPresets[0]
   const presetAdded = resolverUpstreams.some(item => item.address.trim() === preset.address && item.bootstrap_ipv4?.trim() === preset.bootstrap_ipv4)
   const updateResolver = (index: number, next: Partial<(typeof resolverUpstreams)[number]>) => {
@@ -223,6 +229,16 @@ export function QNAPNetworkPage({
     const upstream = preset ? { address: preset.address, bootstrap_ipv4: preset.bootstrap_ipv4 } : { address: '', bootstrap_ipv4: '' }
     if (preset && resolverUpstreams.some(existing => existing.address === upstream.address && existing.bootstrap_ipv4 === upstream.bootstrap_ipv4)) return
     patch({ dns: { ...draft.dns, resolver_mode: 'custom', resolver_upstreams: [...resolverUpstreams, upstream] } })
+  }
+  const updateNodeResolver = (index: number, next: Partial<(typeof proxyNodeUpstreams)[number]>) => {
+    if (!draft) return
+    patch({ dns: { ...draft.dns, proxy_node_upstreams: proxyNodeUpstreams.map((upstream, at) => at === index ? { ...upstream, ...next } : upstream) } })
+  }
+  const addNodeResolver = (preset?: (typeof resolverPresets)[number]) => {
+    if (!draft || proxyNodeUpstreams.length >= 16) return
+    const upstream = preset ? { address: preset.address, bootstrap_ipv4: preset.bootstrap_ipv4 } : { address: '', bootstrap_ipv4: '' }
+    if (preset && proxyNodeUpstreams.some(existing => existing.address === upstream.address && existing.bootstrap_ipv4 === upstream.bootstrap_ipv4)) return
+    patch({ dns: { ...draft.dns, proxy_node_upstreams: [...proxyNodeUpstreams, upstream] } })
   }
 
   const networkInterface = actual?.snapshot.interface || draft?.gateway.interface || overview?.status.interface || 'eth0'
@@ -387,8 +403,35 @@ export function QNAPNetworkPage({
               <p className="muted">{t('覆盖订阅中的普通解析、直连解析和备用 DNS 上游，使用 SmartDNS 的真实解析结果；保留 Fake-IP、过滤规则、hosts 和 TUN DNS 劫持。关闭后恢复配置文件的 DNS 设置。')}</p>
             </article>
           </div>
+          {(integrationEnabled || proxyNodeUpstreams.length > 0) && <article className="ui-card smartdns-option-card">
+            <h4>{t('代理节点 DNS（直连）')}</h4>
+            <p className="muted">{t('仅用于解析代理服务器域名和加密 DNS 的启动引导，始终直连；请选择当前网络能直接访问的加密上游。普通域名继续使用上方列表和代理设置。')}</p>
+            {integrationEnabled && !proxyNodeUpstreams.length && <div className="notice" role="status">{t('尚未单独配置代理节点 DNS。旧配置运行时仍沿用普通列表中的加密上游，可能产生直连超时；请在保存前明确选择节点 DNS，不会自动添加其他服务商。')}</div>}
+            <div className="smartdns-preset-toolbar">
+              <FormField label="代理节点 DNS 预设">
+                <select aria-label={t('代理节点 DNS 预设')} value={nodePresetAddress} disabled={busy} onChange={event => setNodePresetAddress(event.target.value)}>
+                  {resolverPresets.map(item => <option key={item.address} value={item.address}>{t(item.name)} DoH</option>)}
+                </select>
+              </FormField>
+              <div className="ui-actions ui-actions--start">
+                <button className="ui-button" type="button" disabled={busy || nodePresetAdded || proxyNodeUpstreams.length >= 16} onClick={() => addNodeResolver(nodePreset)}>{t('添加节点 DNS 预设')}</button>
+                <button className="ui-button" type="button" disabled={busy || proxyNodeUpstreams.length >= 16} onClick={() => addNodeResolver()}>{t('添加自定义节点 DNS')}</button>
+              </div>
+            </div>
+            <div className="ui-form-grid">
+              {proxyNodeUpstreams.map((upstream, index) => <article className="ui-card smartdns-upstream-card" key={index}>
+                <FormField label={`${t('节点 DNS 地址')} · ${index + 1}`}>
+                  <input aria-label={`${t('节点 DNS 地址')} ${index + 1}`} value={upstream.address} disabled={busy} spellCheck={false} autoCapitalize="none" placeholder="https://dns.alidns.com/dns-query" onChange={event => updateNodeResolver(index, { address: event.target.value })} />
+                </FormField>
+                <FormField label="节点 DNS 固定连接 IPv4">
+                  <input aria-label={`${t('节点 DNS 固定连接 IPv4')} ${index + 1}`} value={upstream.bootstrap_ipv4 || ''} disabled={busy} inputMode="decimal" placeholder="223.5.5.5" onChange={event => updateNodeResolver(index, { bootstrap_ipv4: event.target.value })} />
+                </FormField>
+                <div className="ui-actions"><button className="ui-button ui-button--danger" type="button" disabled={busy} onClick={() => patch({ dns: { ...draft.dns, proxy_node_upstreams: proxyNodeUpstreams.filter((_, at) => at !== index) } })}>{t('移除节点 DNS')} · {index + 1}</button></div>
+              </article>)}
+            </div>
+          </article>}
           <p className="muted">{t('加密上游的真实解析缓存可在重启后复用；修改上游、解析规则或代理配置会使用新缓存。允许明文时不保存缓存到磁盘。')}</p>
-          <div className="notice">{t('两个开关默认关闭，互相独立。启用任一项后，代理节点域名通过所选加密上游直接解析，并使用固定连接 IPv4 引导，以避免启动时的解析循环；普通查询是否经过代理由第一个开关决定。自定义模式不自动回退到系统或主路由 DNS。')}</div>
+          <div className="notice">{t('两个开关默认关闭，互相独立。启用任一项后需单独配置代理节点 DNS，使用直连加密解析避免启动循环；上方代理开关只控制普通 DNS 查询。自定义模式不自动回退到系统或主路由 DNS。')}</div>
         </>}
         <ActionBar status={t('已配置 {{count}} / 16 个上游', { count: resolverUpstreams.length })}><button className="ui-button ui-button--primary" type="button" aria-label={t('保存上游 DNS')} disabled={busy} onClick={() => void saveRuntime()}>{saving ? t('正在保存…') : t(running ? '保存并重启网关' : '保存上游 DNS')}</button></ActionBar>
       </div>}

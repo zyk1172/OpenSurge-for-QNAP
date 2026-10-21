@@ -238,7 +238,11 @@ QNAP 的 Same-LAN 模式可以使用 TUN + Linux policy routing 工作，不要�
 - **上游 DNS 查询经过 OpenSurge 代理**：填写当前配置中的代理节点或策略组名称，使用所选出口访问 DoH、DoT 或 TCP 上游。UDP 上游不能启用代理查询，请先换成加密或 TCP 上游。代理入口仅在容器回环地址监听，不需要开启 LAN SOCKS。SmartDNS 不在代理故障时改为直连；所选策略组的出口选择仍然生效，因此应选择实际使用代理节点的组。此时只比较可信上游经代理查询的响应延迟，不用 NAS 直连 IP 测速判断代理线路。
 - **用 SmartDNS 替换 Mihomo DNS 上游**：覆盖订阅中的普通、直连、备用解析和 DNS 分流上游，Mihomo 从专用的 SmartDNS Resolver View 获得真实答案；保留 Fake-IP、Fake-IP 过滤规则、hosts 和 TUN DNS 劫持。Gateway View 仍先经过 Mihomo，不会直接返回真实 IP。关闭此开关后恢复配置文件中的 DNS 上游。
 
-启用任一项后，**代理节点域名**会使用所选加密上游直接解析，通过固定 IPv4 连接并验证证书域名。这条独立路径不依赖尚未启动的 SmartDNS，也不经过它正在引导的代理，避免启动或运行时的解析循环；至少需要一个加密上游。明文上游不参与节点域名引导。启用这两项时，DoH 地址不能含查询参数。普通查询是否经代理由第一个开关决定。
+启用任一项后，需要单独填写 **代理节点 DNS（直连）**。这份列表只用于代理服务器域名解析和加密 DNS 启动引导，必须选择当前网络能直连的 DoH / DoT，通过固定 IPv4 连接并严格验证证书域名。它不依赖尚未启动的 SmartDNS，也不经过正在引导的代理，避免解析循环。节点 DNS 不支持明文和带查询参数的地址；普通 DNS 使用上方独立列表，是否经代理由第一个开关决定，不会在代理失败后借节点 DNS 直连。
+
+例如：普通列表可以保留通过代理访问的 Cloudflare / Google，节点列表则选择你信任、且已实测能从 NAS 直连解析的加密上游。预设只提供填写示例，不证明可达性。如果不允许节点域名直连解析，需要另行为节点提供固定 IP 或预置域名映射，不能直接把节点 DNS 指回同一个代理。
+
+升级兼容：旧配置没有 `proxy_node_upstreams` 时，运行阶段暂时保留原行为，沿用普通列表中的加密上游，不自动添加服务商；Web 会明确显示继承提示。启用上述功能后，在 Web 保存前必须明确选择独立节点 DNS。旧 API 客户端省略该字段时保留已配置的节点列表；显式清空列表且仍开启接入时拒绝保存。
 
 NAS 宿主 DNS 接管模式仍是独立设置。旧配置继续使用“系统 DNS（兼容旧配置）”，该模式不提供自定义上游的信任约束，也不能开启上述两项，建议手动切换到自定义。运行状态卡中的“Resolver View 查询出口”来自已写入的 SmartDNS 配置。
 
@@ -248,6 +252,7 @@ NAS 宿主 DNS 接管模式仍是独立设置。旧配置继续使用“系统 D
 dns:
   resolver_mode: "custom"
   resolver_upstreams: "https://cloudflare-dns.com/dns-query|1.1.1.1,tls://dns.google:853|8.8.8.8"
+  proxy_node_upstreams: "https://dns.alidns.com/dns-query|223.5.5.5,https://doh.pub/dns-query|1.12.12.12"
   resolver_allow_plaintext: false
   resolver_proxy_enabled: false
   resolver_proxy_target: ""
