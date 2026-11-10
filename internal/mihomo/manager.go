@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"open-mihomo-gateway/internal/config"
+	"open-mihomo-gateway/internal/logfile"
 	"open-mihomo-gateway/internal/macosnetwork"
 	"open-mihomo-gateway/internal/process"
 	"open-mihomo-gateway/internal/runtime"
@@ -131,18 +132,7 @@ func (m Manager) Start() (int, error) {
 // Keep two previous generations, with fixed names so repeated failures cannot
 // grow this startup history without bound.
 func rotateStartupLog(path string) error {
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	ext := filepath.Ext(path)
-	base := strings.TrimSuffix(path, ext)
-	previous, older := base+"-previous"+ext, base+"-previous-2"+ext
-	if err := os.Rename(previous, older); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return os.Rename(path, previous)
+	return logfile.Rotate(path, logfile.MaxSize, true)
 }
 
 func (m Manager) waitForIPv6PacketListener(pid int, timeout time.Duration) error {

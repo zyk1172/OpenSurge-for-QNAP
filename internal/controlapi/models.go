@@ -600,11 +600,13 @@ type StateEvent struct {
 }
 
 type DiagnosticsResponse struct {
-	SchemaVersion   int                        `json:"schema_version"`
-	Revision        string                     `json:"revision"`
-	Connections     mihomo.ConnectionsSnapshot `json:"connections"`
-	ConnectionError string                     `json:"connection_error,omitempty"`
-	Logs            map[string][]string        `json:"logs"`
-	Operations      []Operation                `json:"operations"`
-	Recovery        RecoveryState              `json:"recovery"`
+	SchemaVersion   int                          `json:"schema_version"`
+	Revision        string                       `json:"revision"`
+	Connections     mihomo.ConnectionsSnapshot   `json:"connections"`
+	ConnectionError string                       `json:"connection_error,omitempty"`
+	Logs            map[string][]string          `json:"logs"`
+	LogInfo         map[string]DiagnosticLogInfo `json:"log_info"`
+	Signals         DiagnosticSignals            `json:"signals"`
+	Operations      []Operation                  `json:"operations"`
+	Recovery        RecoveryState                `json:"recovery"`
 }

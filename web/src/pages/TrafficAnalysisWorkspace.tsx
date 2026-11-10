@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
+import { DiagnosticSignals } from '../components/DiagnosticSignals'
 import { PageHeader, SectionTitle } from '../components/Common'
 import type { Diagnostics, ProfileOverlay, ProxyGroup, ProxyHealthEntry } from '../types'
 import { t } from '../i18n'
@@ -317,6 +318,8 @@ export function TrafficAnalysisPage() {
       </div>
       <p className="muted">{overlay?.document.enabled ? t(overlay.applied ? '附加配置当前已应用。' : overlay.desired ? '附加配置将在下次启动生效。' : '附加配置已启用，但当前是待应用草稿。') : t('创建第一条规则时会自动启用全局附加配置。')}</p>
     </section>
+
+    <DiagnosticSignals signals={details?.signals} />
 
     <section className="section">
       <SectionTitle title={t('异常信号')} subtitle={t('诊断日志中的 error、warn、timeout、reset 等关键词单独保留为证据，不直接等同于分流错误。')} />

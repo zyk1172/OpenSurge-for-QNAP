@@ -58,3 +58,35 @@ func TestRenderedConfigLoadsInPinnedSmartDNS(t *testing.T) {
 		t.Fatalf("generated SmartDNS config was rejected by pinned runtime: %v", err)
 	}
 }
+
+func TestStartPreservesPreviousSmartDNSLogOnStartupFailure(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "smartdns")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\necho new-startup-evidence\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cfg := config.Default()
+	cfg.Runtime.Dir = dir
+	paths := runtime.NewPaths(cfg)
+	if err := runtime.Ensure(paths); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.SmartDNSConf, []byte("# candidate\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.SmartDNSLog, []byte("previous-failure-evidence\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(cfg, paths).Start(); err == nil {
+		t.Fatal("stub unexpectedly remained alive")
+	}
+	data, err := os.ReadFile(filepath.Join(paths.LogDir, "smartdns-previous.log"))
+	if err != nil || string(data) != "previous-failure-evidence\n" {
+		t.Fatalf("previous log %q %v", data, err)
+	}
+	data, err = os.ReadFile(paths.SmartDNSLog)
+	if err != nil || !strings.Contains(string(data), "new-startup-evidence") {
+		t.Fatalf("current log %q %v", data, err)
+	}
+}
