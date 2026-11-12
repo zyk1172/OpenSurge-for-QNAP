@@ -228,10 +228,9 @@ func (s *Server) syncHostHosts(ctx context.Context, value hostHostsSyncSettings,
 		}
 	}
 
-	// Do not trust LastDigest alone. Older builds recorded a successful sync
-	// before the effective Mihomo profile was actually reloaded. Reconcile the
-	// desired profile on every due check; when it already matches, this is a
-	// cheap no-op and does not restart the gateway.
+	// Do not trust LastDigest alone: older builds advanced it before applying
+	// the hosts layer. Check the effective profile, but let only a hosts change
+	// trigger this importer's reload, never unrelated desired profile drift.
 	if err := s.reconcileHostHostsProfile(ctx); err != nil {
 		if hadPrevious {
 			_ = s.store.SaveHostHostsManaged(previous)
@@ -306,6 +305,30 @@ func (s *Server) reconcileHostHostsProfile(ctx context.Context) (applyErr error)
 	if candidate == nil {
 		return nil
 	}
+	cfg, err := config.Load(s.configPath)
+	if err != nil {
+		return err
+	}
+	var current []byte
+	if cfg.Mihomo.ProfileMode == config.MihomoProfileModeImported {
+		current, err = os.ReadFile(cfg.Mihomo.Profile)
+	} else {
+		var rendered string
+		rendered, err = mihomo.RenderManagedBaseProfile(cfg)
+		current = []byte(rendered)
+	}
+	if err != nil {
+		return fmt.Errorf("read effective profile for host Hosts comparison: %w", err)
+	}
+	equal, err := mihomo.HostsConfigurationEqual(current, candidate.Payload)
+	if err != nil {
+		return err
+	}
+	if equal {
+		// No ApplyProfile, lifecycle operation or configuration write. This also
+		// avoids applying pending rules/overlay metadata through a hosts timer.
+		return nil
+	}
 	// These background transitions used to leave only generic stop/start logs.
 	// Preserve the trigger, phases and terminal error just like Web operations.
 	op := newOperation("auto-host-hosts-"+randomToken(8), "sync-host-hosts")
@@ -323,10 +346,6 @@ func (s *Server) reconcileHostHostsProfile(ctx context.Context) (applyErr error)
 	}()
 	if s.configRunner == nil {
 		return fmt.Errorf("configuration runner is unavailable")
-	}
-	cfg, err := config.Load(s.configPath)
-	if err != nil {
-		return err
 	}
 	_, running, err := runtime.LoadState(runtime.NewPaths(cfg).StateFile)
 	if err != nil {
