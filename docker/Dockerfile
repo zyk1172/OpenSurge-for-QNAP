@@ -64,6 +64,7 @@ ARG TARGETARCH
 ARG MIHOMO_VERSION=1.19.33
 ARG MIHOMO_COMMIT=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
 WORKDIR /src/mihomo
+COPY scripts/build-nas-mihomo.sh /usr/local/bin/build-nas-mihomo.sh
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates git \
  && rm -rf /var/lib/apt/lists/*
@@ -73,18 +74,8 @@ RUN set -eux; \
     git fetch --depth=1 origin "refs/tags/v${MIHOMO_VERSION}"; \
     git checkout --detach FETCH_HEAD; \
     test "$(git rev-parse HEAD)" = "${MIHOMO_COMMIT}"; \
-    go mod edit -go=1.26.11; \
-    go get golang.org/x/crypto@v0.58.0 golang.org/x/net@v0.62.0 github.com/klauspost/compress@v1.18.7; \
-    go mod tidy; \
-    case "${TARGETARCH}" in \
-      amd64) export GOAMD64=v1 ;; \
-      arm64) : ;; \
-      *) echo "unsupported target architecture: ${TARGETARCH}" >&2; exit 1 ;; \
-    esac; \
-    CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
-      go build -tags with_gvisor -trimpath \
-      -ldflags="-X github.com/metacubex/mihomo/constant.Version=v${MIHOMO_VERSION}+opensurge-security -X github.com/metacubex/mihomo/constant.BuildTime=OpenSurge-security-rebuild -w -s -buildid=" \
-      -o /out-mihomo .
+    GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
+      sh /usr/local/bin/build-nas-mihomo.sh /src/mihomo /out-mihomo "${MIHOMO_VERSION}"
 
 FROM ${DEBIAN_IMAGE} AS runtime
 ARG OPENSURGE_VERSION=dev

@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - 'docker/**'
+      - 'scripts/build-nas-mihomo.sh'
       - 'deploy/qnap/**'
       - 'cmd/opensurge-container/**'
       - 'cmd/opensurge-manager/**'
@@ -118,7 +119,7 @@ jobs:
 
   namespace-lab:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -145,13 +146,14 @@ jobs:
           test "$(git -C /tmp/opensurge-smartdns-src rev-parse HEAD)" = "21c940edc65520849ba03544c5cf8d9cf326e680"
           make -C /tmp/opensurge-smartdns-src/src -j"$(nproc)"
           sudo install -Dm0755 /tmp/opensurge-smartdns-src/src/smartdns /usr/local/bin/smartdns
-      - name: Install pinned Mihomo for SmartDNS proxy integration fixtures
+      - name: Build pinned Mihomo with the Docker security dependency graph
         run: |
-          curl --fail --location --retry 3 \
-            https://github.com/MetaCubeX/mihomo/releases/download/v1.19.33/mihomo-linux-amd64-compatible-v1.19.33.gz \
-            --output /tmp/opensurge-mihomo.gz
-          printf '%s  %s\n' 386508bfb1c72c43b6a0eda73708ecdce82546581b0ebcb16366c53757c622b6 /tmp/opensurge-mihomo.gz | sha256sum --check --strict
-          gzip -dc /tmp/opensurge-mihomo.gz > /tmp/opensurge-mihomo
+          git init /tmp/opensurge-mihomo-src
+          git -C /tmp/opensurge-mihomo-src remote add origin https://github.com/MetaCubeX/mihomo.git
+          git -C /tmp/opensurge-mihomo-src fetch --depth=1 origin refs/tags/v1.19.33
+          git -C /tmp/opensurge-mihomo-src checkout --detach FETCH_HEAD
+          test "$(git -C /tmp/opensurge-mihomo-src rev-parse HEAD)" = "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8"
+          GOOS=linux GOARCH=amd64 sh scripts/build-nas-mihomo.sh /tmp/opensurge-mihomo-src /tmp/opensurge-mihomo 1.19.33
           sudo install -Dm0755 /tmp/opensurge-mihomo /usr/local/bin/mihomo
       - name: Verify pinned core Fake-IP allocation survives live reload
         env:

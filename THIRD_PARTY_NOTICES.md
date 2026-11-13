@@ -18,15 +18,15 @@ libraries retain their own upstream licenses.
 - Source: <https://github.com/MetaCubeX/mihomo/tree/3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8>
 - Distributed form: rebuilt from the exact `v1.19.33` commit for Linux amd64/arm64
   with Go 1.26.11 and updated `x/crypto`, `x/net` and `klauspost/compress`
-  dependencies as pinned in `docker/Dockerfile`. This is not the upstream
+  plus Brotli and DHCP dependencies pinned in `scripts/build-nas-mihomo.sh`. This is not the upstream
   prebuilt release binary. The macOS-only `opensurge-packet` patch is not applied.
 - Release notes: <https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.33>
 
 The build verifies the source commit before compilation. The applicable GPL
 text is included under `/usr/share/opensurge/licenses/` in the image. The
-namespace integration fixture separately uses the checksum-pinned upstream
-Linux amd64 release binary; its version and SHA-256 are recorded in
-`.github/workflows/phase2-docker.yml`.
+namespace integration fixture builds the same verified source commit with
+the same security dependency script as Docker; it does not substitute an
+upstream prebuilt binary.
 
 ### dnsmasq
 

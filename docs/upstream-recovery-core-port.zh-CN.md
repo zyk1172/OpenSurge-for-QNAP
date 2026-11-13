@@ -31,7 +31,9 @@
    未完成的清理记录保留以供重试；身份不匹配的进程仍不会被终止。
 6. DNS 租约读取错误单独作为 `lease_error` 报告，不遮蔽生命周期状态。
 7. Mihomo 保留 NAS 的 30 秒 API/TUN 等待窗口，等待遵循生命周期 context。
-   Docker 使用 Go 1.26.11 及现有的 crypto/net/compress 安全修补重建 1.19.33。
+   Docker 使用 Go 1.26.11 及 crypto/net/compress/Brotli/DHCP 安全修补重建 1.19.33。
+   本轮额外扫描发现旧压缩库和 DHCP 库仍有已知问题，固定修复版本见
+   `scripts/build-nas-mihomo.sh`，Docker 与 Linux namespace lab 共用该脚本。
    Mac 的 packet-listener 补丁与打包脚本不属于本次 NAS 更新。
 
 ## 验证方法与边界
