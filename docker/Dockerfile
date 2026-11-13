@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 ARG NODE_IMAGE=node:24-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e
-ARG GO_IMAGE=golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c
+ARG GO_IMAGE=golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
 ARG DEBIAN_IMAGE=debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 
 FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS web-builder
@@ -74,8 +74,8 @@ RUN set -eux; \
     git fetch --depth=1 origin "refs/tags/v${MIHOMO_VERSION}"; \
     git checkout --detach FETCH_HEAD; \
     test "$(git rev-parse HEAD)" = "${MIHOMO_COMMIT}"; \
-    go mod edit -go=1.25.14; \
-    go get golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0; \
+    go mod edit -go=1.26.11; \
+    go get golang.org/x/crypto@v0.58.0 golang.org/x/net@v0.62.0 github.com/klauspost/compress@v1.18.7; \
     go mod tidy; \
     case "${TARGETARCH}" in \
       amd64) export GOAMD64=v1 ;; \
