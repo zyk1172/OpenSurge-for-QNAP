@@ -81,6 +81,13 @@ func (m Manager) ValidateWrittenConfigContext(ctx context.Context) error {
 }
 
 func (m Manager) Start() (int, error) {
+	return m.StartContext(context.Background())
+}
+
+func (m Manager) StartContext(ctx context.Context) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	binary, err := resolveBinary(m.cfg.Mihomo.Binary)
 	if err != nil {
 		return 0, err
@@ -103,24 +110,24 @@ func (m Manager) Start() (int, error) {
 		m.stopStartedProcess(pid)
 		return 0, err
 	}
-	if err := m.waitForAPI(pid, apiStartupTimeout); err != nil {
+	if err := m.waitForAPIContext(ctx, pid, apiStartupTimeout); err != nil {
 		m.stopStartedProcess(pid)
 		return 0, err
 	}
 	if m.cfg.DNS.ResolverProxyEnabled {
-		if err := m.waitForSmartDNSProxyListener(pid, apiStartupTimeout); err != nil {
+		if err := m.waitForSmartDNSProxyListenerContext(ctx, pid, apiStartupTimeout); err != nil {
 			m.stopStartedProcess(pid)
 			return 0, err
 		}
 	}
 	if m.cfg.Transparent.TUNEnabled() {
-		if err := m.waitForTUN(pid, tunStartupTimeout); err != nil {
+		if err := m.waitForTUNContext(ctx, pid, tunStartupTimeout); err != nil {
 			m.stopStartedProcess(pid)
 			return 0, err
 		}
 	}
 	if m.cfg.Transparent.TUNIPv6 != config.TUNIPv6Off {
-		if err := m.waitForIPv6PacketListener(pid, tunStartupTimeout); err != nil {
+		if err := m.waitForIPv6PacketListenerContext(ctx, pid, tunStartupTimeout); err != nil {
 			m.stopStartedProcess(pid)
 			return 0, err
 		}
@@ -136,8 +143,13 @@ func rotateStartupLog(path string) error {
 }
 
 func (m Manager) waitForIPv6PacketListener(pid int, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	return m.waitForIPv6PacketListenerContext(context.Background(), pid, timeout)
+}
+
+func (m Manager) waitForIPv6PacketListenerContext(ctx context.Context, pid int, timeout time.Duration) error {
+	readyCtx, cancelReady := context.WithTimeout(ctx, timeout)
+	defer cancelReady()
+	for readyCtx.Err() == nil {
 		if !process.IsAlive(pid) {
 			return fmt.Errorf("mihomo pid %d exited while the IPv6 packet listener was starting", pid)
 		}
@@ -149,9 +161,9 @@ func (m Manager) waitForIPv6PacketListener(pid int, timeout time.Duration) error
 		if detail := ipv6PacketStartupError(logText); detail != "" {
 			return fmt.Errorf("mihomo IPv6 packet listener failed to start: %s", detail)
 		}
-		time.Sleep(100 * time.Millisecond)
+		waitStartupPoll(readyCtx, 100*time.Millisecond)
 	}
-	return fmt.Errorf("mihomo IPv6 packet listener not ready after %s: %w", timeout, context.DeadlineExceeded)
+	return fmt.Errorf("mihomo IPv6 packet listener not ready after %s: %w", timeout, readyCtx.Err())
 }
 
 func ipv6PacketStartupError(logText string) string {
@@ -203,37 +215,55 @@ func validateConfigContext(ctx context.Context, timeout time.Duration, binary st
 }
 
 func (m Manager) waitForAPI(pid int, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+	return m.waitForAPIContext(context.Background(), pid, timeout)
+}
+
+func (m Manager) waitForAPIContext(ctx context.Context, pid int, timeout time.Duration) error {
+	readyCtx, cancelReady := context.WithTimeout(ctx, timeout)
+	defer cancelReady()
 	var lastErr error
-	for time.Now().Before(deadline) {
+	for readyCtx.Err() == nil {
 		if !process.IsAlive(pid) {
 			return fmt.Errorf("mihomo pid %d exited during startup", pid)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		ctx, cancel := context.WithTimeout(readyCtx, 250*time.Millisecond)
 		_, err := FetchVersion(ctx, m.cfg)
 		cancel()
+		if readyCtx.Err() != nil {
+			lastErr = err
+			break
+		}
 		if err == nil {
 			return nil
 		}
 		lastErr = err
-		time.Sleep(100 * time.Millisecond)
+		waitStartupPoll(readyCtx, 100*time.Millisecond)
 	}
 	if lastErr != nil {
-		return fmt.Errorf("mihomo API not ready after %s: %w", timeout, startupDeadline(lastErr))
+		return fmt.Errorf("mihomo API not ready after %s: %w", timeout, errors.Join(readyCtx.Err(), lastErr))
 	}
-	return fmt.Errorf("mihomo API not ready after %s: %w", timeout, context.DeadlineExceeded)
+	return fmt.Errorf("mihomo API not ready after %s: %w", timeout, readyCtx.Err())
 }
 
 func (m Manager) waitForTUN(pid int, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+	return m.waitForTUNContext(context.Background(), pid, timeout)
+}
+
+func (m Manager) waitForTUNContext(ctx context.Context, pid int, timeout time.Duration) error {
+	readyCtx, cancelReady := context.WithTimeout(ctx, timeout)
+	defer cancelReady()
 	var lastErr error
-	for time.Now().Before(deadline) {
+	for readyCtx.Err() == nil {
 		if !process.IsAlive(pid) {
 			return fmt.Errorf("mihomo pid %d exited while TUN was starting", pid)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		ctx, cancel := context.WithTimeout(readyCtx, 300*time.Millisecond)
 		state, err := FetchTUNRuntimeState(ctx, m.cfg)
 		cancel()
+		if readyCtx.Err() != nil {
+			lastErr = err
+			break
+		}
 		if err == nil && state.Enabled {
 			return nil
 		}
@@ -244,12 +274,12 @@ func (m Manager) waitForTUN(pid int, timeout time.Duration) error {
 			detail = enrichTUNRouteError(detail)
 			return fmt.Errorf("mihomo TUN failed to start: %s", detail)
 		}
-		time.Sleep(100 * time.Millisecond)
+		waitStartupPoll(readyCtx, 100*time.Millisecond)
 	}
 	if lastErr != nil {
-		return fmt.Errorf("mihomo TUN not ready after %s: %w", timeout, startupDeadline(lastErr))
+		return fmt.Errorf("mihomo TUN not ready after %s: %w", timeout, errors.Join(readyCtx.Err(), lastErr))
 	}
-	return fmt.Errorf("mihomo TUN not ready after %s: runtime config still reports disabled: %w", timeout, context.DeadlineExceeded)
+	return fmt.Errorf("mihomo TUN not ready after %s: runtime config still reports disabled: %w", timeout, readyCtx.Err())
 }
 
 func startupDeadline(cause error) error {
@@ -344,4 +374,13 @@ func resolveBinary(path string) (string, error) {
 		return "", fmt.Errorf("mihomo not found in PATH")
 	}
 	return binary, nil
+}
+
+func waitStartupPoll(ctx context.Context, interval time.Duration) {
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
 }

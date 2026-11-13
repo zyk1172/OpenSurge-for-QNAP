@@ -2,6 +2,7 @@ package mihomo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -109,11 +110,17 @@ func renderSmartDNSIntegration(cfg config.Config, imported *importedProfile, fie
 // The API starts before inbound listeners. Verify the owned socket and SOCKS5
 // negotiation; logging level, formatting and delayed writes are not readiness.
 func (m Manager) waitForSmartDNSProxyListener(pid int, timeout time.Duration) error {
+	return m.waitForSmartDNSProxyListenerContext(context.Background(), pid, timeout)
+}
+
+func (m Manager) waitForSmartDNSProxyListenerContext(ctx context.Context, pid int, timeout time.Duration) error {
+	readyCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	address := fmt.Sprintf("127.0.0.1:%d", config.SmartDNSProxyPort)
 	const failure = "Listener open-surge/smartdns listen err:"
-	deadline := time.Now().Add(timeout)
+	deadline, _ := readyCtx.Deadline()
 	var lastErr error
-	for time.Now().Before(deadline) {
+	for readyCtx.Err() == nil {
 		if !process.IsAlive(pid) {
 			return fmt.Errorf("mihomo pid %d exited while the SmartDNS proxy listener was starting", pid)
 		}
@@ -133,9 +140,9 @@ func (m Manager) waitForSmartDNSProxyListener(pid int, timeout time.Duration) er
 				lastErr = err
 			}
 		}
-		time.Sleep(50 * time.Millisecond)
+		waitStartupPoll(readyCtx, 50*time.Millisecond)
 	}
-	return fmt.Errorf("SmartDNS proxy listener not ready after %s (owned SOCKS5 listener): %w", timeout, startupDeadline(lastErr))
+	return fmt.Errorf("SmartDNS proxy listener not ready after %s (owned SOCKS5 listener): %w", timeout, errors.Join(readyCtx.Err(), lastErr))
 }
 
 func probeSOCKS5(address string, timeout time.Duration) error {

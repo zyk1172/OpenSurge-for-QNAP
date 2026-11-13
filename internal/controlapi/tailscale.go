@@ -62,6 +62,10 @@ func (s *Server) handleTailscale(w http.ResponseWriter, r *http.Request) {
 	}
 	s.finishOperation(operation, err)
 	if err != nil {
+		if gatewayActive {
+			recovery, _ := s.store.Recovery()
+			s.recordReloadRecoveryFailure(cfg.Gateway.Mode, recovery, err, result.Rollback)
+		}
 		status, code := http.StatusUnprocessableEntity, "tailscale_validation_failed"
 		switch {
 		case strings.Contains(err.Error(), "revision conflict"):
@@ -71,7 +75,7 @@ func (s *Server) handleTailscale(w http.ResponseWriter, r *http.Request) {
 		case strings.Contains(err.Error(), "reload failed"):
 			status, code = http.StatusConflict, "tailscale_reload_failed"
 		}
-		writeError(w, status, code, err.Error())
+		writeConfigurationError(w, status, code, err, result.Rollback)
 		return
 	}
 	cfg, err = config.Load(s.configPath)

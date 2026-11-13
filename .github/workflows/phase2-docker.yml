@@ -148,11 +148,16 @@ jobs:
       - name: Install pinned Mihomo for SmartDNS proxy integration fixtures
         run: |
           curl --fail --location --retry 3 \
-            https://github.com/MetaCubeX/mihomo/releases/download/v1.19.30/mihomo-linux-amd64-compatible-v1.19.30.gz \
+            https://github.com/MetaCubeX/mihomo/releases/download/v1.19.33/mihomo-linux-amd64-compatible-v1.19.33.gz \
             --output /tmp/opensurge-mihomo.gz
-          printf '%s  %s\n' db214c7a2517e63c150d123178d16d102e03a241ccdae4e5e07ffbe9cf56c6f9 /tmp/opensurge-mihomo.gz | sha256sum --check --strict
+          printf '%s  %s\n' 386508bfb1c72c43b6a0eda73708ecdce82546581b0ebcb16366c53757c622b6 /tmp/opensurge-mihomo.gz | sha256sum --check --strict
           gzip -dc /tmp/opensurge-mihomo.gz > /tmp/opensurge-mihomo
           sudo install -Dm0755 /tmp/opensurge-mihomo /usr/local/bin/mihomo
+      - name: Verify pinned core Fake-IP allocation survives live reload
+        env:
+          OPEN_SURGE_MIHOMO_CORE_TESTS: '1'
+          OPEN_SURGE_MIHOMO_INTEGRATION_BIN: /usr/local/bin/mihomo
+        run: go test -v ./internal/mihomo -run '^TestPinnedCorePreservesFakeIPAcrossReload$' -count=1
       - name: Compile integration test binaries before entering namespaces
         run: |
           go test -c -o /tmp/opensurge-linux-network.test ./internal/platform/linux

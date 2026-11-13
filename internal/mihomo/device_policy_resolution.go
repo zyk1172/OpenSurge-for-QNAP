@@ -131,7 +131,7 @@ func devicePolicySelections(cfg config.Config) (map[string]string, bool) {
 	return selections, err != nil
 }
 
-// The selected bucket is the format used by the pinned Mihomo 1.19.30 core.
+// The selected bucket is the format used by the pinned Mihomo 1.19.33 core.
 // Open read-only with a bounded lock wait; never create, repair or rewrite its
 // cache, and never open a second writer alongside the running core.
 func readDevicePolicySelections(path string) (map[string]string, error) {

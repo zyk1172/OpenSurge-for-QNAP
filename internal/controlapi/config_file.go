@@ -216,7 +216,7 @@ func applyConfigFile(ctx context.Context, configPath, revision string, payload [
 		return "", fmt.Errorf("config revision conflict")
 	}
 
-	current, err := config.Load(configPath)
+	current, err := config.LoadRecovery(configPath)
 	if err != nil {
 		return "", err
 	}

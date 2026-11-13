@@ -35,6 +35,7 @@ type Status struct {
 	TUNError         string `json:"tun_error,omitempty"`
 	NFTables         string `json:"nftables"`
 	Forwarding       string `json:"forwarding"`
+	LeaseError       string `json:"lease_error,omitempty"`
 	ClientCount      int    `json:"client_count"`
 	DNSIPv6          bool   `json:"dns_ipv6"`
 	TUNIPv6Requested string `json:"tun_ipv6_requested"`
@@ -62,9 +63,10 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 		// gateway retains it.
 		desiredRunning = exists
 	}
-	clients, err := device.LoadLeases(m.paths.LeaseFile)
-	if err != nil {
-		return Status{}, err
+	clients, leaseErr := device.LoadLeases(m.paths.LeaseFile)
+	leaseError := ""
+	if leaseErr != nil {
+		leaseError = leaseErr.Error()
 	}
 
 	gatewayStatus := "stopped"
@@ -253,6 +255,7 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 		TUNError:         tunError,
 		NFTables:         nftStatus,
 		Forwarding:       forwarding,
+		LeaseError:       leaseError,
 		ClientCount:      len(clients),
 		DNSIPv6:          dnsIPv6,
 		TUNIPv6Requested: tunIPv6Requested,
@@ -333,6 +336,9 @@ func (s Status) Format() string {
 	}
 	if s.DHCPEnabled {
 		lines = append(lines, fmt.Sprintf("DHCP: %s", s.DHCP))
+	}
+	if s.LeaseError != "" {
+		lines = append(lines, "Lease warning: "+s.LeaseError)
 	}
 	if s.RoutingError != "" {
 		lines = append(lines, fmt.Sprintf("Policy routing error: %s", s.RoutingError))

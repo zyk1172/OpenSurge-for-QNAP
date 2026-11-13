@@ -22,6 +22,29 @@ func LoadRuntime(path string) (Config, error) {
 }
 
 func load(path string, loadDevicePolicy bool) (Config, error) {
+	cfg, err := LoadRecovery(path)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := Normalize(&cfg); err != nil {
+		return Config{}, err
+	}
+	if loadDevicePolicy {
+		if err := PrepareDevicePolicy(&cfg); err != nil {
+			return Config{}, err
+		}
+	}
+	if err := validate(cfg, loadDevicePolicy); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// LoadRecovery parses persisted configuration without validating the next
+// deployment or reading mutable policy drafts. Recovery callers must validate
+// their actual targets and retain trusted-path and resource-ownership checks.
+// Syntax, unknown fields, typed values and required runtime paths remain strict.
+func LoadRecovery(path string) (Config, error) {
 	cfg := Default()
 
 	file, err := os.Open(path)
@@ -56,16 +79,8 @@ func load(path string, loadDevicePolicy bool) (Config, error) {
 		return Config{}, err
 	}
 	resolveRelativePaths(path, &cfg)
-	if err := Normalize(&cfg); err != nil {
-		return Config{}, err
-	}
-	if loadDevicePolicy {
-		if err := PrepareDevicePolicy(&cfg); err != nil {
-			return Config{}, err
-		}
-	}
-	if err := validate(cfg, loadDevicePolicy); err != nil {
-		return Config{}, err
+	if strings.TrimSpace(cfg.Runtime.Dir) == "" || strings.TrimSpace(cfg.Mihomo.Config) == "" {
+		return Config{}, fmt.Errorf("runtime.dir and mihomo.config are required for recovery")
 	}
 
 	return cfg, nil

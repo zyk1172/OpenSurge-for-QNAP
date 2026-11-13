@@ -56,14 +56,13 @@ RUN set -eux; \
     make -C src -j"$(nproc)"; \
     install -Dm0755 src/smartdns /out/smartdns
 
-# Upstream v1.19.30 binaries were built before several Go dependency security
-# fixes. Rebuild the pinned stable source with patched module versions instead
-# of consuming those release binaries.
+# Rebuild the pinned stable source with the NAS toolchain and dependency
+# security fixes instead of consuming upstream prebuilt release binaries.
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS mihomo-builder
 ARG TARGETOS=linux
 ARG TARGETARCH
-ARG MIHOMO_VERSION=1.19.30
-ARG MIHOMO_COMMIT=ac017cdd246ce8bd547653d927e7bf77d7ee73d5
+ARG MIHOMO_VERSION=1.19.33
+ARG MIHOMO_COMMIT=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
 WORKDIR /src/mihomo
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates git \
@@ -91,8 +90,8 @@ FROM ${DEBIAN_IMAGE} AS runtime
 ARG OPENSURGE_VERSION=dev
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
-ARG MIHOMO_VERSION=1.19.30
-ARG MIHOMO_COMMIT=ac017cdd246ce8bd547653d927e7bf77d7ee73d5
+ARG MIHOMO_VERSION=1.19.33
+ARG MIHOMO_COMMIT=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
 ARG DNSMASQ_VERSION=2.93
 ARG SMARTDNS_VERSION=48.4
 ARG SMARTDNS_COMMIT=21c940edc65520849ba03544c5cf8d9cf326e680

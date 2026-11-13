@@ -45,8 +45,8 @@ func TestSmartDNSProxyWithPinnedMihomo(t *testing.T) {
 		engine = "mihomo"
 	}
 	version, err := exec.Command(engine, "-v").CombinedOutput()
-	if err != nil || !strings.Contains(string(version), "v1.19.30") {
-		t.Fatalf("requires pinned Mihomo v1.19.30: %v %s", err, version)
+	if err != nil || !strings.Contains(string(version), "v1.19.33") {
+		t.Fatalf("requires pinned Mihomo v1.19.33: %v %s", err, version)
 	}
 	addresses, err := net.InterfaceAddrs()
 	if err != nil {
