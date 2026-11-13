@@ -13,6 +13,7 @@ import (
 	"open-mihomo-gateway/internal/config"
 	"open-mihomo-gateway/internal/device"
 	"open-mihomo-gateway/internal/dhcp"
+	"open-mihomo-gateway/internal/logfile"
 	"open-mihomo-gateway/internal/mihomo"
 	"open-mihomo-gateway/internal/platform"
 	"open-mihomo-gateway/internal/platform/factory"
@@ -760,19 +761,22 @@ func (m Manager) warmManagedTailscale(ctx context.Context, deps gatewayDeps) {
 	reportNotice(ctx, "tailscale_warmup_started")
 }
 
-func archiveMihomoLog(path string, now time.Time) (string, error) {
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+func archiveMihomoLog(path string, _ time.Time) (string, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
-	} else if err != nil {
+	}
+	if err != nil {
+		return "", err
+	}
+	if info.Size() == 0 {
+		return "", nil
+	}
+	if err := logfile.Rotate(path, logfile.MaxSize, true); err != nil {
 		return "", err
 	}
 	ext := filepath.Ext(path)
-	base := strings.TrimSuffix(filepath.Base(path), ext)
-	archive := filepath.Join(filepath.Dir(path), fmt.Sprintf("%s-before-restart-%s%s", base, now.UTC().Format("20060102T150405.000000000Z"), ext))
-	if err := os.Rename(path, archive); err != nil {
-		return "", err
-	}
-	return archive, nil
+	return strings.TrimSuffix(path, ext) + "-previous" + ext, nil
 }
 
 func (m Manager) validateReloadCandidate(ctx context.Context) error {

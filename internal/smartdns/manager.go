@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"open-mihomo-gateway/internal/config"
+	"open-mihomo-gateway/internal/logfile"
 	"open-mihomo-gateway/internal/process"
 	"open-mihomo-gateway/internal/runtime"
 )
@@ -196,6 +197,9 @@ func (m Manager) Start() (int, error) {
 	}
 	if err := m.pruneResolverCaches(string(data)); err != nil {
 		return 0, err
+	}
+	if err := logfile.Rotate(m.paths.SmartDNSLog, logfile.MaxSize, true); err != nil {
+		return 0, fmt.Errorf("preserve previous smartdns log: %w", err)
 	}
 	if err := os.WriteFile(m.paths.SmartDNSLog, nil, 0o640); err != nil {
 		return 0, err

@@ -1,6 +1,7 @@
 import { isNASBuild } from '../product'
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
+import { DiagnosticSignals } from '../components/DiagnosticSignals'
 import { PageHeader, SectionTitle, StatusDot } from '../components/Common'
 import type { Diagnostics, DoctorRunStatus, Overview } from '../types'
 import { t } from '../i18n'
@@ -116,10 +117,12 @@ export function DiagnosticsPage({ overview }: { overview: Overview | null }) {
       {connections.length ? <div className="diagnostic-connection-list">{connections.slice(0, 12).map(connection => <div className="diagnostic-connection-row" key={connection.id}><strong>{connection.rule || 'MATCH'}</strong><span>{(connection.chains ?? []).join(' → ') || connection.id.slice(0, 8)}</span></div>)}</div> : <div className="empty">{t('暂无活动连接')}</div>}
     </section>
 
+    <DiagnosticSignals signals={details?.signals} />
+
     <section className="section">
-      <SectionTitle title={t('近期日志')} subtitle={t('最多 80 行 / 进程 · 已脱敏')} />
+      <SectionTitle title={t('近期日志')} subtitle={t('每个进程最多读取 256 KiB，展示末尾 80 行；日志已脱敏。')} />
       <div className="diagnostic-log-list">
-        {Object.entries(details?.logs ?? {}).map(([name, lines]) => <details key={name} className="diagnostic-log-panel"><summary><strong>{name}</strong><span>{t('{{count}} 行', { count: String(lines.length) })}</span></summary><pre>{lines.join('\n') || t('暂无日志输出')}</pre></details>)}
+        {Object.entries(details?.logs ?? {}).map(([name, lines]) => <details key={name} className="diagnostic-log-panel"><summary><strong>{name}</strong><span>{t('{{count}} 行', { count: String(lines.length) })}</span></summary>{details?.log_info?.[name]?.read_error && <p role="alert">{t('日志读取失败：{{error}}', { error: details.log_info[name].read_error ?? '' })}</p>}<pre>{lines.join('\n') || t('暂无日志输出')}</pre></details>)}
         {!Object.keys(details?.logs ?? {}).length && <div className="empty">{t('暂无日志')}</div>}
       </div>
     </section>

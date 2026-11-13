@@ -373,7 +373,8 @@ export type PolicySet = { devices: PolicyDevice[]; profiles: PolicyProfile[]; te
 export type DevicePolicyDocument = { schema_version: number; revision: string; policy: PolicySet }
 
 export type APIError = { error?: { code?: string; message?: string } }
-export type Diagnostics = { schema_version: number; revision: string; connections: { upload_total: number; download_total: number; connections: Array<{ id: string; upload: number; download: number; rule?: string; chains?: string[]; metadata?: Record<string, unknown> }> }; connection_error?: string; logs: Record<string, string[]>; operations: Array<{ id: string; kind: string; state: string; error?: string; created_at: string; updated_at: string }>; recovery: Recovery }
+export type DiagnosticSignal = { emitter: string; kind: string; protocol?: string; source_ip?: string; target?: string; policy?: string; rule?: string; reason: string; count: number }
+export type Diagnostics = { signals?: { sampled_lines: number; connection_failures: number; other_warnings: number; omitted_groups: number; groups: DiagnosticSignal[] }; log_info?: Record<string, { size_bytes: number; sampled_lines: number; truncated: boolean; read_error?: string }>; schema_version: number; revision: string; connections: { upload_total: number; download_total: number; connections: Array<{ id: string; upload: number; download: number; rule?: string; chains?: string[]; metadata?: Record<string, unknown> }> }; connection_error?: string; logs: Record<string, string[]>; operations: Array<{ id: string; kind: string; state: string; error?: string; created_at: string; updated_at: string }>; recovery: Recovery }
 
 export type ConnectionRefreshResult = {
   schema_version: number

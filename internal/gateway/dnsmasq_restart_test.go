@@ -156,7 +156,7 @@ func TestRestartDNSMasqArchivesPreviousLog(t *testing.T) {
 	if err := manager.RestartDNSMasq(context.Background()); err != nil {
 		t.Fatalf("RestartDNSMasq() error = %v", err)
 	}
-	matches, err := filepath.Glob(filepath.Join(filepath.Dir(paths.DNSMasqLog), "dnsmasq-before-restart-*.log"))
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(paths.DNSMasqLog), "dnsmasq-previous.log"))
 	if err != nil {
 		t.Fatal(err)
 	}

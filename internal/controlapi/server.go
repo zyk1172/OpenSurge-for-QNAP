@@ -439,6 +439,8 @@ func controlConfigFrom(cfg config.Config, revision string) ControlConfig {
 }
 
 func (s *Server) Serve(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	listener, err := net.Listen("tcp4", s.addr)
 	if err != nil {
 		return err
@@ -453,6 +455,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	defer s.policyWorkspaceLease.Close()
 	httpServer := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
 	go s.monitorMihomoRecovery(ctx)
+	go s.maintainRuntimeLogs(ctx)
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -2095,31 +2098,14 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 	if connections.Connections == nil {
 		connections.Connections = []mihomo.Connection{}
 	}
-	logs := map[string][]string{
-		"mihomo":  tailLines(paths.MihomoLog, 80, cfg),
-		"dnsmasq": tailLines(paths.DNSMasqLog, 80, cfg),
-	}
+	logs, logInfo, signals := diagnosticLogs(paths, cfg)
 	operations, _ := s.store.Operations(20)
 	recovery, _ := s.store.Recovery()
-	writeJSON(w, http.StatusOK, DiagnosticsResponse{SchemaVersion: SchemaVersion, Revision: fileDigest(s.configPath), Connections: connections, ConnectionError: errorString(connectionErr), Logs: logs, Operations: operations, Recovery: recovery})
+	writeJSON(w, http.StatusOK, DiagnosticsResponse{SchemaVersion: SchemaVersion, Revision: fileDigest(s.configPath), Connections: connections, ConnectionError: errorString(connectionErr), Logs: logs, LogInfo: logInfo, Signals: signals, Operations: operations, Recovery: recovery})
 }
 
 func tailLines(path string, limit int, cfg config.Config) []string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return []string{}
-	}
-	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	if len(lines) > limit {
-		lines = lines[len(lines)-limit:]
-	}
-	for index := range lines {
-		for _, secret := range []string{cfg.Mihomo.Secret, cfg.UpstreamProxy.Password, cfg.UpstreamProxy.Username} {
-			if secret != "" {
-				lines[index] = strings.ReplaceAll(lines[index], secret, "[REDACTED]")
-			}
-		}
-	}
+	lines, _ := readDiagnosticLog(path, limit, cfg)
 	return lines
 }
 
