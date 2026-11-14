@@ -48,6 +48,7 @@ type ConfigurationRunner interface {
 type ProfileApplyResult struct {
 	Revision string
 	Reloaded bool
+	Rollback *ConfigurationRollback
 }
 
 // Candidate starts fit inside the existing Helper and Web deadlines. The
@@ -115,27 +116,29 @@ type HelperClient struct {
 }
 
 type HelperRequest struct {
-	Action         string                     `json:"action"`
-	ConfigPath     string                     `json:"config_path"`
-	Manual         *macosnetwork.ManualConfig `json:"manual,omitempty"`
-	NetworkService string                     `json:"network_service,omitempty"`
-	Interface      string                     `json:"interface,omitempty"`
-	TimeoutMillis  int                        `json:"timeout_millis,omitempty"`
-	Revision       string                     `json:"revision,omitempty"`
-	Payload        []byte                     `json:"payload,omitempty"`
-	SourceDigest   string                     `json:"source_digest,omitempty"`
-	OverlayDigest  string                     `json:"overlay_digest,omitempty"`
+	Action             string                     `json:"action"`
+	ConfigPath         string                     `json:"config_path"`
+	Manual             *macosnetwork.ManualConfig `json:"manual,omitempty"`
+	NetworkService     string                     `json:"network_service,omitempty"`
+	Interface          string                     `json:"interface,omitempty"`
+	TimeoutMillis      int                        `json:"timeout_millis,omitempty"`
+	Revision           string                     `json:"revision,omitempty"`
+	Payload            []byte                     `json:"payload,omitempty"`
+	SourceDigest       string                     `json:"source_digest,omitempty"`
+	OverlayDigest      string                     `json:"overlay_digest,omitempty"`
 	WatchProgress      bool                       `json:"watch_progress,omitempty"`
 	WatchPolicyResults bool                       `json:"watch_policy_results,omitempty"`
 	Workspace          *PolicyWorkspaceInput      `json:"workspace,omitempty"`
 }
 
 type HelperResponse struct {
-	OK          bool                     `json:"ok"`
-	Error       string                   `json:"error,omitempty"`
-	DHCPServers []string                 `json:"dhcp_servers,omitempty"`
-	Revision    string                   `json:"revision,omitempty"`
-	Reloaded    bool                     `json:"reloaded,omitempty"`
+	ReloadPhase  gateway.ReloadPhase      `json:"reload_phase,omitempty"`
+	Rollback     *ConfigurationRollback   `json:"rollback,omitempty"`
+	OK           bool                     `json:"ok"`
+	Error        string                   `json:"error,omitempty"`
+	DHCPServers  []string                 `json:"dhcp_servers,omitempty"`
+	Revision     string                   `json:"revision,omitempty"`
+	Reloaded     bool                     `json:"reloaded,omitempty"`
 	Progress     *gateway.Progress        `json:"progress,omitempty"`
 	Workspace    *PolicyWorkspaceResponse `json:"workspace,omitempty"`
 	PolicyResult *mihomo.ProxyDelayResult `json:"policy_result,omitempty"`
@@ -168,7 +171,7 @@ func (c HelperClient) ProbeDHCP(ctx context.Context, configPath, interfaceName s
 
 func (c HelperClient) ApplyProfile(ctx context.Context, configPath, revision string, payload []byte, sourceDigest, overlayDigest string) (ProfileApplyResult, error) {
 	response, err := c.call(ctx, HelperRequest{Action: "config-apply-profile", ConfigPath: configPath, Revision: revision, Payload: payload, SourceDigest: sourceDigest, OverlayDigest: overlayDigest})
-	return ProfileApplyResult{Revision: response.Revision, Reloaded: response.Reloaded}, err
+	return ProfileApplyResult{Revision: response.Revision, Reloaded: response.Reloaded, Rollback: response.Rollback}, err
 }
 
 func (c HelperClient) ApplyDevicePolicy(ctx context.Context, configPath, revision string, payload []byte) (string, error) {
@@ -188,7 +191,7 @@ func (c HelperClient) ApplyConfigFile(ctx context.Context, configPath, revision 
 
 func (c HelperClient) ApplyTailscale(ctx context.Context, configPath, revision string, payload []byte) (ProfileApplyResult, error) {
 	response, err := c.call(ctx, HelperRequest{Action: "config-apply-tailscale", ConfigPath: configPath, Revision: revision, Payload: payload})
-	return ProfileApplyResult{Revision: response.Revision, Reloaded: response.Reloaded}, err
+	return ProfileApplyResult{Revision: response.Revision, Reloaded: response.Reloaded, Rollback: response.Rollback}, err
 }
 
 func (c HelperClient) ForgetTailscaleIdentity(ctx context.Context, configPath, revision string) (string, error) {
@@ -235,7 +238,11 @@ func (c HelperClient) call(ctx context.Context, request HelperRequest) (HelperRe
 			continue
 		}
 		if !response.OK {
-			return HelperResponse{}, fmt.Errorf("%s", response.Error)
+			var err error = errors.New(response.Error)
+			if response.ReloadPhase != "" {
+				err = &helperReloadError{message: response.Error, phase: response.ReloadPhase}
+			}
+			return response, err
 		}
 		return response, nil
 	}
@@ -338,8 +345,11 @@ func handleHelperConnWithManagers(ctx context.Context, conn net.Conn, allowedRoo
 	if err == nil {
 		err = requireTrustedRuntime(cfg, allowedRoot)
 	}
-	if err == nil && (request.Action == "start" || request.Action == "reload" || request.Action == "restart-mihomo" || request.Action == "config-apply-profile" || request.Action == "config-apply-file" || request.Action == "config-apply-tailscale") {
+	if err == nil && (request.Action == "start" || request.Action == "reload" || request.Action == "config-apply-profile" || request.Action == "config-apply-file" || request.Action == "config-apply-tailscale") {
 		err = requireTrustedStartInputs(cfg, allowedRoot)
+	}
+	if err == nil && request.Action == "restart-mihomo" {
+		err = requireTrustedRestartInputs(cfg, allowedRoot)
 	}
 	if err == nil && request.Action == "policy-workspace" {
 		if _, exists, stateErr := runtime.LoadState(runtime.NewPaths(cfg).StateFile); stateErr != nil {
@@ -468,7 +478,7 @@ func handleHelperConnWithManagers(ctx context.Context, conn net.Conn, allowedRoo
 				err = runner.SetDHCP(ctx, configPath, request.NetworkService)
 			}
 		case "dhcp-probe":
-			if request.Interface != cfg.Gateway.Interface {
+			if strings.TrimSpace(request.Interface) == "" || request.Interface != cfg.Gateway.Interface {
 				err = fmt.Errorf("DHCP probe interface does not match configured gateway interface")
 			} else {
 				timeout := time.Duration(request.TimeoutMillis) * time.Millisecond
@@ -480,6 +490,7 @@ func handleHelperConnWithManagers(ctx context.Context, conn net.Conn, allowedRoo
 		case "config-apply-profile":
 			result, applyErr := runner.ApplyProfile(ctx, configPath, request.Revision, request.Payload, request.SourceDigest, request.OverlayDigest)
 			response.Revision, response.Reloaded, err = result.Revision, result.Reloaded, applyErr
+			response.Rollback = result.Rollback
 		case "config-apply-device-policy":
 			response.Revision, err = runner.ApplyDevicePolicy(ctx, configPath, request.Revision, request.Payload)
 		case "config-apply-control":
@@ -489,6 +500,7 @@ func handleHelperConnWithManagers(ctx context.Context, conn net.Conn, allowedRoo
 		case "config-apply-tailscale":
 			result, applyErr := runner.ApplyTailscale(ctx, configPath, request.Revision, request.Payload)
 			response.Revision, response.Reloaded, err = result.Revision, result.Reloaded, applyErr
+			response.Rollback = result.Rollback
 		case "config-forget-tailscale-identity":
 			response.Revision, err = runner.ForgetTailscaleIdentity(ctx, configPath, request.Revision)
 		}
@@ -496,6 +508,10 @@ func handleHelperConnWithManagers(ctx context.Context, conn net.Conn, allowedRoo
 	response.OK = err == nil
 	if err != nil {
 		response.Error = err.Error()
+		var reloadErr *gateway.ReloadError
+		if errors.As(err, &reloadErr) {
+			response.ReloadPhase = reloadErr.Phase
+		}
 	}
 	_ = json.NewEncoder(conn).Encode(response)
 }
@@ -526,7 +542,10 @@ func retrySystemSleepRelease(ctx context.Context, manager *systemSleepLeaseManag
 }
 
 func loadHelperConfig(action, configPath string) (config.Config, error) {
-	if action == "stop" || action == "restart-mihomo" || action == "policy-workspace" || action == "policy-workspace-hold" {
+	if action == "stop" || action == "config-apply-control" || action == "config-apply-file" || action == "network-set-dhcp" || action == "dhcp-probe" {
+		return config.LoadRecovery(configPath)
+	}
+	if action == "restart-mihomo" || action == "policy-workspace" || action == "policy-workspace-hold" {
 		return config.LoadRuntime(configPath)
 	}
 	return config.Load(configPath)
@@ -571,7 +590,7 @@ func helperGatewayLifecycleAction(action string) bool {
 }
 
 func validateHelperNetworkTarget(ctx context.Context, cfg config.Config, service, interfaceName string) error {
-	if interfaceName != cfg.Gateway.Interface {
+	if strings.TrimSpace(interfaceName) == "" || interfaceName != cfg.Gateway.Interface {
 		return fmt.Errorf("network interface does not match configured gateway interface")
 	}
 	actual, err := macosnetwork.ServiceInterface(ctx, service)
@@ -668,6 +687,18 @@ func requireTrustedStartInputs(cfg config.Config, allowedRoot string) error {
 		}
 	}
 	return nil
+}
+
+// A narrow restart consumes the rendered core config, profile and tsnet state.
+// DHCP binaries and mutable next-policy drafts are not inputs to that action.
+func requireTrustedRestartInputs(cfg config.Config, allowedRoot string) error {
+	if err := requireTrustedFile(cfg.Mihomo.Config, allowedRoot, false); err != nil {
+		return fmt.Errorf("mihomo.config: %w", err)
+	}
+	restart := cfg
+	restart.DHCP.Enabled = false
+	restart.DevicePolicy.File = ""
+	return requireTrustedStartInputs(restart, allowedRoot)
 }
 
 // A prepared engine consumes the final proxy graph, but never starts DHCP or

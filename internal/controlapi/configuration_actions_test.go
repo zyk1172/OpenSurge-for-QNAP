@@ -102,6 +102,7 @@ func TestApplyProfileRestoresPreviousConfigAndGatewayAfterReloadFailure(t *testi
 	stateChecks := 0
 	restarted := false
 	deps := profileApplyDeps{
+		status:   func(context.Context, config.Config) (gateway.Status, error) { return healthyReloadStatus(), nil },
 		geteuid:  func() int { return 0 },
 		validate: func(config.Config) error { return nil },
 		stateExists: func(config.Config) (bool, error) {
@@ -109,7 +110,7 @@ func TestApplyProfileRestoresPreviousConfigAndGatewayAfterReloadFailure(t *testi
 			return stateChecks == 1, nil
 		},
 		reload: func(context.Context, config.Config) error {
-			return errors.New("reload start failed after gateway stop: candidate failed")
+			return &gateway.ReloadError{Phase: gateway.ReloadStart, Err: errors.New("candidate failed")}
 		},
 		start: func(_ context.Context, previous config.Config) error {
 			restarted = true

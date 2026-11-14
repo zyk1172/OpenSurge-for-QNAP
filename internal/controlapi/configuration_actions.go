@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/netip"
@@ -27,6 +28,7 @@ type profileApplyDeps struct {
 	stateExists func(config.Config) (bool, error)
 	reload      func(context.Context, config.Config) error
 	start       func(context.Context, config.Config) error
+	status      func(context.Context, config.Config) (gateway.Status, error)
 }
 
 func defaultLockedProfileApplyDeps() profileApplyDeps {
@@ -52,6 +54,9 @@ func defaultLockedProfileApplyDeps() profileApplyDeps {
 		},
 		reload: func(ctx context.Context, cfg config.Config) error { return gateway.New(cfg).ReloadLocked(ctx) },
 		start:  func(ctx context.Context, cfg config.Config) error { return gateway.New(cfg).StartLocked(ctx) },
+		status: func(ctx context.Context, cfg config.Config) (gateway.Status, error) {
+			return gateway.New(cfg).Status(ctx)
+		},
 	}
 }
 
@@ -137,17 +142,13 @@ func applyProfile(ctx context.Context, configPath, revision string, payload []by
 	if err := deps.reload(ctx, cfg); err != nil {
 		gateway.ReportProgress(ctx, "restoring_config")
 		rollbackErr := writeAtomic(configPath, original, 0o640)
-		var restartErr error
-		if rollbackErr == nil {
-			stillRunning, stateErr := deps.stateExists(previousCfg)
-			if stateErr != nil {
-				rollbackErr = fmt.Errorf("inspect gateway after failed reload: %w", stateErr)
-			} else if !stillRunning {
-				restartErr = deps.start(ctx, previousCfg)
-			}
+		rollback, recoveryErr := restorePreviousGateway(ctx, previousCfg, rollbackErr == nil, err, deps)
+		// A residual candidate may still own its config and runtime. Keep its
+		// files until cleanup or restoration of the old gateway is confirmed.
+		if rollback.ConfigRestored && (rollback.PreviousGatewayReady || rollback.GatewayState == "stopped") {
+			cleanupProfile()
 		}
-		cleanupProfile()
-		return ProfileApplyResult{}, profileApplyRollbackError(err, rollbackErr, restartErr)
+		return ProfileApplyResult{Rollback: rollback}, configurationRollbackError("profile", err, rollbackErr, recoveryErr, rollback)
 	}
 	result.Reloaded = true
 	return result, nil
@@ -259,17 +260,9 @@ func applyTailscale(ctx context.Context, configPath, revision string, payload []
 	if err := deps.reload(ctx, cfg); err != nil {
 		gateway.ReportProgress(ctx, "restoring_config")
 		rollbackErr := writeAtomic(configPath, original, 0o640)
-		rollbackKey()
-		var restartErr error
-		if rollbackErr == nil {
-			stillRunning, stateErr := deps.stateExists(previousCfg)
-			if stateErr != nil {
-				rollbackErr = fmt.Errorf("inspect gateway after failed reload: %w", stateErr)
-			} else if !stillRunning {
-				restartErr = deps.start(ctx, previousCfg)
-			}
-		}
-		return ProfileApplyResult{}, tailscaleApplyRollbackError(err, rollbackErr, restartErr)
+		rollbackErr = errors.Join(rollbackErr, restoreFile(authKeyPath, authSnapshot))
+		rollback, recoveryErr := restorePreviousGateway(ctx, previousCfg, rollbackErr == nil, err, deps)
+		return ProfileApplyResult{Rollback: rollback}, configurationRollbackError("Tailscale", err, rollbackErr, recoveryErr, rollback)
 	}
 	result.Reloaded = true
 	return result, nil
@@ -393,21 +386,6 @@ func restoreFile(path string, snapshot fileSnapshot) error {
 	return writeAtomic(path, snapshot.data, snapshot.mode)
 }
 
-func tailscaleApplyRollbackError(reloadErr, rollbackErr, restartErr error) error {
-	message := fmt.Sprintf("apply Tailscale reload failed: %v", reloadErr)
-	if rollbackErr != nil {
-		message += fmt.Sprintf("; restore previous config failed: %v", rollbackErr)
-	} else {
-		message += "; previous config and auth key restored"
-	}
-	if restartErr != nil {
-		message += fmt.Sprintf("; restart previous gateway failed: %v", restartErr)
-	} else if rollbackErr == nil {
-		message += "; previous running gateway preserved or restored"
-	}
-	return fmt.Errorf("%s", message)
-}
-
 func (DirectRunner) ForgetTailscaleIdentity(_ context.Context, configPath, revision string) (string, error) {
 	if os.Geteuid() != 0 {
 		return "", fmt.Errorf("privileged helper is required")
@@ -469,21 +447,6 @@ func validProfileCompositionDigest(value string) bool {
 	}
 	_, err := hex.DecodeString(value)
 	return err == nil && strings.ToLower(value) == value
-}
-
-func profileApplyRollbackError(reloadErr, rollbackErr, restartErr error) error {
-	message := fmt.Sprintf("apply profile reload failed: %v", reloadErr)
-	if rollbackErr != nil {
-		message += fmt.Sprintf("; restore previous config failed: %v", rollbackErr)
-	} else {
-		message += "; previous config restored"
-	}
-	if restartErr != nil {
-		message += fmt.Sprintf("; restart previous gateway failed: %v", restartErr)
-	} else if rollbackErr == nil {
-		message += "; previous running gateway preserved or restored"
-	}
-	return fmt.Errorf("%s", message)
 }
 
 func (DirectRunner) ApplyDevicePolicy(ctx context.Context, configPath, revision string, payload []byte) (string, error) {
@@ -584,12 +547,12 @@ func (DirectRunner) ApplyControlConfig(_ context.Context, configPath, revision s
 }
 
 func withConfigurationLifecycleLock(configPath string, run func() error) error {
-	lockConfig, err := config.LoadRuntime(configPath)
+	lockConfig, err := config.LoadRecovery(configPath)
 	if err != nil {
 		return err
 	}
 	return runtime.WithLifecycleLock(lockConfig, func() error {
-		current, err := config.LoadRuntime(configPath)
+		current, err := config.LoadRecovery(configPath)
 		if err != nil {
 			return err
 		}
@@ -613,7 +576,7 @@ func applyControlConfig(configPath, revision string, payload []byte) (string, er
 	if err := decoder.Decode(&input); err != nil {
 		return "", err
 	}
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadRecovery(configPath)
 	if err != nil {
 		return "", err
 	}

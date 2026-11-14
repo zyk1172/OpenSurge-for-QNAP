@@ -354,7 +354,7 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) handleControlConfig(w http.ResponseWriter, r *http.Request) {
-	cfg, err := config.Load(s.configPath)
+	cfg, err := config.LoadRecovery(s.configPath)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "config_invalid", err.Error())
 		return
@@ -597,7 +597,11 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 func (s *Server) overview(ctx context.Context) (Overview, error) {
 	cfg, desiredErr := config.Load(s.configPath)
 	if desiredErr != nil {
-		cfg, _ = config.LoadRuntime(s.configPath)
+		var recoveryErr error
+		cfg, recoveryErr = config.LoadRecovery(s.configPath)
+		if recoveryErr != nil {
+			return Overview{}, recoveryErr
+		}
 	}
 	status, statusErr := s.gatewayStatus(ctx, cfg)
 	revision := fileDigest(s.configPath)
@@ -847,7 +851,11 @@ func (s *Server) handleGatewayAction(w http.ResponseWriter, r *http.Request) {
 			s.lifecycleMu.Unlock()
 		}
 	}()
-	cfg, err := config.LoadRuntime(s.configPath)
+	load := config.LoadRuntime
+	if action == "stop" {
+		load = config.LoadRecovery
+	}
+	cfg, err := load(s.configPath)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "config_invalid", err.Error())
 		return
@@ -1003,27 +1011,40 @@ func (s *Server) recordStartRecoveryFailure(topology string, recoveryBefore Reco
 	_ = s.store.SaveRecovery(recoveryBefore)
 }
 
-func (s *Server) recordReloadRecoveryFailure(topology string, recoveryBefore RecoveryState, reloadErr error) {
-	if topology != config.GatewayModeSameWiFiDHCP || strings.Contains(reloadErr.Error(), "reload stop failed") {
+func (s *Server) recordReloadRecoveryFailure(topology string, before RecoveryState, reloadErr error, rollbacks ...*ConfigurationRollback) {
+	if topology != config.GatewayModeSameWiFiDHCP {
 		return
 	}
-	cfg, err := config.LoadRuntime(s.configPath)
-	if err != nil {
-		return
+	before.Topology, before.Required = topology, true
+	var failure *gateway.ReloadError
+	stopFailed := errors.As(reloadErr, &failure) && failure.Phase == gateway.ReloadStop
+	finalState := "unknown"
+	if cfg, err := config.LoadRecovery(s.configPath); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		status, statusErr := s.gatewayStatus(ctx, cfg)
+		cancel()
+		finalState = reloadGatewayState(status, statusErr)
+		if _, exists, err := runtime.LoadState(runtime.NewPaths(cfg).StateFile); (err != nil || exists) && finalState == "stopped" {
+			finalState = "unknown"
+		}
 	}
-	_, exists, stateErr := runtime.LoadState(runtime.NewPaths(cfg).StateFile)
-	restartFailed := strings.Contains(reloadErr.Error(), "reload start failed after gateway stop")
-	if stateErr != nil || (!restartFailed && exists) {
-		return
+	note := "gateway reload failed; final gateway health is unconfirmed; inspect runtime before retrying"
+	switch {
+	case stopFailed:
+		note = "gateway reload stop failed; cleanup must be completed before retrying start or recovering the LAN"
+	case finalState == "running":
+		note = "gateway reload failed; running gateway observed; previous applied configuration is unconfirmed; DHCP takeover stage preserved"
+		if len(rollbacks) > 0 && rollbacks[0] != nil && rollbacks[0].PreviousGatewayReady {
+			note = "gateway reload failed; previous config and healthy gateway restored; DHCP takeover stage preserved"
+		}
+	case finalState == "stopped":
+		before.Stage = RecoveryRouterDHCPDisabledConfirmed
+		note = "gateway reload failed after services stopped; router DHCP remains disabled; retry start or recover the LAN"
+	case finalState == "degraded":
+		note = "gateway reload failed; degraded runtime remains; stop and complete cleanup before retrying start or recovering the LAN"
 	}
-	recoveryBefore.Topology = topology
-	recoveryBefore.Stage = RecoveryRouterDHCPDisabledConfirmed
-	recoveryBefore.Required = true
-	if recoveryBefore.RecoveryNotes != "" {
-		recoveryBefore.RecoveryNotes += "; "
-	}
-	recoveryBefore.RecoveryNotes += "gateway reload failed after services stopped; router DHCP remains disabled; retry start or recover the LAN"
-	_ = s.store.SaveRecovery(recoveryBefore)
+	appendRecoveryNote(&before, note+": "+reloadErr.Error())
+	_ = s.store.SaveRecovery(before)
 }
 
 func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
@@ -1726,7 +1747,7 @@ func (s *Server) handleSourceApply(w http.ResponseWriter, r *http.Request) {
 	s.finishOperation(operation, err)
 	if err != nil {
 		if gatewayActive {
-			s.recordReloadRecoveryFailure(cfg.Gateway.Mode, recovery, err)
+			s.recordReloadRecoveryFailure(cfg.Gateway.Mode, recovery, err, result.Rollback)
 		}
 		status := http.StatusInternalServerError
 		code := "config_apply_failed"
@@ -1739,7 +1760,7 @@ func (s *Server) handleSourceApply(w http.ResponseWriter, r *http.Request) {
 		} else if strings.Contains(err.Error(), "did not reload the selected profile") {
 			status, code = http.StatusInternalServerError, "profile_reload_incomplete"
 		}
-		writeError(w, status, code, err.Error())
+		writeConfigurationError(w, status, code, err, result.Rollback)
 		return
 	}
 	sources, _ := s.store.Sources()

@@ -100,6 +100,9 @@ func run(args []string) int {
 	}
 
 	loadConfig := config.LoadRuntime
+	if command == "status" || command == "doctor" || command == "logs" || command == "leases" || command == "snapshot" {
+		loadConfig = config.LoadRecovery
+	}
 	if commandRequiresDesiredPolicy(command) {
 		loadConfig = config.Load
 	}

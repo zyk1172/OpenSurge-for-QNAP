@@ -404,7 +404,7 @@ func (m Manager) startWithCommit(ctx context.Context, commit func() error) error
 	if err := ctx.Err(); err != nil {
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
-	mihomoPID, err := mihomoManager.Start()
+	mihomoPID, err := startMihomoContext(ctx, mihomoManager)
 	if err != nil {
 		return m.rollback(ctx, err, state, backend, dhcpManager, mihomoManager, smartDNSManager)
 	}
@@ -608,13 +608,13 @@ func (m Manager) reload(ctx context.Context) error {
 		return fmt.Errorf("gateway is degraded; reload requires SmartDNS, mihomo, and enabled DHCP to be running")
 	}
 	if err := m.validateReloadCandidate(ctx); err != nil {
-		return fmt.Errorf("reload candidate validation failed: %w", err)
+		return &ReloadError{Phase: ReloadValidation, Err: err}
 	}
 	if err := m.stop(ctx); err != nil {
-		return fmt.Errorf("reload stop failed: %w", err)
+		return &ReloadError{Phase: ReloadStop, Err: err}
 	}
 	if err := m.start(ctx); err != nil {
-		return fmt.Errorf("reload start failed after gateway stop: %w", err)
+		return &ReloadError{Phase: ReloadStart, Err: err}
 	}
 	return nil
 }
@@ -698,7 +698,7 @@ func (m Manager) restartMihomo(ctx context.Context) error {
 		return fmt.Errorf("archive mihomo log before restart: %w", err)
 	}
 	ReportProgress(ctx, "starting_mihomo")
-	newPID, err := mihomoManager.Start()
+	newPID, err := startMihomoContext(ctx, mihomoManager)
 	if err != nil {
 		return fmt.Errorf("start replacement mihomo process: %w", err)
 	}
@@ -855,34 +855,33 @@ func (m Manager) stop(ctx context.Context) error {
 	if deps.geteuid() != 0 {
 		return fmt.Errorf("stop requires root privileges")
 	}
-	if err := m.stopPreparedEngine(deps); err != nil {
-		return err
-	}
+	// An unresolved prepared process must not prevent independent, owned
+	// gateway resources from being cleaned. Keep the error and retry journal.
+	cleanupErr := m.stopPreparedEngine(deps)
 	state, exists, err := deps.loadState(m.paths.StateFile)
 	if err != nil {
-		return err
+		return errors.Join(cleanupErr, err)
 	}
 	if exists {
 		bootSession, bootErr := currentBoot(deps)
 		if bootErr != nil {
-			return fmt.Errorf("determine current boot session: %w", bootErr)
+			return errors.Join(cleanupErr, fmt.Errorf("determine current boot session: %w", bootErr))
 		}
 		if !state.BelongsToBoot(bootSession) {
-			return m.cleanupInterruptedRuntime(ctx, deps, state)
+			return errors.Join(cleanupErr, m.cleanupInterruptedRuntime(ctx, deps, state))
 		}
 	}
 	backend, err := m.backend()
 	if err != nil {
-		return err
+		return errors.Join(cleanupErr, err)
 	}
-	var cleanupErr error
 	if exists {
 		if state.NetworkSnapshot == nil && (state.ForwardingApplied || state.NATApplied || state.RoutingApplied) {
-			return fmt.Errorf("runtime state records applied network changes but has no network snapshot; refusing blind cleanup")
+			return errors.Join(cleanupErr, fmt.Errorf("runtime state records applied network changes but has no network snapshot; refusing blind cleanup"))
 		}
 		state.Lifecycle = "stopping"
 		if err := deps.saveState(m.paths.StateFile, state); err != nil {
-			return fmt.Errorf("mark gateway teardown before stopping services: %w", err)
+			return errors.Join(cleanupErr, fmt.Errorf("mark gateway teardown before stopping services: %w", err))
 		}
 		// Stop the LAN DNS front door first so no new client can receive an
 		// answer while the network data plane is being dismantled.
@@ -1051,4 +1050,18 @@ func (m Manager) rollback(ctx context.Context, cause error, state runtime.State,
 		return fmt.Errorf("%w; rollback cleanup failed: %v", cause, cleanupErr)
 	}
 	return cause
+}
+
+// Production engines observe the lifecycle budget. Existing test doubles and
+// services without a contextual starter retain their narrow Start contract.
+func startMihomoContext(ctx context.Context, engine mihomoService) (int, error) {
+	if contextual, ok := engine.(interface {
+		StartContext(context.Context) (int, error)
+	}); ok {
+		return contextual.StartContext(ctx)
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return engine.Start()
 }

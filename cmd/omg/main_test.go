@@ -686,7 +686,8 @@ runtime:
 
 	var payload struct {
 		Status struct {
-			Error string `json:"error"`
+			Error      string `json:"error"`
+			LeaseError string `json:"lease_error"`
 		} `json:"status"`
 		Leases struct {
 			Clients []any  `json:"clients"`
@@ -696,7 +697,7 @@ runtime:
 	if err := json.Unmarshal([]byte(output), &payload); err != nil {
 		t.Fatalf("snapshot json invalid: %v\n%s", err, output)
 	}
-	if !strings.Contains(payload.Status.Error, "expected dnsmasq lease fields") {
+	if payload.Status.Error != "" || !strings.Contains(payload.Status.LeaseError, "expected dnsmasq lease fields") {
 		t.Fatalf("status error = %q", payload.Status.Error)
 	}
 	if len(payload.Leases.Clients) != 0 || !strings.Contains(payload.Leases.Error, "expected dnsmasq lease fields") {

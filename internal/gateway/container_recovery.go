@@ -21,7 +21,11 @@ type Readiness struct {
 // writes true before bringing the data plane up. This makes container restart
 // recovery distinguishable from an intentionally stopped gateway.
 func SetDesiredRunningConfig(configPath string, running bool) error {
-	cfg, err := config.LoadRuntime(configPath)
+	load := config.LoadRuntime
+	if !running {
+		load = config.LoadRecovery
+	}
+	cfg, err := load(configPath)
 	if err != nil {
 		return err
 	}

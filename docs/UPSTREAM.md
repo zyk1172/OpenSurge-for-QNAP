@@ -53,6 +53,14 @@
 3. macOS 专属的 `pf`、AppKit/SwiftUI、launchd、BPF IPv6、PKG/notarization 改动不直接 cherry-pick。
 4. 每次同步都应记录原始 upstream commit，便于审计和后续追踪。
 
+### 2026-11：恢复流程与 Linux 核心移植
+
+本次按语义移植上游 PR #100、#109 的重载恢复与恢复专用配置读取，
+并把 NAS Docker 核心升级至 Mihomo 1.19.33；保留 NAS 的 SmartDNS、
+Linux 路由、namespace ownership 和安全依赖重建方式。
+原始提交、平台边界与验证方法见
+[恢复与核心移植记录](upstream-recovery-core-port.zh-CN.md)。
+
 ## 5. 当前已经实现的主要差异
 
 | 维度 | 上游（macOS） | 当前 QNAP/Linux fork |

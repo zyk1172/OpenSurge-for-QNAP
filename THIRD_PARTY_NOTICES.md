@@ -14,18 +14,19 @@ libraries retain their own upstream licenses.
 
 - Upstream: <https://github.com/MetaCubeX/mihomo>
 - License: `GPL-3.0-only`
-- Version: `1.19.30`
-- Patched: **No.** The Linux/QNAP image uses unmodified upstream mihomo. The
-  macOS-only `opensurge-packet` patch from the original project is not applied.
-- Release source: <https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.30>
-- `linux/amd64` asset: `mihomo-linux-amd64-compatible-v1.19.30.gz`
-  - SHA-256: `db214c7a2517e63c150d123178d16d102e03a241ccdae4e5e07ffbe9cf56c6f9`
-- `linux/arm64` asset: `mihomo-linux-arm64-v1.19.30.gz`
-  - SHA-256: `58896873736d28628f66de3677c8654fa0f180662523148e136cff4f6e890069`
+- Version: `1.19.33+opensurge-security`
+- Source: <https://github.com/MetaCubeX/mihomo/tree/3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8>
+- Distributed form: rebuilt from the exact `v1.19.33` commit for Linux amd64/arm64
+  with Go 1.26.11 and updated `x/crypto`, `x/net` and `klauspost/compress`
+  plus Brotli and DHCP dependencies pinned in `scripts/build-nas-mihomo.sh`. This is not the upstream
+  prebuilt release binary. The macOS-only `opensurge-packet` patch is not applied.
+- Release notes: <https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.33>
 
-`docker/Dockerfile` verifies the selected release asset checksum before
-installing `/usr/local/bin/mihomo`. The applicable GPL text is included in the
-image under `/usr/share/opensurge/licenses/`.
+The build verifies the source commit before compilation. The applicable GPL
+text is included under `/usr/share/opensurge/licenses/` in the image. The
+namespace integration fixture builds the same verified source commit with
+the same security dependency script as Docker; it does not substitute an
+upstream prebuilt binary.
 
 ### dnsmasq
 
