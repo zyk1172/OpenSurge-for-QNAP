@@ -190,7 +190,7 @@ export function QNAPNetworkPage({
         proxy: cfg.dns.resolver_proxy_enabled || false,
         target: cfg.dns.resolver_proxy_target?.trim() || '',
         mihomo: cfg.dns.mihomo_use_smartdns || false,
-        upstreams: (cfg.dns.resolver_upstreams || []).map(upstream => ({ address: upstream.address.trim(), bootstrap_ipv4: upstream.bootstrap_ipv4?.trim() || '' })),
+        upstreams: (cfg.dns.resolver_upstreams || []).map(upstream => ({ address: upstream.address.trim(), bootstrap_ipv4: upstream.bootstrap_ipv4?.trim() || '', proxy_route: upstream.proxy_route || 'inherit' })),
         nodeUpstreams: (cfg.dns.proxy_node_upstreams || []).map(upstream => ({ address: upstream.address.trim(), bootstrap_ipv4: upstream.bootstrap_ipv4?.trim() || '' })),
       })
       if (resolverSnapshot(ipv4OnlyDraft) !== resolverSnapshot(reread)) throw new Error(t('上游 DNS 保存后校验失败，请重新读取配置。'))
@@ -372,6 +372,7 @@ export function QNAPNetworkPage({
               <FormField label="固定连接 IPv4（加密上游必填）">
                 <input aria-label={`${t('固定连接 IPv4')} ${index + 1}`} value={upstream.bootstrap_ipv4 || ''} disabled={busy} inputMode="decimal" placeholder="1.1.1.1" onChange={event => updateResolver(index, { bootstrap_ipv4: event.target.value })} />
               </FormField>
+              <FormField label="该上游 DNS 的网络出口"><select aria-label={`上游 DNS ${index + 1} 网络出口`} disabled={busy} value={upstream.proxy_route || "inherit"} onChange={event => updateResolver(index, { proxy_route: event.target.value as "inherit" | "direct" | "proxy" })}><option value="inherit">跟随全局 DNS 代理开关</option><option value="direct">始终直连</option><option value="proxy" disabled={!draft.dns.resolver_proxy_enabled}>使用 DNS 代理</option></select></FormField>
               <div className="ui-actions"><button className="ui-button ui-button--danger" type="button" disabled={busy} onClick={() => patch({ dns: { ...draft.dns, resolver_upstreams: resolverUpstreams.filter((_, at) => at !== index) } })}>{t('移除上游')} · {index + 1}</button></div>
             </article>)}
           </div>
