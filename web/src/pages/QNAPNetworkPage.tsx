@@ -372,7 +372,13 @@ export function QNAPNetworkPage({
               <FormField label="固定连接 IPv4（加密上游必填）">
                 <input aria-label={`${t('固定连接 IPv4')} ${index + 1}`} value={upstream.bootstrap_ipv4 || ''} disabled={busy} inputMode="decimal" placeholder="1.1.1.1" onChange={event => updateResolver(index, { bootstrap_ipv4: event.target.value })} />
               </FormField>
-              <FormField label="该上游 DNS 的网络出口"><select aria-label={`上游 DNS ${index + 1} 网络出口`} disabled={busy} value={upstream.proxy_route || "inherit"} onChange={event => updateResolver(index, { proxy_route: event.target.value as "inherit" | "direct" | "proxy" })}><option value="inherit">跟随全局 DNS 代理开关</option><option value="direct">始终直连</option><option value="proxy" disabled={!draft.dns.resolver_proxy_enabled}>使用 DNS 代理</option></select></FormField>
+              <FormField label="该上游 DNS 的网络出口">
+                <select aria-label={t('上游 DNS {{index}} 网络出口', { index: index + 1 })} disabled={busy} value={upstream.proxy_route || 'inherit'} onChange={event => updateResolver(index, { proxy_route: event.target.value as 'inherit' | 'direct' | 'proxy' })}>
+                  <option value="inherit">{t('跟随全局 DNS 代理开关')}</option>
+                  <option value="direct">{t('始终直连')}</option>
+                  <option value="proxy" disabled={!draft.dns.resolver_proxy_enabled}>{t('使用 DNS 代理')}</option>
+                </select>
+              </FormField>
               <div className="ui-actions"><button className="ui-button ui-button--danger" type="button" disabled={busy} onClick={() => patch({ dns: { ...draft.dns, resolver_upstreams: resolverUpstreams.filter((_, at) => at !== index) } })}>{t('移除上游')} · {index + 1}</button></div>
             </article>)}
           </div>
