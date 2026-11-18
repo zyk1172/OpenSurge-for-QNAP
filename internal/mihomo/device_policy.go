@@ -282,9 +282,23 @@ func composeImportedRules(rules *yaml.Node, preRules, defaultRules []string) err
 		before = rules.Content[:terminalIndex]
 		terminal = rules.Content[terminalIndex:]
 	}
+	// Global provider-backed REJECT rules must precede device catch-all
+	// selectors; otherwise dedicated egress prevents ad blocking entirely.
+	// Preserve the relative order of all other imported rules.
+	var mandatoryReject, remaining []*yaml.Node
+	for _, node := range before {
+		value, ok := scalarStringValue(node)
+		if ok && strings.HasPrefix(strings.TrimSpace(value), "RULE-SET,") &&
+			strings.HasSuffix(strings.ToUpper(strings.TrimSpace(value)), ",REJECT") {
+			mandatoryReject = append(mandatoryReject, node)
+		} else {
+			remaining = append(remaining, node)
+		}
+	}
 	content := make([]*yaml.Node, 0, len(preRules)+len(before)+len(defaultRules)+len(terminal))
+	content = append(content, mandatoryReject...)
 	content = append(content, ruleNodes(preRules)...)
-	content = append(content, before...)
+	content = append(content, remaining...)
 	content = append(content, ruleNodes(defaultRules)...)
 	content = append(content, terminal...)
 	rules.Content = content

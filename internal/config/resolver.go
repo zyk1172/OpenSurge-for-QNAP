@@ -27,6 +27,12 @@ type ResolverEndpoint struct {
 }
 
 func ParseResolverUpstream(upstream ResolverUpstream, cfg Config) (ResolverEndpoint, error) {
+	if upstream.ProxyRoute != "" && upstream.ProxyRoute != "inherit" && upstream.ProxyRoute != "direct" && upstream.ProxyRoute != "proxy" {
+		return ResolverEndpoint{}, fmt.Errorf("resolver proxy_route must be inherit, direct or proxy")
+	}
+	if upstream.ProxyRoute == "proxy" && !cfg.DNS.ResolverProxyEnabled {
+		return ResolverEndpoint{}, fmt.Errorf("resolver proxy_route=proxy requires resolver_proxy_enabled")
+	}
 	address := strings.TrimSpace(upstream.Address)
 	if address == "" || len(address) > 2048 || strings.IndexFunc(address, unicode.IsSpace) >= 0 || strings.ContainsAny(address, "\"'#,|\\") {
 		return ResolverEndpoint{}, fmt.Errorf("resolver upstream must be one DNS address without whitespace or configuration options")

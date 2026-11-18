@@ -1,6 +1,11 @@
 import { registerEnglishMessages } from './i18n'
 
 export const qnapEnglishMessages: Record<string, string> = {
+  '该上游 DNS 的网络出口': 'Network egress for this DNS upstream',
+  '上游 DNS {{index}} 网络出口': 'DNS upstream {{index}} network egress',
+  '跟随全局 DNS 代理开关': 'Follow the global DNS proxy setting',
+  '始终直连': 'Always direct',
+  '使用 DNS 代理': 'Use the DNS proxy',
   '代理节点 DNS（直连）': 'Proxy node DNS (direct)',
   '代理节点 DNS 预设': 'Proxy node DNS preset',
   '添加节点 DNS 预设': 'Add node DNS preset',

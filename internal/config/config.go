@@ -65,6 +65,7 @@ type DHCPConfig struct {
 type ResolverUpstream struct {
 	Address       string `json:"address"`
 	BootstrapIPv4 string `json:"bootstrap_ipv4,omitempty"`
+	ProxyRoute    string `json:"proxy_route,omitempty"` // inherit (default), direct, proxy
 }
 
 type DNSConfig struct {

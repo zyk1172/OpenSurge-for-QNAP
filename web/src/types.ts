@@ -421,4 +421,4 @@ export type ConnectivityResponse = {
 
 export type HostHostsSync={schema_version:number;enabled:boolean;auto_update:boolean;interval_minutes:number;path:string;mapped:boolean;mount_error?:string;last_sync_at?:string;last_digest?:string;last_entries:number;last_error?:string}
 
-export type ResolverUpstream = { address: string; bootstrap_ipv4?: string }
+export type ResolverUpstream = { address: string; bootstrap_ipv4?: string; proxy_route?: "inherit" | "direct" | "proxy" }

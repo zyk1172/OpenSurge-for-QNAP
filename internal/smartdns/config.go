@@ -147,7 +147,7 @@ func RenderConfigWithResolvers(cfg config.Config, paths runtime.Paths, resolvers
 				// a working encrypted resolver. Do not add system/router fallbacks.
 				out.WriteString(" -fallback")
 			}
-			if cfg.DNS.ResolverProxyEnabled {
+			if cfg.DNS.ResolverProxyEnabled && upstream.ProxyRoute != "direct" {
 				out.WriteString(" -proxy opensurge-dns")
 			}
 			out.WriteString("\n")
