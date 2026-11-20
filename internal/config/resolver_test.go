@@ -14,7 +14,12 @@ func TestResolverSettingsRoundTrip(t *testing.T) {
 	cfg.DNS.ResolverProxyEnabled = true
 	cfg.DNS.ResolverProxyTarget = "节点选择"
 	cfg.DNS.MihomoUseSmartDNS = true
-	cfg.DNS.ResolverUpstreams = []ResolverUpstream{{Address: "https://cloudflare-dns.com/dns-query", BootstrapIPv4: "1.1.1.1"}, {Address: "tls://dns.google:853", BootstrapIPv4: "8.8.8.8"}, {Address: "tcp://9.9.9.9:53"}}
+	cfg.DNS.ResolverUpstreams = []ResolverUpstream{
+		{Address: "https://cloudflare-dns.com/dns-query", BootstrapIPv4: "1.1.1.1"},
+		{Address: "tls://dns.google:853", BootstrapIPv4: "8.8.8.8", ProxyRoute: "direct"},
+		{Address: "tcp://9.9.9.9:53", ProxyRoute: "proxy"},
+		{Address: "https://doh.opendns.com/dns-query", BootstrapIPv4: "208.67.222.222", ProxyRoute: "inherit"},
+	}
 	cfg.DNS.ProxyNodeUpstreams = []ResolverUpstream{{Address: "https://dns.alidns.com/dns-query", BootstrapIPv4: "223.5.5.5"}}
 	path := filepath.Join(t.TempDir(), "opensurge.yaml")
 	if err := os.WriteFile(path, []byte(Render(cfg)), 0600); err != nil {
@@ -47,6 +52,7 @@ func TestIndependentProxyNodeResolverValidation(t *testing.T) {
 		{{Address: valid.Address}},
 		{{Address: valid.Address, BootstrapIPv4: cfg.DNS.Listen}},
 		{{Address: valid.Address + "?token=unsupported", BootstrapIPv4: valid.BootstrapIPv4}},
+		{{Address: valid.Address, BootstrapIPv4: valid.BootstrapIPv4, ProxyRoute: "proxy"}},
 		{valid, valid},
 		make([]ResolverUpstream, 17),
 	} {
@@ -63,12 +69,19 @@ func TestLegacyProxyNodeResolversDoNotAddProviders(t *testing.T) {
 	cfg.DNS.MihomoUseSmartDNS = true
 	cfg.DNS.ResolverAllowPlaintext = true
 	encrypted := ResolverUpstream{Address: "tls://dns.google", BootstrapIPv4: "8.8.8.8"}
-	cfg.DNS.ResolverUpstreams = []ResolverUpstream{encrypted, {Address: "tcp://9.9.9.9"}}
+	cfg.DNS.ResolverProxyEnabled = true
+	cfg.DNS.ResolverProxyTarget = "node"
+	ordinary := encrypted
+	ordinary.ProxyRoute = "proxy"
+	cfg.DNS.ResolverUpstreams = []ResolverUpstream{ordinary, {Address: "tcp://9.9.9.9"}}
 	if err := ValidateResolverConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(ProxyNodeResolverUpstreams(cfg), []ResolverUpstream{encrypted}) || len(cfg.DNS.ProxyNodeUpstreams) != 0 {
 		t.Fatal("legacy bootstrap changed providers or mutated saved configuration")
+	}
+	if cfg.DNS.ResolverUpstreams[0] != ordinary {
+		t.Fatal("legacy bootstrap changed the configured ordinary egress")
 	}
 	cfg.DNS.ProxyNodeUpstreams = []ResolverUpstream{{Address: "https://doh.pub/dns-query", BootstrapIPv4: "1.12.12.12"}}
 	if !reflect.DeepEqual(ProxyNodeResolverUpstreams(cfg), cfg.DNS.ProxyNodeUpstreams) {

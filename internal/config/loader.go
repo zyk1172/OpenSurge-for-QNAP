@@ -208,8 +208,12 @@ func applyValue(cfg *Config, section, key, value string) error {
 	case "dns.resolver_upstreams", "dns.proxy_node_upstreams":
 		upstreams := []ResolverUpstream{}
 		for _, entry := range splitCommaSeparated(value) {
-			address, bootstrap, _ := strings.Cut(entry, "|")
-			upstreams = append(upstreams, ResolverUpstream{Address: address, BootstrapIPv4: bootstrap})
+			address, options, _ := strings.Cut(entry, "|")
+			bootstrap, route, _ := strings.Cut(options, "|")
+			if strings.Contains(route, "|") {
+				return fmt.Errorf("dns.%s expects address[|bootstrap_ipv4[|proxy_route]]", key)
+			}
+			upstreams = append(upstreams, ResolverUpstream{Address: address, BootstrapIPv4: bootstrap, ProxyRoute: route})
 		}
 		if key == "resolver_upstreams" {
 			cfg.DNS.ResolverUpstreams = upstreams

@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"open-mihomo-gateway/internal/config"
+	"open-mihomo-gateway/internal/runtime"
+	"open-mihomo-gateway/internal/smartdns"
 )
 
 // A Web/API topology save rewrites the authoritative YAML through
@@ -95,7 +98,10 @@ func TestControlConfigPersistsResolverSettingsAndPreservesThemForLegacyClients(t
 	}
 	input := controlConfigFrom(cfg, fileDigest(path))
 	mode, allow := "custom", false
-	upstreams := []config.ResolverUpstream{{Address: "https://dns.quad9.net/dns-query", BootstrapIPv4: "9.9.9.9"}}
+	upstreams := []config.ResolverUpstream{
+		{Address: "https://dns.quad9.net/dns-query", BootstrapIPv4: "9.9.9.9", ProxyRoute: "direct"},
+		{Address: "https://cloudflare-dns.com/dns-query", BootstrapIPv4: "1.1.1.1"},
+	}
 	input.DNS.ResolverMode = &mode
 	input.DNS.ResolverUpstreams = &upstreams
 	nodeUpstreams := []config.ResolverUpstream{{Address: "https://doh.pub/dns-query", BootstrapIPv4: "1.12.12.12"}}
@@ -116,7 +122,7 @@ func TestControlConfigPersistsResolverSettingsAndPreservesThemForLegacyClients(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.DNS.ResolverMode != "custom" || len(loaded.DNS.ResolverUpstreams) != 1 || loaded.DNS.ResolverUpstreams[0] != upstreams[0] || !loaded.DNS.ResolverProxyEnabled || !loaded.DNS.MihomoUseSmartDNS || loaded.DNS.ResolverProxyTarget != target {
+	if loaded.DNS.ResolverMode != "custom" || !slices.Equal(loaded.DNS.ResolverUpstreams, upstreams) || !loaded.DNS.ResolverProxyEnabled || !loaded.DNS.MihomoUseSmartDNS || loaded.DNS.ResolverProxyTarget != target {
 		t.Fatalf("settings not persisted: %#v", loaded.DNS)
 	}
 	if len(loaded.DNS.ProxyNodeUpstreams) != 1 || loaded.DNS.ProxyNodeUpstreams[0] != nodeUpstreams[0] {
@@ -141,11 +147,31 @@ func TestControlConfigPersistsResolverSettingsAndPreservesThemForLegacyClients(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.DNS.ResolverMode != "custom" || len(loaded.DNS.ResolverUpstreams) != 1 || loaded.DNS.ResolverUpstreams[0] != upstreams[0] || !loaded.DNS.ResolverProxyEnabled || !loaded.DNS.MihomoUseSmartDNS || loaded.DNS.ResolverProxyTarget != target {
+	if loaded.DNS.ResolverMode != "custom" || !slices.Equal(loaded.DNS.ResolverUpstreams, upstreams) || !loaded.DNS.ResolverProxyEnabled || !loaded.DNS.MihomoUseSmartDNS || loaded.DNS.ResolverProxyTarget != target {
 		t.Fatalf("legacy save erased upstreams: %#v", loaded.DNS)
 	}
 	if len(loaded.DNS.ProxyNodeUpstreams) != 1 || loaded.DNS.ProxyNodeUpstreams[0] != nodeUpstreams[0] {
 		t.Fatal("legacy save erased node DNS")
+	}
+	rendered, err := smartdns.RenderConfigWithResolvers(loaded, runtime.NewPaths(loaded), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, upstream := range upstreams {
+		prefix := "server-https " + upstream.Address + " "
+		found := false
+		for _, line := range strings.Split(rendered, "\n") {
+			if strings.HasPrefix(line, prefix) {
+				found = true
+				if got, want := strings.Contains(line, " -proxy opensurge-dns"), upstream.ProxyRoute != "direct"; got != want {
+					t.Fatalf("SmartDNS proxy for %s = %t, want %t", upstream.Address, got, want)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("SmartDNS omitted saved upstream %s", upstream.Address)
+		}
 	}
 	before := fileDigest(path)
 	clear := controlConfigFrom(loaded, before)

@@ -128,6 +128,8 @@ func ProxyNodeResolverUpstreams(cfg Config) []ResolverUpstream {
 	for _, upstream := range cfg.DNS.ResolverUpstreams {
 		endpoint, err := ParseResolverUpstream(upstream, cfg)
 		if err == nil && endpoint.Encrypted {
+			// Egress overrides belong to ordinary DNS. Bootstrap is always direct.
+			upstream.ProxyRoute = ""
 			upstreams = append(upstreams, upstream)
 		}
 	}
@@ -189,6 +191,9 @@ func ValidateResolverConfig(cfg Config) error {
 	}
 	seen = map[string]bool{}
 	for _, upstream := range nodeUpstreams {
+		if upstream.ProxyRoute == "proxy" {
+			return fmt.Errorf("dns.proxy_node_upstreams must use direct connections for bootstrap")
+		}
 		endpoint, err := ParseResolverUpstream(upstream, cfg)
 		if err != nil {
 			return fmt.Errorf("dns.proxy_node_upstreams: %w", err)

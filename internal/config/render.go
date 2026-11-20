@@ -137,8 +137,11 @@ func renderResolverUpstreams(upstreams []ResolverUpstream) string {
 	values := make([]string, 0, len(upstreams))
 	for _, upstream := range upstreams {
 		value := upstream.Address
-		if upstream.BootstrapIPv4 != "" {
+		if upstream.BootstrapIPv4 != "" || upstream.ProxyRoute != "" {
 			value += "|" + upstream.BootstrapIPv4
+		}
+		if upstream.ProxyRoute != "" {
+			value += "|" + upstream.ProxyRoute
 		}
 		values = append(values, value)
 	}

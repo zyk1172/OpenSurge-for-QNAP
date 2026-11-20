@@ -150,7 +150,7 @@ Under **Network Settings → DNS Service → SmartDNS upstream settings**, selec
 
 Plaintext DNS is disabled by default. If explicitly allowed, enter an IPv4 or a `udp://IPv4:53` / `tcp://IPv4:53` URL without a bootstrap IPv4. When encrypted upstreams exist, plaintext is only a fallback after the encrypted upstreams fail. Custom mode never automatically adds system or router DNS. Choose providers you trust first, then let SmartDNS optimize connections among their answers. Encryption prevents in-transit tampering but does not certify provider answers; presets are examples, and Quad9 also filters known malicious domains.
 
-Saving verifies persisted settings and restarts a running gateway.
+Use the network egress selector to let an ordinary DNS upstream follow the global DNS proxy setting, always connect directly, or explicitly use the proxy when it is enabled. Saving verifies persisted settings and restarts a running gateway.
 
 Choose a provider in **Upstream DNS preset**, then click **Add preset**, or add a custom upstream. Already-added presets cannot be added again until removed. Editing and refresh controls are disabled during saving; switches support both Space and Enter.
 
